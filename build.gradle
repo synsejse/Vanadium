@@ -37,6 +37,9 @@ dependencies {
 
     modImplementation("net.openhft:affinity:3.23.3")
     include("net.openhft:affinity:3.23.3")
+
+    testImplementation "org.junit.jupiter:junit-jupiter:5.10.2"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
 }
 
 processResources {
@@ -59,6 +62,10 @@ java {
 
     sourceCompatibility = JavaVersion.VERSION_21
     targetCompatibility = JavaVersion.VERSION_21
+}
+
+test {
+    useJUnitPlatform()
 }
 
 loom {
