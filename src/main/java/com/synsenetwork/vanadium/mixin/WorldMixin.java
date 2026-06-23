@@ -1,6 +1,9 @@
 package com.synsenetwork.vanadium.mixin;
 
-import com.synsenetwork.vanadium.ParallelProcessor;
+import com.synsenetwork.vanadium.Vanadium;
+import com.synsenetwork.vanadium.tick.Stage;
+import net.minecraft.block.entity.BlockEntity;
+import net.minecraft.world.chunk.WorldChunk;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldAccess;
@@ -24,23 +27,31 @@ public abstract class WorldMixin implements WorldAccess, AutoCloseable {
     @Inject(method = "tickBlockEntities", at = @At(value = "INVOKE", target = "Ljava/util/List;iterator()Ljava/util/Iterator;"))
     private void postEntityPreBlockEntityTick(CallbackInfo ci) {
         if ((Object) this instanceof ServerWorld) {
-            ServerWorld thisWorld = (ServerWorld) (Object) this;
-            ParallelProcessor.postEntityTick(thisWorld);
-            ParallelProcessor.preBlockEntityTick(thisWorld);
+            Vanadium.scheduler.run(Stage.ENTITY);
+            Vanadium.scheduler.begin(Stage.BLOCK_ENTITY);
         }
     }
 
     @Inject(method = "tickBlockEntities", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/profiler/Profiler;pop()V"))
     private void postBlockEntityTick(CallbackInfo ci) {
         if ((Object) this instanceof ServerWorld) {
-            ServerWorld thisWorld = (ServerWorld) (Object) this;
-            ParallelProcessor.postBlockEntityTick(thisWorld);
+            Vanadium.scheduler.run(Stage.BLOCK_ENTITY);
         }
     }
 
     @Redirect(method = "tickBlockEntities", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/chunk/BlockEntityTickInvoker;tick()V"))
     private void overwriteBlockEntityTick(BlockEntityTickInvoker blockEntityTickInvoker) {
-        ParallelProcessor.callBlockEntityTick(blockEntityTickInvoker, (World) (Object) this);
+        if (!((Object) this instanceof ServerWorld)
+                || Vanadium.config.disabled || Vanadium.config.disableBlockEntity
+                || !(blockEntityTickInvoker instanceof WorldChunk.WrappedBlockEntityTickInvoker wrapped)
+                || !(wrapped.wrapped instanceof WorldChunk.DirectBlockEntityTickInvoker<?> direct)) {
+            blockEntityTickInvoker.tick();
+            return;
+        }
+        BlockEntity blockEntity = direct.blockEntity;
+        int chunkX = blockEntity.getPos().getX() >> 4;
+        int chunkZ = blockEntity.getPos().getZ() >> 4;
+        Vanadium.scheduler.enqueue(Stage.BLOCK_ENTITY, chunkX, chunkZ, blockEntityTickInvoker::tick);
     }
 
     @Redirect(method = "getBlockEntity", at = @At(value = "INVOKE", target = "Ljava/lang/Thread;currentThread()Ljava/lang/Thread;"))

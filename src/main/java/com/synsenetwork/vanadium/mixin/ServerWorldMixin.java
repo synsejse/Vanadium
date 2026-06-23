@@ -2,7 +2,9 @@ package com.synsenetwork.vanadium.mixin;
 
 import com.mojang.datafixers.DataFixer;
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet;
-import com.synsenetwork.vanadium.ParallelProcessor;
+import com.synsenetwork.vanadium.Vanadium;
+import com.synsenetwork.vanadium.tick.Stage;
+import net.minecraft.entity.projectile.ProjectileEntity;
 import com.synsenetwork.vanadium.parallelised.ConcurrentCollections;
 import com.synsenetwork.vanadium.parallelised.ParaServerChunkProvider;
 import net.minecraft.entity.Entity;
@@ -65,17 +67,25 @@ public abstract class ServerWorldMixin implements StructureWorldAccess {
 
     @Inject(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/profiler/Profiler;swap(Ljava/lang/String;)V", ordinal = 5))
     private void postChunkTick(BooleanSupplier shouldKeepTicking, CallbackInfo ci) {
-        ParallelProcessor.postChunkTick(thisWorld);
+        Vanadium.scheduler.run(Stage.CHUNK);
     }
 
     @Inject(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/profiler/Profiler;push(Ljava/lang/String;)V", ordinal = 2))
     private void preEntityTick(BooleanSupplier shouldKeepTicking, CallbackInfo ci) {
-        ParallelProcessor.preEntityTick(thisWorld);
+        Vanadium.scheduler.begin(Stage.ENTITY);
     }
 
+    @SuppressWarnings("unchecked")
     @Redirect(method = "method_31420", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/world/ServerWorld;tickEntity(Ljava/util/function/Consumer;Lnet/minecraft/entity/Entity;)V"))
     private void overwriteEntityTicking(ServerWorld instance, Consumer consumer, Entity entity) {
-        ParallelProcessor.callEntityTick(consumer, entity, thisWorld);
+        if (Vanadium.config.disabled || Vanadium.config.disableEntity
+                || (entity.portalManager != null && entity.portalManager.isInPortal())
+                || entity instanceof ProjectileEntity) {
+            consumer.accept(entity);
+            return;
+        }
+        Vanadium.scheduler.enqueue(Stage.ENTITY, entity.getChunkPos().x, entity.getChunkPos().z,
+                () -> consumer.accept(entity));
     }
 
     @Redirect(method = "addSyncedBlockEvent", at = @At(value = "INVOKE", target = "Lit/unimi/dsi/fastutil/objects/ObjectLinkedOpenHashSet;add(Ljava/lang/Object;)Z"))

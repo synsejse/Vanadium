@@ -1,6 +1,7 @@
 package com.synsenetwork.vanadium.mixin;
 
-import com.synsenetwork.vanadium.ParallelProcessor;
+import com.synsenetwork.vanadium.Vanadium;
+import com.synsenetwork.vanadium.tick.WorkerPool;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.ServerTask;
 import net.minecraft.server.command.CommandOutput;
@@ -35,22 +36,12 @@ public abstract class MinecraftServerMixin extends ReentrantThreadExecutor<Serve
 
     @Inject(method = "tickWorlds", at = @At(value = "INVOKE", target = "Ljava/lang/Iterable;iterator()Ljava/util/Iterator;"))
     private void preTick(BooleanSupplier shouldKeepTicking, CallbackInfo ci) {
-        ParallelProcessor.preTick(this.worlds.size(), (MinecraftServer) (Object) this);
-    }
-
-    @Inject(method = "tickWorlds", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/profiler/Profiler;swap(Ljava/lang/String;)V", ordinal = 1))
-    private void postTick(BooleanSupplier shouldKeepTicking, CallbackInfo ci) {
-        ParallelProcessor.postTick((MinecraftServer) (Object) this);
-    }
-
-    @Redirect(method = "tickWorlds", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/world/ServerWorld;tick(Ljava/util/function/BooleanSupplier;)V"))
-    private void overwriteTick(ServerWorld serverWorld, BooleanSupplier shouldKeepTicking) {
-        ParallelProcessor.callTick(serverWorld, shouldKeepTicking, (MinecraftServer) (Object) this);
+        Vanadium.scheduler.setCellSize(Vanadium.config.cellSize);
     }
 
     @Redirect(method = "reloadResources", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/MinecraftServer;isOnThread()Z"))
     private boolean onServerExecutionThreadPatch(MinecraftServer minecraftServer) {
-        return ParallelProcessor.serverExecutionThreadPatch(minecraftServer);
+        return WorkerPool.isWorkerThread();
     }
 
     @Redirect(method = "prepareStartRegion", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/world/ServerChunkManager;getTotalChunksLoadedCount()I"))

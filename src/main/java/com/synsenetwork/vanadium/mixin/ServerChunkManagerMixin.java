@@ -2,7 +2,8 @@ package com.synsenetwork.vanadium.mixin;
 
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
-import com.synsenetwork.vanadium.ParallelProcessor;
+import com.synsenetwork.vanadium.Vanadium;
+import com.synsenetwork.vanadium.tick.Stage;
 
 import net.minecraft.server.world.ServerChunkManager;
 import net.minecraft.server.world.ServerWorld;
@@ -34,12 +35,17 @@ public abstract class ServerChunkManagerMixin extends ChunkManager {
 
     @Inject(method = "tickChunks", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/Util;shuffle(Ljava/util/List;Lnet/minecraft/util/math/random/Random;)V"))
     private void preChunkTick(CallbackInfo ci) {
-        ParallelProcessor.preChunkTick(this.world);
+        Vanadium.scheduler.begin(Stage.CHUNK);
     }
 
     @Redirect(method = "tickChunks", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/world/ServerWorld;tickChunk(Lnet/minecraft/world/chunk/WorldChunk;I)V"))
     private void overwriteTickChunk(ServerWorld serverWorld, WorldChunk chunk, int randomTickSpeed) {
-        ParallelProcessor.callTickChunks(serverWorld, chunk, randomTickSpeed);
+        if (Vanadium.config.disabled || Vanadium.config.disableEnvironment) {
+            serverWorld.tickChunk(chunk, randomTickSpeed);
+            return;
+        }
+        Vanadium.scheduler.enqueue(Stage.CHUNK, chunk.getPos().x, chunk.getPos().z,
+                () -> serverWorld.tickChunk(chunk, randomTickSpeed));
     }
 
 
@@ -50,8 +56,7 @@ public abstract class ServerChunkManagerMixin extends ChunkManager {
 
     @Redirect(method = "getChunk(IILnet/minecraft/world/chunk/ChunkStatus;Z)Lnet/minecraft/world/chunk/Chunk;", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/profiler/Profiler;visit(Ljava/lang/String;)V"))
     private void overwriteProfilerVisit(Profiler instance, String s) {
-        if (ParallelProcessor.shouldThreadChunks())
-            return;
+        if (!Vanadium.config.disableMultiChunk) return;
         else instance.visit("getChunkCacheMiss");
     }
 
