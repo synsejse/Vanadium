@@ -49,9 +49,6 @@ public final class TickScheduler {
     /** Runs the stage's queued work as four colored passes, then clears it. */
     public void run(Stage stage) {
         CellGrid grid = grids.get(stage);
-        if (grid.isEmpty()) {
-            return;
-        }
         for (int color = 0; color < COLORS; color++) {
             List<Cell> cells = grid.cellsWithColor(color);
             pool.runWave(cells.stream().map(cell -> (Runnable) cell::run).toList());
