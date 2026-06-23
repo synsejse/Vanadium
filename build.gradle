@@ -32,12 +32,6 @@ dependencies {
         exclude(group: "net.fabricmc.fabric-api")
     }
 
-    modImplementation("com.github.ben-manes.caffeine:caffeine:3.2.0")
-    include("com.github.ben-manes.caffeine:caffeine:3.2.0")
-
-    modImplementation("net.openhft:affinity:3.23.3")
-    include("net.openhft:affinity:3.23.3")
-
     testImplementation "org.junit.jupiter:junit-jupiter:5.10.2"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
 }
