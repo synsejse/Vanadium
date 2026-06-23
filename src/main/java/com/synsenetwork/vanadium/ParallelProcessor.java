@@ -2,7 +2,7 @@ package com.synsenetwork.vanadium;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.synsenetwork.vanadium.config.GeneralConfig;
+import com.synsenetwork.vanadium.config.VanadiumConfig;
 import com.synsenetwork.vanadium.parallelised.threads.GlobalAffinityThreadPool;
 import com.synsenetwork.vanadium.parallelised.threads.ThreadedChunksRegion;
 import net.minecraft.block.entity.*;
@@ -129,7 +129,7 @@ public class ParallelProcessor {
     }
 
     static long tickStart = 0;
-    static GeneralConfig config;
+    static VanadiumConfig config;
 
     public static void preTick(int size, MinecraftServer server) {
         config = Vanadium.config;

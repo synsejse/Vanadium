@@ -6,7 +6,7 @@ import me.shedaniel.cloth.clothconfig.shadowed.blue.endless.jankson.Comment;
 import com.synsenetwork.vanadium.Vanadium;
 
 @Config(name = "vanadium")
-public class GeneralConfig implements ConfigData {
+public class VanadiumConfig implements ConfigData {
     // Actual config stuff
     //////////////////////
 
@@ -44,6 +44,10 @@ public class GeneralConfig implements ConfigData {
     // TE
     @Comment("Disable block entity parallelisation")
     public boolean disableBlockEntity = false;
+
+    @Comment("Width and height, in chunks, of each automatic parallel cell (default 8). "
+            + "Smaller cells = finer parallelism but more overhead. Takes effect next tick.")
+    public int cellSize = 8;
 
     // Misc
     @Comment("Disable environment (plant ticks, etc.) parallelisation")
@@ -91,7 +95,7 @@ public class GeneralConfig implements ConfigData {
     }
 
     public static int getParallelism() {
-        GeneralConfig config = Vanadium.config;
+        VanadiumConfig config = Vanadium.config;
         switch (config.paraMaxMode) {
             case Standard:
                 return config.paraMax <= 1 ?

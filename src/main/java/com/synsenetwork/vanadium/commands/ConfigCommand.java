@@ -5,7 +5,7 @@ import com.mojang.brigadier.builder.ArgumentBuilder;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import me.shedaniel.autoconfig.AutoConfig;
 import com.synsenetwork.vanadium.Vanadium;
-import com.synsenetwork.vanadium.config.GeneralConfig;
+import com.synsenetwork.vanadium.config.VanadiumConfig;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
@@ -21,7 +21,7 @@ public class ConfigCommand {
     }
 
     public static ArgumentBuilder<ServerCommandSource, ?> registerConfig(LiteralArgumentBuilder<ServerCommandSource> root) {
-        GeneralConfig config = Vanadium.config;
+        VanadiumConfig config = Vanadium.config;
         return root.then(literal("toggle").requires(cmdSrc -> {
                             return cmdSrc.hasPermissionLevel(2);
                         }).executes(cmdCtx -> {
@@ -75,7 +75,7 @@ public class ConfigCommand {
                 }).executes(cmdCtx -> {
                     MutableText message = Text.literal("Saving Vanadium config to disk...");
                     cmdCtx.getSource().sendFeedback(() -> message, true);
-                    AutoConfig.getConfigHolder(GeneralConfig.class).save();
+                    AutoConfig.getConfigHolder(VanadiumConfig.class).save();
                     cmdCtx.getSource().sendFeedback(() -> Text.literal("Done!"), true);
                     return 1;
                 }));
