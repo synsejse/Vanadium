@@ -1,4 +1,4 @@
-package com.synsenetwork.vanadium.parallelised;
+package com.synsenetwork.vanadium.concurrent;
 
 import java.util.Map;
 import java.util.Set;

@@ -2,8 +2,8 @@ package com.synsenetwork.vanadium.mixin;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
-import com.synsenetwork.vanadium.parallelised.fastutil.ConcurrentLongLinkedOpenHashSet;
-import com.synsenetwork.vanadium.parallelised.fastutil.Long2ObjectConcurrentHashMap;
+import com.synsenetwork.vanadium.concurrent.fastutil.ConcurrentLongLinkedOpenHashSet;
+import com.synsenetwork.vanadium.concurrent.fastutil.Long2ObjectConcurrentHashMap;
 import net.minecraft.world.storage.SerializingRegionBasedStorage;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;

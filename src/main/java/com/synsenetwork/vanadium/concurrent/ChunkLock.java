@@ -1,4 +1,4 @@
-package com.synsenetwork.vanadium.parallelised;
+package com.synsenetwork.vanadium.concurrent;
 
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;

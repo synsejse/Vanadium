@@ -1,6 +1,6 @@
 package com.synsenetwork.vanadium.mixin;
 
-import com.synsenetwork.vanadium.parallelised.ConcurrentCollections;
+import com.synsenetwork.vanadium.concurrent.ConcurrentCollections;
 import net.minecraft.util.collection.TypeFilterableList;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;

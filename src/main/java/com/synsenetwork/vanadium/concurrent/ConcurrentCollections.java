@@ -1,4 +1,4 @@
-package com.synsenetwork.vanadium.parallelised;
+package com.synsenetwork.vanadium.concurrent;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;

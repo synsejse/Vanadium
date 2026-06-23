@@ -1,4 +1,4 @@
-package com.synsenetwork.vanadium.parallelised.fastutil;
+package com.synsenetwork.vanadium.concurrent.fastutil;
 
 import it.unimi.dsi.fastutil.longs.*;
 import org.jetbrains.annotations.NotNull;

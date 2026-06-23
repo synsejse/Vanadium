@@ -1,4 +1,4 @@
-package com.synsenetwork.vanadium.parallelised.fastutil;
+package com.synsenetwork.vanadium.concurrent.fastutil;
 
 import it.unimi.dsi.fastutil.shorts.ShortCollection;
 import it.unimi.dsi.fastutil.shorts.ShortIterator;

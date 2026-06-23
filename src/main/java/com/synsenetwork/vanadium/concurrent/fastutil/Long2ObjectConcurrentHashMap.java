@@ -1,4 +1,4 @@
-package com.synsenetwork.vanadium.parallelised.fastutil;
+package com.synsenetwork.vanadium.concurrent.fastutil;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.LongSet;

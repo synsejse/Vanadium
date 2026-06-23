@@ -1,4 +1,4 @@
-package com.synsenetwork.vanadium.parallelised;
+package com.synsenetwork.vanadium.concurrent;
 
 /*
  * From: http://www.java2s.com/Code/Java/Collections-Data-Structure/ConcurrentDoublyLinkedList.htm

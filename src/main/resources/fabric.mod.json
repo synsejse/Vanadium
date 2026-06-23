@@ -16,7 +16,7 @@
   "environment": "*",
   "entrypoints": {
     "preLaunch": [
-      "com.synsenetwork.vanadium.syncfu.SyncFuTransformer"
+      "com.synsenetwork.vanadium.launch.FastUtilPreloader"
     ],
     "main": [
       "com.synsenetwork.vanadium.Vanadium"

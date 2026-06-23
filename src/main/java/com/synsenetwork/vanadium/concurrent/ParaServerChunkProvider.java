@@ -1,4 +1,4 @@
-package com.synsenetwork.vanadium.parallelised;
+package com.synsenetwork.vanadium.concurrent;
 
 import com.mojang.datafixers.DataFixer;
 import com.synsenetwork.vanadium.Vanadium;

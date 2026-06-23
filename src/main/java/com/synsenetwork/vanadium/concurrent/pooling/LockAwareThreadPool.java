@@ -1,4 +1,4 @@
-package com.synsenetwork.vanadium.parallelised.pooling;
+package com.synsenetwork.vanadium.concurrent.pooling;
 
 import java.util.ArrayList;
 import java.util.List;

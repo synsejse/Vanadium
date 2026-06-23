@@ -1,7 +1,7 @@
 package com.synsenetwork.vanadium.mixin;
 
 import it.unimi.dsi.fastutil.shorts.ShortSet;
-import com.synsenetwork.vanadium.parallelised.fastutil.ConcurrentShortHashSet;
+import com.synsenetwork.vanadium.concurrent.fastutil.ConcurrentShortHashSet;
 import net.minecraft.server.world.ChunkHolder;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.world.HeightLimitView;

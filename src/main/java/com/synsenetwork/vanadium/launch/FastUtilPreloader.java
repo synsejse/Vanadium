@@ -1,16 +1,16 @@
-package com.synsenetwork.vanadium.syncfu;
+package com.synsenetwork.vanadium.launch;
 
 import net.fabricmc.loader.api.entrypoint.PreLaunchEntrypoint;
 import net.fabricmc.loader.impl.launch.FabricLauncherBase;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-public class SyncFuTransformer implements PreLaunchEntrypoint {
-    private static final Logger syncFuTransformerLogger = LogManager.getLogger();
+public class FastUtilPreloader implements PreLaunchEntrypoint {
+    private static final Logger fastUtilPreloaderLogger = LogManager.getLogger();
 
     @Override
     public void onPreLaunch() {
-        syncFuTransformerLogger.info("On SyncFuTransformer PreLaunch...");
+        fastUtilPreloaderLogger.info("On FastUtilPreloader PreLaunch...");
         try {
             FabricLauncherBase.getLauncher().loadIntoTarget("it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap");
             FabricLauncherBase.getLauncher().loadIntoTarget("it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet");

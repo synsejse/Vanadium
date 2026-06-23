@@ -1,6 +1,6 @@
 package com.synsenetwork.vanadium.mixin;
 
-import com.synsenetwork.vanadium.parallelised.ConcurrentCollections;
+import com.synsenetwork.vanadium.concurrent.ConcurrentCollections;
 import net.minecraft.entity.ai.goal.GoalSelector;
 import net.minecraft.entity.ai.goal.PrioritizedGoal;
 import org.spongepowered.asm.mixin.Mixin;

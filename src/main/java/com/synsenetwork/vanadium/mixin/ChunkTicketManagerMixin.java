@@ -1,8 +1,8 @@
 package com.synsenetwork.vanadium.mixin;
 
 import it.unimi.dsi.fastutil.longs.LongSet;
-import com.synsenetwork.vanadium.parallelised.ConcurrentCollections;
-import com.synsenetwork.vanadium.parallelised.fastutil.ConcurrentLongLinkedOpenHashSet;
+import com.synsenetwork.vanadium.concurrent.ConcurrentCollections;
+import com.synsenetwork.vanadium.concurrent.fastutil.ConcurrentLongLinkedOpenHashSet;
 import net.minecraft.server.world.ChunkHolder;
 import net.minecraft.server.world.ChunkTicketManager;
 import org.spongepowered.asm.mixin.Final;
