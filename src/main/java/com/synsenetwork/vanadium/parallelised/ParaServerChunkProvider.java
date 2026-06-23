@@ -2,7 +2,6 @@ package com.synsenetwork.vanadium.parallelised;
 
 import com.mojang.datafixers.DataFixer;
 import com.synsenetwork.vanadium.Vanadium;
-import com.synsenetwork.vanadium.ParallelProcessor;
 import net.minecraft.server.WorldGenerationProgressListener;
 import net.minecraft.server.world.ServerChunkManager;
 import net.minecraft.server.world.ServerWorld;
@@ -89,14 +88,14 @@ public class ParaServerChunkProvider extends ServerChunkManager {
     public Chunk getChunk(int chunkX, int chunkZ, ChunkStatus requiredStatus, boolean load) {
 
         if (Vanadium.config.disabled || Vanadium.config.disableChunkProvider) {
-            if (ParallelProcessor.isThreadPooled("Main", Thread.currentThread())) {
+            if (McThreadTracker.isPooled("Main", Thread.currentThread())) {
                 return CompletableFuture.supplyAsync(() -> {
                     return this.getChunk(chunkX, chunkZ, requiredStatus, load);
                 }, this.mainThreadExecutor).join();
             }
             return super.getChunk(chunkX, chunkZ, requiredStatus, load);
         }
-        if (ParallelProcessor.isThreadPooled("Main", Thread.currentThread())) {
+        if (McThreadTracker.isPooled("Main", Thread.currentThread())) {
             return CompletableFuture.supplyAsync(() -> {
                 return this.getChunk(chunkX, chunkZ, requiredStatus, load);
             }, this.mainThreadExecutor).join();
@@ -112,7 +111,7 @@ public class ParaServerChunkProvider extends ServerChunkManager {
         //log.debug("Missed chunk " + i + " on status "  + requiredStatus.toString());
 
         Chunk cl;
-        if (ParallelProcessor.shouldThreadChunks()) {
+        if (!Vanadium.config.disableMultiChunk) {
             // Multithreaded but still limit to 1 load op per chunk
             long[] locks = loadingChunkLock.lock(i, 0);
             try {

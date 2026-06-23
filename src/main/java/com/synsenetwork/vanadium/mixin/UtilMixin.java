@@ -1,7 +1,7 @@
 package com.synsenetwork.vanadium.mixin;
 
 import com.llamalad7.mixinextras.sugar.Local;
-import com.synsenetwork.vanadium.ParallelProcessor;
+import com.synsenetwork.vanadium.parallelised.McThreadTracker;
 import net.minecraft.util.Util;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -16,6 +16,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 public abstract class UtilMixin {
     @Inject(method = "method_28123", at = @At(value = "INVOKE", target = "Ljava/util/concurrent/ForkJoinWorkerThread;setName(Ljava/lang/String;)V"))
     private static void registerThread(String string, AtomicInteger atomicInteger, ForkJoinPool pool, CallbackInfoReturnable<ForkJoinWorkerThread> cir, @Local ForkJoinWorkerThread forkJoinWorkerThread) {
-        ParallelProcessor.regThread(string, forkJoinWorkerThread);
+        McThreadTracker.register(string, forkJoinWorkerThread);
     }
 }

@@ -16,8 +16,7 @@ public class ConfigCommand {
     public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
         LiteralArgumentBuilder<ServerCommandSource> vanadiumconfig = literal("vanadium");
         vanadiumconfig = vanadiumconfig.then(registerConfig(literal("config")));
-        vanadiumconfig = vanadiumconfig.then(RegionCommand.registerRegion(literal("region")));
-        dispatcher.register(vanadiumconfig);
+dispatcher.register(vanadiumconfig);
     }
 
     public static ArgumentBuilder<ServerCommandSource, ?> registerConfig(LiteralArgumentBuilder<ServerCommandSource> root) {
