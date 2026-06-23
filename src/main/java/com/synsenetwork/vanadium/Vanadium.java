@@ -7,13 +7,15 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import com.synsenetwork.vanadium.commands.ConfigCommand;
 import com.synsenetwork.vanadium.config.VanadiumConfig;
-import com.synsenetwork.vanadium.config.ThreadedRegionsConfig;
+import com.synsenetwork.vanadium.tick.TickScheduler;
+import com.synsenetwork.vanadium.tick.WorkerPool;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 public class Vanadium implements ModInitializer {
     public static final Logger LOGGER = LogManager.getLogger();
     public static VanadiumConfig config;
+    public static TickScheduler scheduler;
 
     @Override
     public void onInitialize() {
@@ -23,15 +25,11 @@ public class Vanadium implements ModInitializer {
         holder.load();
         config = holder.getConfig();
 
-        ConfigHolder<ThreadedRegionsConfig> trHolder = AutoConfig.register(ThreadedRegionsConfig.class, Toml4jConfigSerializer::new);
-        trHolder.load();
+        WorkerPool pool = new WorkerPool(VanadiumConfig.getParallelism());
+        scheduler = new TickScheduler(pool, config.cellSize);
 
-        trHolder.getConfig().threadedChunksRegions.forEach(ParallelProcessor::addThreadedChunksRegion);
-
-        LOGGER.info("Vanadium Setting up threadpool...");
-        ParallelProcessor.setupThreadPool(VanadiumConfig.getParallelism());
-
-        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> ConfigCommand.register(dispatcher));
+        CommandRegistrationCallback.EVENT.register(
+                (dispatcher, registryAccess, environment) -> ConfigCommand.register(dispatcher));
 
         LOGGER.info("Vanadium Initialized");
     }
