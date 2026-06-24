@@ -26,19 +26,6 @@ public class SynchronisePlugin implements IMixinConfigPlugin {
     @Override
     public void onLoad(String mixinPackage) {
         MappingResolver mappingResolver = FabricLoader.getInstance().getMappingResolver();
-//        mixin2MethodsMap.put("com.synsenetwork.vanadium.mixin.ServerChunkManagerMixin", mappingResolver.mapMethodName("intermediary", "net.minecraft.class_3215", "method_14161", "()V"));
-//        mixin2MethodsMap.put("com.synsenetwork.vanadium.mixin.ServerTickSchedulerMixin", mappingResolver.mapMethodName("intermediary", "net.minecraft.class_1949", "method_8670", "()V"));
-//        mixin2MethodsMap.put("com.synsenetwork.vanadium.mixin.ServerTickSchedulerMixin", mappingResolver.mapMethodName("intermediary", "net.minecraft.class_1949", "method_20514", "(Lnet/minecraft/class_1954;)V"));
-//        mixin2MethodsMap.put("com.synsenetwork.vanadium.mixin.ServerTickSchedulerMixin", mappingResolver.mapMethodName("intermediary", "net.minecraft.class_1949", "method_8672", "(Lnet/minecraft/class_3341;ZZ)Ljava/util/List;"));
-//        mixin2MethodsMap.put("com.synsenetwork.vanadium.mixin.ServerWorldMixin", mappingResolver.mapMethodName("intermediary", "net.minecraft.class_1937", "method_19282", "(Lnet/minecraft/class_2338;Lnet/minecraft/class_2680;Lnet/minecraft/class_2680;)V"));
-//        mixin2MethodsMap.put("com.synsenetwork.vanadium.mixin.LevelPropagatorMixin", mappingResolver.mapMethodName("intermediary", "net.minecraft.class_3554", "method_15492", "(I)I"));
-//        mixin2MethodsMap.put("com.synsenetwork.vanadium.mixin.LevelPropagatorMixin", mappingResolver.mapMethodName("intermediary", "net.minecraft.class_3554", "method_15478", "(JJIZ)V"));
-//        mixin2MethodsMap.put("com.synsenetwork.vanadium.mixin.ChainRestrictedNeighborUpdaterMixin", mappingResolver.mapMethodName("intermediary", "net.minecraft.class_7159", "method_41706", "(Lnet/minecraft/class_2338;Lnet/minecraft/class_7159$class_7162;)V"));
-//        mixin2MethodsMap.put("com.synsenetwork.vanadium.mixin.ServerChunkManagerMixin", mappingResolver.mapMethodName("intermediary", "net.minecraft.class_3215", "method_21738", "(JLnet/minecraft/class_2791;Lnet/minecraft/class_2806;)V"));
-//        mixin2MethodsMap.put("com.synsenetwork.vanadium.mixin.PathNodeNavigatorMixin", mappingResolver.mapMethodName("intermediary", "net.minecraft.class_13", "method_52", "(Lnet/minecraft/class_1950;Lnet/minecraft/class_1308;Ljava/util/Set;FIF)Lnet/minecraft/class_11;"));
-//        mixin2MethodsMap.put("com.synsenetwork.vanadium.mixin.ChunkStatusMixin", mappingResolver.mapMethodName("intermediary", "net.minecraft.class_2806", "method_20612", "(Lnet/minecraft/class_3218;Lnet/minecraft/class_3485;Lnet/minecraft/class_3227;Ljava/util/function/Function;Lnet/minecraft/class_2791;)Ljava/util/concurrent/CompletableFuture;"));
-//        mixin2MethodsMap.put("com.synsenetwork.vanadium.mixin.NearestLivingEntitiesSensorMixin", mappingResolver.mapMethodName("intermediary", "net.minecraft.class_4148","method_19101", "(Lnet/minecraft/class_3218;Lnet/minecraft/class_1309;)V"));
-//        mixin2MethodsMap.put("com.synsenetwork.vanadium.mixin.TntEntityMixin", mappingResolver.mapMethodName("intermediary", "net.minecraft.class_1541","method_6971", "(Lnet/minecraft/class_3218;Lnet/minecraft/class_1309;)V"));
 
         mixin2MethodsExcludeMap.put("com.synsenetwork.vanadium.mixin.SyncAllMixin", mappingResolver.mapMethodName("intermediary", "net.minecraft.class_2806", "method_12165", "()V"));
 

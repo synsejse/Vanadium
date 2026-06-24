@@ -59,23 +59,4 @@ public abstract class WorldMixin implements WorldAccess, AutoCloseable {
         return this.thread;
     }
 
-//    @Redirect(method = "getChunk(II)Lnet/minecraft/world/chunk/WorldChunk;", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;getChunk(IILnet/minecraft/world/chunk/ChunkStatus;)Lnet/minecraft/world/chunk/Chunk;"))
-//    private Chunk getChunk(World world, int x, int z, net.minecraft.world.chunk.ChunkStatus leastStatus, int i, int j) {
-//        Chunk chunk;
-//        long startTime, counter = -1;
-//        startTime = System.currentTimeMillis();
-//
-//        do {
-//            chunk = world.getChunk(x, z, leastStatus);
-//            counter++;
-//            if (counter>0)
-//                System.out.println("getChunk() retry: " + counter);
-//        } while (chunk instanceof ReadOnlyChunk);
-//
-//        if (counter > 0) {
-//            Vanadium.LOGGER.warn("Chunk at " + x + ", " + z + " was ReadOnlyChunk for " + counter + " times before completely loaded. Took " + (System.currentTimeMillis() - startTime) + "ms");
-//        }
-//        return chunk;
-//    }
-
 }
