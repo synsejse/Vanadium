@@ -7,6 +7,7 @@ import me.shedaniel.autoconfig.AutoConfig;
 import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.config.VanadiumConfig;
 import net.minecraft.server.command.ServerCommandSource;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 
@@ -62,6 +63,21 @@ dispatcher.register(vanadiumconfig);
                     cmdCtx.getSource().sendFeedback(() -> message, true);
                     return 1;
                 }))
+                .then(literal("debug")
+                        .then(literal("on").executes(cmdCtx -> {
+                            ServerPlayerEntity player = cmdCtx.getSource().getPlayerOrThrow();
+                            Vanadium.debug.subscribe(player.getUuid());
+                            cmdCtx.getSource().sendFeedback(
+                                    () -> Text.literal("Vanadium debug rendering enabled"), false);
+                            return 1;
+                        }))
+                        .then(literal("off").executes(cmdCtx -> {
+                            ServerPlayerEntity player = cmdCtx.getSource().getPlayerOrThrow();
+                            Vanadium.debug.unsubscribe(player.getUuid());
+                            cmdCtx.getSource().sendFeedback(
+                                    () -> Text.literal("Vanadium debug rendering disabled"), false);
+                            return 1;
+                        })))
                 .then(literal("save").requires(cmdSrc -> {
                     return cmdSrc.hasPermissionLevel(2);
                 }).executes(cmdCtx -> {

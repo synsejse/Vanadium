@@ -44,8 +44,18 @@ public abstract class ServerChunkManagerMixin extends ChunkManager {
             serverWorld.tickChunk(chunk, randomTickSpeed);
             return;
         }
-        Vanadium.scheduler.enqueue(Stage.CHUNK, chunk.getPos().x, chunk.getPos().z,
-                () -> serverWorld.tickChunk(chunk, randomTickSpeed));
+        if (Vanadium.debug.isSampling()) {
+            int chunkX = chunk.getPos().x;
+            int chunkZ = chunk.getPos().z;
+            Vanadium.scheduler.enqueue(Stage.CHUNK, chunkX, chunkZ, () -> {
+                long start = System.nanoTime();
+                serverWorld.tickChunk(chunk, randomTickSpeed);
+                Vanadium.debug.recordChunk(serverWorld, chunkX, chunkZ, System.nanoTime() - start);
+            });
+        } else {
+            Vanadium.scheduler.enqueue(Stage.CHUNK, chunk.getPos().x, chunk.getPos().z,
+                    () -> serverWorld.tickChunk(chunk, randomTickSpeed));
+        }
     }
 
 

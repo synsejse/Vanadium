@@ -37,6 +37,7 @@ public abstract class MinecraftServerMixin extends ReentrantThreadExecutor<Serve
     @Inject(method = "tickWorlds", at = @At(value = "INVOKE", target = "Ljava/lang/Iterable;iterator()Ljava/util/Iterator;"))
     private void preTick(BooleanSupplier shouldKeepTicking, CallbackInfo ci) {
         Vanadium.scheduler.setCellSize(Vanadium.config.cellSize);
+        Vanadium.debug.setCellSize(Vanadium.config.cellSize);
     }
 
     @Redirect(method = "reloadResources", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/MinecraftServer;isOnThread()Z"))
