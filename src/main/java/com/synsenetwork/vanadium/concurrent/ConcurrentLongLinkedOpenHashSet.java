@@ -15,6 +15,10 @@ import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongListIterator;
 import it.unimi.dsi.fastutil.longs.LongSortedSet;
 
+/**
+ * Thread-safe {@link LongLinkedOpenHashSet} backed by a {@code ConcurrentSkipListSet}, used to
+ * replace vanilla's internal long linked-open-hash sets under parallel ticking via mixins.
+ */
 public class ConcurrentLongLinkedOpenHashSet extends LongLinkedOpenHashSet {
 
     @Serial
@@ -23,13 +27,11 @@ public class ConcurrentLongLinkedOpenHashSet extends LongLinkedOpenHashSet {
     private final ConcurrentSkipListSet<Long> backing;
 
     public ConcurrentLongLinkedOpenHashSet() {
-        //backing = new ConcurrentLinkedDeque<Long>();
-        backing = new ConcurrentSkipListSet<Long>();
+        backing = new ConcurrentSkipListSet<>();
     }
 
     public ConcurrentLongLinkedOpenHashSet(final int initial) {
-        //backing = new ConcurrentLinkedDeque<Long>();
-        backing = new ConcurrentSkipListSet<Long>();
+        backing = new ConcurrentSkipListSet<>();
     }
 
     public ConcurrentLongLinkedOpenHashSet(final int initial, final float dnc) {
@@ -53,7 +55,7 @@ public class ConcurrentLongLinkedOpenHashSet extends LongLinkedOpenHashSet {
     }
 
     public ConcurrentLongLinkedOpenHashSet(final LongIterator i) {
-        this(i, -1);
+        this(i, DEFAULT_LOAD_FACTOR);
     }
 
     public ConcurrentLongLinkedOpenHashSet(final Iterator<?> i, final float f) {
@@ -80,20 +82,12 @@ public class ConcurrentLongLinkedOpenHashSet extends LongLinkedOpenHashSet {
     }
 
     public ConcurrentLongLinkedOpenHashSet(final long[] a) {
-        this(a, -1);
+        this(a, DEFAULT_LOAD_FACTOR);
     }
 
     @Override
     public boolean add(final long k) {
-        boolean out = backing.add(k);
-		/*
-		if (!firstDef) {
-			first = k;
-			firstDef = true;
-		}
-		last = k;
-		*/
-        return out;
+        return backing.add(k);
     }
 
     @Override
@@ -108,16 +102,12 @@ public class ConcurrentLongLinkedOpenHashSet extends LongLinkedOpenHashSet {
 
     @Override
     public boolean addAndMoveToFirst(final long k) {
-        boolean out = backing.add(k);
-        //first = k;
-        return out;
+        return backing.add(k);
     }
 
     @Override
     public boolean addAndMoveToLast(final long k) {
-        boolean out = backing.add(k);
-        //last = k;
-        return out;
+        return backing.add(k);
     }
 
     @Override
@@ -127,9 +117,14 @@ public class ConcurrentLongLinkedOpenHashSet extends LongLinkedOpenHashSet {
 
     @Override
     public LongLinkedOpenHashSet clone() {
+        // Snapshot copy via the weakly-consistent backing iterator (intentionally not super.clone()).
         return new ConcurrentLongLinkedOpenHashSet(backing.iterator());
     }
 
+    /**
+     * Returns {@code null} per the {@link java.util.SortedSet} contract, indicating natural
+     * (ascending) ordering — which is what {@link ConcurrentSkipListSet} uses.
+     */
     @Override
     public LongComparator comparator() {
         return null;
@@ -142,10 +137,6 @@ public class ConcurrentLongLinkedOpenHashSet extends LongLinkedOpenHashSet {
 
     @Override
     public long firstLong() {
-		/*
-		if (backing.size() == 0) throw new NoSuchElementException();
-		return first;
-		*/
         return backing.first();
     }
 
@@ -156,7 +147,7 @@ public class ConcurrentLongLinkedOpenHashSet extends LongLinkedOpenHashSet {
 
     @Override
     public LongSortedSet headSet(long to) {
-        throw new UnsupportedOperationException();
+        throw new UnsupportedOperationException("headSet is not supported on ConcurrentLongLinkedOpenHashSet");
     }
 
     @Override
@@ -166,51 +157,40 @@ public class ConcurrentLongLinkedOpenHashSet extends LongLinkedOpenHashSet {
 
     @Override
     public LongListIterator iterator() {
-        return FastUtilHackUtil.wrap(backing.iterator());
+        return FastUtilViews.wrap(backing.iterator());
     }
 
+    /**
+     * Positional iteration from a given element is not supported because the underlying
+     * skip-list iterator provides no stable position-based API under concurrent mutation.
+     */
     @Override
     public LongListIterator iterator(long from) {
-        throw new IllegalStateException();
-        //return FastUtilHackUtil.wrap(backing.iterator());
+        throw new UnsupportedOperationException("Positional iterator is not supported on ConcurrentLongLinkedOpenHashSet");
     }
 
     @Override
     public long lastLong() {
-		/*
-		if (backing.size() == 0) throw new NoSuchElementException();
-		return last;
-		*/
         return backing.last();
     }
 
     @Override
     public boolean remove(final long k) {
-		/*
-		if (k == first) {
-			first = backing.iterator().next();
-		}
-		if (k == last) {
-			last = backing.iterator().next();
-		}
-		*/
         return backing.remove(k);
     }
 
     @Override
     public long removeFirstLong() {
-        long fl = this.firstLong();
-        this.remove(fl);
-        //first = backing.iterator().next();
+        long fl = firstLong();
+        backing.remove(fl);
         return fl;
     }
 
     @Override
     public long removeLastLong() {
-        long fl = this.lastLong();
-        this.remove(fl);
-        //last = backing.iterator().next();
-        return fl;
+        long ll = lastLong();
+        backing.remove(ll);
+        return ll;
     }
 
     @Override
@@ -220,12 +200,12 @@ public class ConcurrentLongLinkedOpenHashSet extends LongLinkedOpenHashSet {
 
     @Override
     public LongSortedSet subSet(long from, long to) {
-        throw new UnsupportedOperationException();
+        throw new UnsupportedOperationException("subSet is not supported on ConcurrentLongLinkedOpenHashSet");
     }
 
     @Override
     public LongSortedSet tailSet(long from) {
-        throw new UnsupportedOperationException();
+        throw new UnsupportedOperationException("tailSet is not supported on ConcurrentLongLinkedOpenHashSet");
     }
 
     @Override
@@ -236,5 +216,20 @@ public class ConcurrentLongLinkedOpenHashSet extends LongLinkedOpenHashSet {
     @Override
     public boolean trim(final int n) {
         return true;
+    }
+
+    @Override
+    public long[] toLongArray() {
+        return backing.stream().mapToLong(Long::longValue).toArray();
+    }
+
+    @Override
+    public long[] toArray(long[] a) {
+        long[] src = toLongArray();
+        if (a.length >= src.length) {
+            System.arraycopy(src, 0, a, 0, src.length);
+            return a;
+        }
+        return src;
     }
 }

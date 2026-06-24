@@ -6,13 +6,30 @@ import org.jetbrains.annotations.NotNull;
 import java.util.Collection;
 import java.util.concurrent.ConcurrentSkipListSet;
 
+/**
+ * Thread-safe {@link LongSortedSet} backed by a {@code ConcurrentSkipListSet}, used to replace
+ * vanilla's internal sorted long sets under parallel ticking via mixins.
+ */
 public class ConcurrentLongSortedSet implements LongSortedSet {
 
-    ConcurrentSkipListSet<Long> back = new ConcurrentSkipListSet<>();
+    private final ConcurrentSkipListSet<Long> back = new ConcurrentSkipListSet<>();
 
+    /**
+     * Bidirectional iteration over a {@code ConcurrentSkipListSet} is not supported because
+     * the underlying skip-list iterator is forward-only and does not expose a stable snapshot
+     * safe for backwards traversal under concurrent mutation.
+     */
     @Override
     public LongBidirectionalIterator iterator(long fromElement) {
-        return null;
+        throw new UnsupportedOperationException("Bidirectional iteration is not supported on ConcurrentLongSortedSet");
+    }
+
+    /**
+     * Bidirectional iteration over a {@code ConcurrentSkipListSet} is not supported.
+     */
+    @Override
+    public LongBidirectionalIterator iterator() {
+        throw new UnsupportedOperationException("Bidirectional iteration is not supported on ConcurrentLongSortedSet");
     }
 
     @Override
@@ -25,11 +42,6 @@ public class ConcurrentLongSortedSet implements LongSortedSet {
         return back.isEmpty();
     }
 
-    @Override
-    public LongBidirectionalIterator iterator() {
-        throw new UnsupportedOperationException();
-    }
-
     @NotNull
     @Override
     public Object[] toArray() {
@@ -39,7 +51,7 @@ public class ConcurrentLongSortedSet implements LongSortedSet {
     @NotNull
     @Override
     public <T> T[] toArray(@NotNull T[] ts) {
-        throw new UnsupportedOperationException();
+        return back.toArray(ts);
     }
 
     @Override
@@ -79,12 +91,17 @@ public class ConcurrentLongSortedSet implements LongSortedSet {
 
     @Override
     public long[] toLongArray() {
-        return new long[0];
+        return back.stream().mapToLong(Long::longValue).toArray();
     }
 
     @Override
     public long[] toArray(long[] a) {
-        return new long[0];
+        long[] src = toLongArray();
+        if (a.length >= src.length) {
+            System.arraycopy(src, 0, a, 0, src.length);
+            return a;
+        }
+        return src;
     }
 
     @Override
@@ -114,7 +131,7 @@ public class ConcurrentLongSortedSet implements LongSortedSet {
 
     @Override
     public LongSortedSet subSet(long fromElement, long toElement) {
-        return new LongAVLTreeSet(back.subSet(fromElement,toElement));
+        return new LongAVLTreeSet(back.subSet(fromElement, toElement));
     }
 
     @Override
@@ -127,6 +144,10 @@ public class ConcurrentLongSortedSet implements LongSortedSet {
         return new LongAVLTreeSet(back.tailSet(fromElement));
     }
 
+    /**
+     * Returns {@code null} per the {@link java.util.SortedSet} contract, indicating natural
+     * (ascending) ordering — which is what {@link ConcurrentSkipListSet} uses.
+     */
     @Override
     public LongComparator comparator() {
         return null;

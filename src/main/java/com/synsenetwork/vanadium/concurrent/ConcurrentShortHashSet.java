@@ -8,9 +8,13 @@ import org.jetbrains.annotations.NotNull;
 import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Thread-safe {@link ShortSet} backed by a {@code ConcurrentHashMap.KeySetView}, used to replace
+ * vanilla's internal short-keyed sets under parallel ticking via mixins.
+ */
 public class ConcurrentShortHashSet implements ShortSet {
 
-    ConcurrentHashMap.KeySetView<Short, Boolean> backing = ConcurrentHashMap.newKeySet();
+    private final ConcurrentHashMap.KeySetView<Short, Boolean> backing = ConcurrentHashMap.newKeySet();
 
     @Override
     public int size() {
@@ -24,7 +28,7 @@ public class ConcurrentShortHashSet implements ShortSet {
 
     @Override
     public ShortIterator iterator() {
-        return new FastUtilHackUtil.WrappingShortIterator(backing.iterator());
+        return new FastUtilViews.WrappingShortIterator(backing.iterator());
     }
 
     @NotNull
@@ -36,7 +40,7 @@ public class ConcurrentShortHashSet implements ShortSet {
     @NotNull
     @Override
     public <T> T[] toArray(@NotNull T[] ts) {
-        return (T[]) backing.toArray();
+        return backing.toArray(ts);
     }
 
     @Override
@@ -62,7 +66,6 @@ public class ConcurrentShortHashSet implements ShortSet {
     @Override
     public void clear() {
         backing.clear();
-
     }
 
     @Override
@@ -77,12 +80,22 @@ public class ConcurrentShortHashSet implements ShortSet {
 
     @Override
     public short[] toShortArray() {
-        return new short[0];
+        short[] result = new short[backing.size()];
+        int i = 0;
+        for (Short s : backing) {
+            result[i++] = s;
+        }
+        return result;
     }
 
     @Override
     public short[] toArray(short[] a) {
-        return new short[0];
+        short[] src = toShortArray();
+        if (a.length >= src.length) {
+            System.arraycopy(src, 0, a, 0, src.length);
+            return a;
+        }
+        return src;
     }
 
     @Override

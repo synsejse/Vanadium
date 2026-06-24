@@ -4,22 +4,25 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import it.unimi.dsi.fastutil.objects.ObjectCollection;
 import it.unimi.dsi.fastutil.objects.ObjectSet;
-import org.apache.commons.lang3.NotImplementedException;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Thread-safe {@link Int2ObjectMap} backed by a {@code ConcurrentHashMap}, used to replace
+ * vanilla's internal int-to-object maps under parallel ticking via mixins.
+ */
 public class Int2ObjectConcurrentHashMap<V> implements Int2ObjectMap<V> {
 
-    Map<Integer, V> backing;
+    private final Map<Integer, V> backing = new ConcurrentHashMap<>();
+    private V defaultReturn = null;
 
-    public Int2ObjectConcurrentHashMap() {
-        backing = new ConcurrentHashMap<Integer, V>();
-    }
+    public Int2ObjectConcurrentHashMap() {}
 
     @Override
     public V get(int key) {
-        return backing.get(key);
+        V out = backing.get(key);
+        return out == null ? defaultReturn : out;
     }
 
     @Override
@@ -44,28 +47,27 @@ public class Int2ObjectConcurrentHashMap<V> implements Int2ObjectMap<V> {
 
     @Override
     public void defaultReturnValue(V rv) {
-        throw new NotImplementedException("Vanadium - Not implemented");
+        defaultReturn = rv;
     }
 
     @Override
     public V defaultReturnValue() {
-        return null;
+        return defaultReturn;
     }
 
     @Override
     public ObjectSet<Entry<V>> int2ObjectEntrySet() {
-        return FastUtilHackUtil.entrySetIntWrap(backing);
+        return FastUtilViews.entrySetIntWrap(backing);
     }
-
 
     @Override
     public IntSet keySet() {
-        return FastUtilHackUtil.wrapIntSet(backing.keySet());
+        return FastUtilViews.wrapIntSet(backing.keySet());
     }
 
     @Override
     public ObjectCollection<V> values() {
-        return FastUtilHackUtil.wrap(backing.values());
+        return FastUtilViews.wrap(backing.values());
     }
 
     @Override
@@ -75,19 +77,24 @@ public class Int2ObjectConcurrentHashMap<V> implements Int2ObjectMap<V> {
 
     @Override
     public V put(int key, V value) {
-        return backing.put(key, value);
+        V out = backing.put(key, value);
+        return out == null ? defaultReturn : out;
     }
 
     @Override
     public V put(Integer key, V value) {
-        return backing.put(key, value);
+        V out = backing.put(key, value);
+        return out == null ? defaultReturn : out;
     }
 
     @Override
     public V remove(int key) {
-        return backing.remove(key);
+        V out = backing.remove(key);
+        return out == null ? defaultReturn : out;
     }
 
     @Override
-    public void clear() { backing.clear(); }
+    public void clear() {
+        backing.clear();
+    }
 }

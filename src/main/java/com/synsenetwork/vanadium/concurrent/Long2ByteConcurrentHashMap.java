@@ -8,11 +8,14 @@ import it.unimi.dsi.fastutil.objects.ObjectSet;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Thread-safe {@link Long2ByteMap} backed by a {@code ConcurrentHashMap}, used to replace
+ * vanilla's internal long-to-byte maps under parallel ticking via mixins.
+ */
 public class Long2ByteConcurrentHashMap implements Long2ByteMap {
 
-    Map<Long, Byte> backing;
-    byte defaultReturn = 0;
-    byte nullKey = 0;
+    private final Map<Long, Byte> backing;
+    private byte defaultReturn = 0;
 
     public Long2ByteConcurrentHashMap() {
         backing = new ConcurrentHashMap<>();
@@ -60,17 +63,17 @@ public class Long2ByteConcurrentHashMap implements Long2ByteMap {
 
     @Override
     public ObjectSet<Entry> long2ByteEntrySet() {
-        return FastUtilHackUtil.entrySetLongByteWrap(backing);
+        return FastUtilViews.entrySetLongByteWrap(backing);
     }
 
     @Override
     public LongSet keySet() {
-        return FastUtilHackUtil.wrapLongSet(backing.keySet());
+        return FastUtilViews.wrapLongSet(backing.keySet());
     }
 
     @Override
     public ByteCollection values() {
-        return FastUtilHackUtil.wrapBytes(backing.values());
+        return FastUtilViews.wrapBytes(backing.values());
     }
 
     @Override
@@ -80,13 +83,14 @@ public class Long2ByteConcurrentHashMap implements Long2ByteMap {
 
     @Override
     public byte put(long key, byte value) {
-        return put((Long) key, (Byte) value);
+        Byte out = backing.put(key, value);
+        return out == null ? defaultReturn : out;
     }
 
     @Override
     public Byte put(Long key, Byte value) {
         Byte out = backing.put(key, value);
-        return out == null ? Byte.valueOf(defaultReturn) : out;
+        return out == null ? defaultReturn : out;
     }
 
     @Override
@@ -95,5 +99,8 @@ public class Long2ByteConcurrentHashMap implements Long2ByteMap {
         return out == null ? defaultReturn : out;
     }
 
-
+    @Override
+    public void clear() {
+        backing.clear();
+    }
 }

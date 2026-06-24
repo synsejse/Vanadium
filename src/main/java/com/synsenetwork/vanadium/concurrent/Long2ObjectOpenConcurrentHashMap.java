@@ -12,31 +12,32 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
+/**
+ * Thread-safe {@link Long2ObjectOpenHashMap} backed by a {@code ConcurrentHashMap}, used to
+ * replace vanilla's internal long-to-object open-hash maps under parallel ticking via mixins.
+ */
 public class Long2ObjectOpenConcurrentHashMap<V> extends Long2ObjectOpenHashMap<V> {
 
-    /**
-     *
-     */
     @Serial
     private static final long serialVersionUID = -121514116954680057L;
 
-    Map<Long, V> backing;
-    V defaultReturn = null;
+    private final Map<Long, V> backing = new ConcurrentHashMap<>();
+    private V defaultReturn = null;
 
     public Long2ObjectOpenConcurrentHashMap() {
-        backing = new ConcurrentHashMap<Long, V>();
+        // backing is already initialised above; super fields are intentionally unused
     }
 
     @Override
     public V get(long key) {
         V out = backing.get(key);
-        return (out == null && !backing.containsKey(key)) ? defaultReturn : out;
+        return out == null ? defaultReturn : out;
     }
 
     @Override
     public V get(Object key) {
         V out = backing.get(key);
-        return (out == null && !backing.containsKey(key)) ? defaultReturn : out;
+        return out == null ? defaultReturn : out;
     }
 
     @Override
@@ -71,18 +72,17 @@ public class Long2ObjectOpenConcurrentHashMap<V> extends Long2ObjectOpenHashMap<
 
     @Override
     public FastEntrySet<V> long2ObjectEntrySet() {
-        return FastUtilHackUtil.entrySetLongWrapFast(backing);
+        return FastUtilViews.entrySetLongWrapFast(backing);
     }
-
 
     @Override
     public LongSet keySet() {
-        return FastUtilHackUtil.wrapLongSet(backing.keySet());
+        return FastUtilViews.wrapLongSet(backing.keySet());
     }
 
     @Override
     public ObjectCollection<V> values() {
-        return FastUtilHackUtil.wrap(backing.values());
+        return FastUtilViews.wrap(backing.values());
     }
 
     @Override
@@ -92,19 +92,20 @@ public class Long2ObjectOpenConcurrentHashMap<V> extends Long2ObjectOpenHashMap<
 
     @Override
     public V put(long key, V value) {
-        return put((Long)key, value);
+        V out = backing.put(key, value);
+        return out == null ? defaultReturn : out;
     }
 
     @Override
     public V put(Long key, V value) {
         V out = backing.put(key, value);
-        return (out == null && !backing.containsKey(key)) ? defaultReturn : backing.put(key, value);
+        return out == null ? defaultReturn : out;
     }
 
     @Override
     public V remove(long key) {
         V out = backing.remove(key);
-        return (out == null && !backing.containsKey(key)) ? defaultReturn : out;
+        return out == null ? defaultReturn : out;
     }
 
     @Override
@@ -185,18 +186,18 @@ public class Long2ObjectOpenConcurrentHashMap<V> extends Long2ObjectOpenHashMap<
 
     @Override
     public V computeIfAbsent(final long k, final java.util.function.LongFunction<? extends V> mappingFunction) {
-        return backing.computeIfAbsent(k, (llong) -> mappingFunction.apply(llong));
+        return backing.computeIfAbsent(k, mappingFunction::apply);
     }
 
     public V computeIfAbsent(final Long k, final java.util.function.LongFunction<? extends V> mappingFunction) {
-        return backing.computeIfAbsent(k, (llong) -> mappingFunction.apply(llong));
+        return backing.computeIfAbsent(k, mappingFunction::apply);
     }
 
     @Override
     public V computeIfAbsentPartial(final long key, final Long2ObjectFunction<? extends V> mappingFunction) {
         if (!mappingFunction.containsKey(key))
             return defaultReturn;
-        return backing.computeIfAbsent(key, (llong) -> mappingFunction.apply(llong));
+        return backing.computeIfAbsent(key, mappingFunction::apply);
     }
 
     @Override
@@ -211,16 +212,17 @@ public class Long2ObjectOpenConcurrentHashMap<V> extends Long2ObjectOpenHashMap<
 
     @Override
     public Long2ObjectOpenHashMap<V> clone() {
-        throw new IllegalArgumentException();
+        throw new UnsupportedOperationException("Concurrent clone is not supported");
     }
 
+    @Override
     public void clear() {
         backing.clear();
     }
 
     @Override
     public ObjectSet<Map.Entry<Long, V>> entrySet() {
-        return new FastUtilHackUtil.ConvertingObjectSet<java.util.Map.Entry<Long, V>, java.util.Map.Entry<Long, V>>(backing.entrySet(), Function.identity(), Function.identity());
+        return new FastUtilViews.ConvertingObjectSet<>(backing.entrySet(), Function.identity(), Function.identity());
     }
 
     @Override
@@ -232,5 +234,4 @@ public class Long2ObjectOpenConcurrentHashMap<V> extends Long2ObjectOpenHashMap<
     public boolean remove(Object key, Object value) {
         return backing.remove(key, value);
     }
-
 }

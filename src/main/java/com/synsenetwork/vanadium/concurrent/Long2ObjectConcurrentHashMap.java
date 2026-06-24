@@ -8,19 +8,21 @@ import it.unimi.dsi.fastutil.objects.ObjectSet;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Thread-safe {@link Long2ObjectMap} backed by a {@code ConcurrentHashMap}, used to replace
+ * vanilla's internal long-to-object maps under parallel ticking via mixins.
+ */
 public class Long2ObjectConcurrentHashMap<V> implements Long2ObjectMap<V> {
 
-    Map<Long, V> backing;
-    V defaultReturn = null;
+    private final Map<Long, V> backing = new ConcurrentHashMap<>();
+    private V defaultReturn = null;
 
-    public Long2ObjectConcurrentHashMap() {
-        backing = new ConcurrentHashMap<Long, V>();
-    }
+    public Long2ObjectConcurrentHashMap() {}
 
     @Override
     public V get(long key) {
         V out = backing.get(key);
-        return (out == null && !backing.containsKey(key)) ? defaultReturn : out;
+        return out == null ? defaultReturn : out;
     }
 
     @Override
@@ -55,18 +57,17 @@ public class Long2ObjectConcurrentHashMap<V> implements Long2ObjectMap<V> {
 
     @Override
     public ObjectSet<Entry<V>> long2ObjectEntrySet() {
-        return FastUtilHackUtil.entrySetLongWrap(backing);
+        return FastUtilViews.entrySetLongWrap(backing);
     }
-
 
     @Override
     public LongSet keySet() {
-        return FastUtilHackUtil.wrapLongSet(backing.keySet());
+        return FastUtilViews.wrapLongSet(backing.keySet());
     }
 
     @Override
     public ObjectCollection<V> values() {
-        return FastUtilHackUtil.wrap(backing.values());
+        return FastUtilViews.wrap(backing.values());
     }
 
     @Override
@@ -76,18 +77,24 @@ public class Long2ObjectConcurrentHashMap<V> implements Long2ObjectMap<V> {
 
     @Override
     public V put(long key, V value) {
-        return put((Long)key, value);
+        V out = backing.put(key, value);
+        return out == null ? defaultReturn : out;
     }
 
     @Override
     public V put(Long key, V value) {
         V out = backing.put(key, value);
-        return (out == null && !backing.containsKey(key)) ? defaultReturn : backing.put(key, value);
+        return out == null ? defaultReturn : out;
     }
 
     @Override
     public V remove(long key) {
         V out = backing.remove(key);
-        return (out == null && !backing.containsKey(key)) ? defaultReturn : out;
+        return out == null ? defaultReturn : out;
+    }
+
+    @Override
+    public void clear() {
+        backing.clear();
     }
 }
