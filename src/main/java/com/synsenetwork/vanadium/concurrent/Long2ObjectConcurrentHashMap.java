@@ -4,6 +4,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.objects.ObjectCollection;
 import it.unimi.dsi.fastutil.objects.ObjectSet;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -36,7 +37,7 @@ public class Long2ObjectConcurrentHashMap<V> implements Long2ObjectMap<V> {
     }
 
     @Override
-    public void putAll(Map<? extends Long, ? extends V> m) {
+    public void putAll(@NotNull Map<? extends Long, ? extends V> m) {
         backing.putAll(m);
     }
 
@@ -61,12 +62,12 @@ public class Long2ObjectConcurrentHashMap<V> implements Long2ObjectMap<V> {
     }
 
     @Override
-    public LongSet keySet() {
+    public @NotNull LongSet keySet() {
         return FastUtilViews.wrapLongSet(backing.keySet());
     }
 
     @Override
-    public ObjectCollection<V> values() {
+    public @NotNull ObjectCollection<V> values() {
         return FastUtilViews.wrap(backing.values());
     }
 

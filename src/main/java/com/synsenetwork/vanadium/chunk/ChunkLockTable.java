@@ -24,13 +24,13 @@ public final class ChunkLockTable {
     private static final long EVICT_INTERVAL_SECONDS = 30;
 
     private final Map<Long, CountedLock> locks = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService evictor = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "Vanadium-ChunkLock-Evictor");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     public ChunkLockTable() {
-        ScheduledExecutorService evictor = Executors.newSingleThreadScheduledExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "Vanadium-ChunkLock-Evictor");
-            thread.setDaemon(true);
-            return thread;
-        });
         evictor.scheduleWithFixedDelay(this::evictIdle,
                 EVICT_INTERVAL_SECONDS, EVICT_INTERVAL_SECONDS, TimeUnit.SECONDS);
     }

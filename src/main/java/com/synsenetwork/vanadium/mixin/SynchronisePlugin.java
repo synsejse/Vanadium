@@ -77,7 +77,7 @@ public class SynchronisePlugin implements IMixinConfigPlugin {
         Collection<String> targetMethods = mixin2MethodsMap.get(mixinClassName);
         Collection<String> excludedMethods = mixin2MethodsExcludeMap.get(mixinClassName);
 
-        if (targetMethods.size() != 0) for (MethodNode method : targetClass.methods) {
+        if (!targetMethods.isEmpty()) for (MethodNode method : targetClass.methods) {
             for (String targetMethod : targetMethods)
                 if (method.name.equals(targetMethod)) {
                     method.access |= Opcodes.ACC_SYNCHRONIZED;

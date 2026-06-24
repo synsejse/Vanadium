@@ -22,13 +22,13 @@ public abstract class ServerEntityManagerListenerMixin<T extends EntityLike> imp
     private static final ReentrantLock lock = new ReentrantLock();
 
     @Redirect(method = "updateEntityPosition", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/EntityTrackingSection;remove(Lnet/minecraft/world/entity/EntityLike;)Z"))
-    private boolean updateEntityPosition(EntityTrackingSection instance, T entity) {
+    private boolean updateEntityPosition(EntityTrackingSection<T> instance, T entity) {
         this.section.remove(entity);
         return true;
     }
 
     @Redirect(method = "remove", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/EntityTrackingSection;remove(Lnet/minecraft/world/entity/EntityLike;)Z"))
-    private boolean remove(EntityTrackingSection instance, T entity) {
+    private boolean remove(EntityTrackingSection<T> instance, T entity) {
         this.section.remove(entity);
         return true;
     }

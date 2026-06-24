@@ -47,19 +47,12 @@ dispatcher.register(vanadiumconfig);
                                     + (config.disableEnvironment ? "disabled" : "enabled"));
                             cmdCtx.getSource().sendFeedback(() -> message, true);
                             return 1;
-                        })).then(literal("world").executes(cmdCtx -> {
-                            config.disableWorld = !config.disableWorld;
-                            MutableText message = Text.literal(
-                                    "Vanadium's world threading is now " + (config.disableWorld ? "disabled" : "enabled"));
-                            cmdCtx.getSource().sendFeedback(() -> message, true);
-                            return 1;
                         }))
                 )
                 .then(literal("state").executes(cmdCtx -> {
                     StringBuilder messageString = new StringBuilder(
                             "Vanadium is currently " + (config.disabled ? "disabled" : "enabled"));
                     if (!config.disabled) {
-                        messageString.append(" World:").append(config.disableWorld ? "disabled" : "enabled");
                         messageString.append(" Entity:").append(config.disableEntity ? "disabled" : "enabled");
                         messageString.append(" TE:").append(config.disableBlockEntity ? "disabled" : "enabled");
                         messageString.append(" Env:").append(config.disableEnvironment ? "disabled" : "enabled");

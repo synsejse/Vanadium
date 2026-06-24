@@ -28,7 +28,7 @@ public class ConcurrentLongSortedSet implements LongSortedSet {
      * Bidirectional iteration over a {@code ConcurrentSkipListSet} is not supported.
      */
     @Override
-    public LongBidirectionalIterator iterator() {
+    public @NotNull LongBidirectionalIterator iterator() {
         throw new UnsupportedOperationException("Bidirectional iteration is not supported on ConcurrentLongSortedSet");
     }
 
@@ -44,13 +44,13 @@ public class ConcurrentLongSortedSet implements LongSortedSet {
 
     @NotNull
     @Override
-    public Object[] toArray() {
+    public Object @NotNull [] toArray() {
         return back.toArray();
     }
 
     @NotNull
     @Override
-    public <T> T[] toArray(@NotNull T[] ts) {
+    public <T> T @NotNull [] toArray(@NotNull T @NotNull [] ts) {
         return back.toArray(ts);
     }
 

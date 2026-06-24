@@ -27,19 +27,19 @@ public class ConcurrentShortHashSet implements ShortSet {
     }
 
     @Override
-    public ShortIterator iterator() {
+    public @NotNull ShortIterator iterator() {
         return new FastUtilViews.WrappingShortIterator(backing.iterator());
     }
 
     @NotNull
     @Override
-    public Object[] toArray() {
+    public Object @NotNull [] toArray() {
         return backing.toArray();
     }
 
     @NotNull
     @Override
-    public <T> T[] toArray(@NotNull T[] ts) {
+    public <T> T @NotNull [] toArray(@NotNull T @NotNull [] ts) {
         return backing.toArray(ts);
     }
 

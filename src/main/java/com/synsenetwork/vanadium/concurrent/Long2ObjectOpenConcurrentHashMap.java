@@ -7,6 +7,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.objects.ObjectCollection;
 import it.unimi.dsi.fastutil.objects.ObjectSet;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -76,12 +77,12 @@ public class Long2ObjectOpenConcurrentHashMap<V> extends Long2ObjectOpenHashMap<
     }
 
     @Override
-    public LongSet keySet() {
+    public @NotNull LongSet keySet() {
         return FastUtilViews.wrapLongSet(backing.keySet());
     }
 
     @Override
-    public ObjectCollection<V> values() {
+    public @NotNull ObjectCollection<V> values() {
         return FastUtilViews.wrap(backing.values());
     }
 
@@ -155,7 +156,7 @@ public class Long2ObjectOpenConcurrentHashMap<V> extends Long2ObjectOpenHashMap<
     }
 
     @Override
-    public V merge(Long k, final V v, final java.util.function.BiFunction<? super V, ? super V, ? extends V> remappingFunction) {
+    public V merge(Long k, final @NotNull V v, final java.util.function.@NotNull BiFunction<? super V, ? super V, ? extends V> remappingFunction) {
         return backing.merge(k, v, remappingFunction);
     }
 
@@ -180,7 +181,7 @@ public class Long2ObjectOpenConcurrentHashMap<V> extends Long2ObjectOpenHashMap<
     }
 
     @Override
-    public V computeIfPresent(final Long k, final java.util.function.BiFunction<? super Long, ? super V, ? extends V> remappingFunction) {
+    public V computeIfPresent(final Long k, final java.util.function.@NotNull BiFunction<? super Long, ? super V, ? extends V> remappingFunction) {
         return backing.computeIfPresent(k, remappingFunction);
     }
 
@@ -206,7 +207,7 @@ public class Long2ObjectOpenConcurrentHashMap<V> extends Long2ObjectOpenHashMap<
     }
 
     @Override
-    public V compute(final Long k, final java.util.function.BiFunction<? super Long, ? super V, ? extends V> remappingFunction) {
+    public V compute(final Long k, final java.util.function.@NotNull BiFunction<? super Long, ? super V, ? extends V> remappingFunction) {
         return backing.compute(k, remappingFunction);
     }
 
@@ -221,7 +222,7 @@ public class Long2ObjectOpenConcurrentHashMap<V> extends Long2ObjectOpenHashMap<
     }
 
     @Override
-    public ObjectSet<Map.Entry<Long, V>> entrySet() {
+    public @NotNull ObjectSet<Map.Entry<Long, V>> entrySet() {
         return new FastUtilViews.ConvertingObjectSet<>(backing.entrySet(), Function.identity(), Function.identity());
     }
 

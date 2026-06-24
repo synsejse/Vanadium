@@ -4,6 +4,7 @@ import it.unimi.dsi.fastutil.bytes.ByteCollection;
 import it.unimi.dsi.fastutil.longs.Long2ByteMap;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.objects.ObjectSet;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -42,7 +43,7 @@ public class Long2ByteConcurrentHashMap implements Long2ByteMap {
     }
 
     @Override
-    public void putAll(Map<? extends Long, ? extends Byte> m) {
+    public void putAll(@NotNull Map<? extends Long, ? extends Byte> m) {
         backing.putAll(m);
     }
 
@@ -67,12 +68,12 @@ public class Long2ByteConcurrentHashMap implements Long2ByteMap {
     }
 
     @Override
-    public LongSet keySet() {
+    public @NotNull LongSet keySet() {
         return FastUtilViews.wrapLongSet(backing.keySet());
     }
 
     @Override
-    public ByteCollection values() {
+    public @NotNull ByteCollection values() {
         return FastUtilViews.wrapBytes(backing.values());
     }
 

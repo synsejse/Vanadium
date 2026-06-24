@@ -1,5 +1,7 @@
 package com.synsenetwork.vanadium.tick;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -62,7 +64,7 @@ public final class WorkerPool {
         private final AtomicInteger counter = new AtomicInteger();
 
         @Override
-        public Thread newThread(Runnable runnable) {
+        public Thread newThread(@NotNull Runnable runnable) {
             return new WorkerThread(runnable, "Vanadium-Worker-" + counter.incrementAndGet());
         }
     }

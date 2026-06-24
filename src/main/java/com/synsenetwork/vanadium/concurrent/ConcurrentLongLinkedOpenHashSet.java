@@ -14,6 +14,7 @@ import it.unimi.dsi.fastutil.longs.LongIterators;
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongListIterator;
 import it.unimi.dsi.fastutil.longs.LongSortedSet;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * Thread-safe {@link LongLinkedOpenHashSet} backed by a {@code ConcurrentSkipListSet}, used to
@@ -67,7 +68,7 @@ public class ConcurrentLongLinkedOpenHashSet extends LongLinkedOpenHashSet {
     }
 
     public ConcurrentLongLinkedOpenHashSet(final long[] a, final int offset, final int length, final float f) {
-        this(length < 0 ? 0 : length, f);
+        this(Math.max(length, 0), f);
         LongArrays.ensureOffsetLength(a, offset, length);
         for (int i = 0; i < length; i++)
             add(a[offset + i]);
@@ -156,7 +157,7 @@ public class ConcurrentLongLinkedOpenHashSet extends LongLinkedOpenHashSet {
     }
 
     @Override
-    public LongListIterator iterator() {
+    public @NotNull LongListIterator iterator() {
         return FastUtilViews.wrap(backing.iterator());
     }
 

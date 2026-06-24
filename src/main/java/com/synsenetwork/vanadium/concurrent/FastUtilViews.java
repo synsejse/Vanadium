@@ -2,7 +2,6 @@ package com.synsenetwork.vanadium.concurrent;
 
 import java.util.Collection;
 import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.ListIterator;
 import java.util.Map;
 import java.util.Set;
@@ -19,10 +18,10 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.IntCollection;
 import it.unimi.dsi.fastutil.ints.IntIterator;
 import it.unimi.dsi.fastutil.ints.IntSet;
-import it.unimi.dsi.fastutil.ints.Int2ObjectMap.Entry;
 import it.unimi.dsi.fastutil.objects.ObjectCollection;
 import it.unimi.dsi.fastutil.objects.ObjectIterator;
 import it.unimi.dsi.fastutil.objects.ObjectSet;
+import org.jetbrains.annotations.NotNull;
 
 public class FastUtilViews {
 
@@ -59,12 +58,12 @@ public class FastUtilViews {
         }
 
         @Override
-        public Object[] toArray() {
+        public Object @NotNull [] toArray() {
             return backing.stream().map(forward).toArray();
         }
 
         @Override
-        public <R> R[] toArray(R[] a) {
+        public <R> R @NotNull [] toArray(R @NotNull [] a) {
             return backing.stream().map(forward).collect(Collectors.toSet()).toArray(a);
         }
 
@@ -126,23 +125,23 @@ public class FastUtilViews {
         }
 
         @Override
-        public ObjectIterator<T> iterator() {
-            final Iterator<E> backg = backing.iterator();
-            return new ObjectIterator<T>() {
+        public @NotNull ObjectIterator<T> iterator() {
+            final Iterator<E> backs = backing.iterator();
+            return new ObjectIterator<>() {
 
                 @Override
                 public boolean hasNext() {
-                    return backg.hasNext();
+                    return backs.hasNext();
                 }
 
                 @Override
                 public T next() {
-                    return forward.apply(backg.next());
+                    return forward.apply(backs.next());
                 }
 
                 @Override
                 public void remove() {
-                    backg.remove();
+                    backs.remove();
                 }
             };
         }
@@ -184,12 +183,12 @@ public class FastUtilViews {
         }
 
         @Override
-        public Object[] toArray() {
+        public Object @NotNull [] toArray() {
             return backing.stream().map(forward).toArray();
         }
 
         @Override
-        public <R> R[] toArray(R[] a) {
+        public <R> R @NotNull [] toArray(R @NotNull [] a) {
             return backing.stream().map(forward).collect(Collectors.toSet()).toArray(a);
         }
 
@@ -247,23 +246,23 @@ public class FastUtilViews {
         }
 
         @Override
-        public ObjectIterator<it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry<T>> iterator() {
-            final Iterator<E> backg = backing.iterator();
-            return new ObjectIterator<it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry<T>>() {
+        public @NotNull ObjectIterator<it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry<T>> iterator() {
+            final Iterator<E> backs = backing.iterator();
+            return new ObjectIterator<>() {
 
                 @Override
                 public boolean hasNext() {
-                    return backg.hasNext();
+                    return backs.hasNext();
                 }
 
                 @Override
                 public it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry<T> next() {
-                    return forward.apply(backg.next());
+                    return forward.apply(backs.next());
                 }
 
                 @Override
                 public void remove() {
-                    backg.remove();
+                    backs.remove();
                 }
             };
         }
@@ -275,7 +274,7 @@ public class FastUtilViews {
 
         @Override
         public boolean addAll(Collection<? extends it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry<T>> c) {
-            return backing.addAll(c.stream().map(back).collect(Collectors.toList()));
+            return backing.addAll(c.stream().map(back).toList());
         }
 
         @Override
@@ -286,7 +285,7 @@ public class FastUtilViews {
     }
 
     private static <T> Int2ObjectMap.Entry<T> intEntryForwards(Map.Entry<Integer, T> entry) {
-        return new Int2ObjectMap.Entry<T>() {
+        return new Int2ObjectMap.Entry<>() {
 
             @Override
             public T getValue() {
@@ -323,7 +322,7 @@ public class FastUtilViews {
     }
 
     private static <T> Long2ObjectMap.Entry<T> longEntryForwards(Map.Entry<Long, T> entry) {
-        return new Long2ObjectMap.Entry<T>() {
+        return new Long2ObjectMap.Entry<>() {
 
             @Override
             public T getValue() {
@@ -403,19 +402,19 @@ public class FastUtilViews {
     }
 
     public static <T> ObjectSet<Int2ObjectMap.Entry<T>> entrySetIntWrap(Map<Integer, T> map) {
-        return new ConvertingObjectSet<Map.Entry<Integer, T>, Int2ObjectMap.Entry<T>>(map.entrySet(), FastUtilViews::intEntryForwards, FastUtilViews::intEntryBackwards);
+        return new ConvertingObjectSet<>(map.entrySet(), FastUtilViews::intEntryForwards, FastUtilViews::intEntryBackwards);
     }
 
     public static <T> ObjectSet<Long2ObjectMap.Entry<T>> entrySetLongWrap(Map<Long, T> map) {
-        return new ConvertingObjectSet<Map.Entry<Long, T>, Long2ObjectMap.Entry<T>>(map.entrySet(), FastUtilViews::longEntryForwards, FastUtilViews::longEntryBackwards);
+        return new ConvertingObjectSet<>(map.entrySet(), FastUtilViews::longEntryForwards, FastUtilViews::longEntryBackwards);
     }
 
     public static <T> it.unimi.dsi.fastutil.longs.Long2ObjectMap.FastEntrySet<T> entrySetLongWrapFast(Map<Long, T> map) {
-        return new ConvertingObjectSetFast<Map.Entry<Long, T>, T>(map.entrySet(), FastUtilViews::longEntryForwards, FastUtilViews::longEntryBackwards);
+        return new ConvertingObjectSetFast<>(map.entrySet(), FastUtilViews::longEntryForwards, FastUtilViews::longEntryBackwards);
     }
 
     public static ObjectSet<Long2ByteMap.Entry> entrySetLongByteWrap(Map<Long, Byte> map) {
-        return new ConvertingObjectSet<Map.Entry<Long, Byte>, Long2ByteMap.Entry>(map.entrySet(), FastUtilViews::longByteEntryForwards, FastUtilViews::longByteEntryBackwards);
+        return new ConvertingObjectSet<>(map.entrySet(), FastUtilViews::longByteEntryForwards, FastUtilViews::longByteEntryBackwards);
     }
 
     static class WrappingIntIterator implements IntIterator {
@@ -576,32 +575,32 @@ public class FastUtilViews {
         }
 
         @Override
-        public Object[] toArray() {
+        public Object @NotNull [] toArray() {
             return backing.toArray();
         }
 
         @Override
-        public <T> T[] toArray(T[] a) {
+        public <T> T @NotNull [] toArray(T @NotNull [] a) {
             return backing.toArray(a);
         }
 
         @Override
-        public boolean containsAll(Collection<?> c) {
+        public boolean containsAll(@NotNull Collection<?> c) {
             return backing.containsAll(c);
         }
 
         @Override
-        public boolean addAll(Collection<? extends Integer> c) {
+        public boolean addAll(@NotNull Collection<? extends Integer> c) {
             return backing.addAll(c);
         }
 
         @Override
-        public boolean removeAll(Collection<?> c) {
+        public boolean removeAll(@NotNull Collection<?> c) {
             return backing.removeAll(c);
         }
 
         @Override
-        public boolean retainAll(Collection<?> c) {
+        public boolean retainAll(@NotNull Collection<?> c) {
             return backing.retainAll(c);
         }
 
@@ -611,7 +610,7 @@ public class FastUtilViews {
         }
 
         @Override
-        public IntIterator iterator() {
+        public @NotNull IntIterator iterator() {
             return new WrappingIntIterator(backing.iterator());
         }
 
@@ -694,32 +693,32 @@ public class FastUtilViews {
         }
 
         @Override
-        public Object[] toArray() {
+        public Object @NotNull [] toArray() {
             return backing.toArray();
         }
 
         @Override
-        public <T> T[] toArray(T[] a) {
+        public <T> T @NotNull [] toArray(T @NotNull [] a) {
             return backing.toArray(a);
         }
 
         @Override
-        public boolean containsAll(Collection<?> c) {
+        public boolean containsAll(@NotNull Collection<?> c) {
             return backing.containsAll(c);
         }
 
         @Override
-        public boolean addAll(Collection<? extends Long> c) {
+        public boolean addAll(@NotNull Collection<? extends Long> c) {
             return backing.addAll(c);
         }
 
         @Override
-        public boolean removeAll(Collection<?> c) {
+        public boolean removeAll(@NotNull Collection<?> c) {
             return backing.removeAll(c);
         }
 
         @Override
-        public boolean retainAll(Collection<?> c) {
+        public boolean retainAll(@NotNull Collection<?> c) {
             return backing.retainAll(c);
         }
 
@@ -729,7 +728,7 @@ public class FastUtilViews {
         }
 
         @Override
-        public LongIterator iterator() {
+        public @NotNull LongIterator iterator() {
             return new WrappingLongIterator(backing.iterator());
         }
 
@@ -768,12 +767,12 @@ public class FastUtilViews {
         }
 
         @Override
-        public Object[] toArray() {
+        public Object @NotNull [] toArray() {
             return backing.toArray();
         }
 
         @Override
-        public <T> T[] toArray(T[] a) {
+        public <T> T @NotNull [] toArray(T @NotNull [] a) {
             return backing.toArray(a);
         }
 
@@ -788,22 +787,22 @@ public class FastUtilViews {
         }
 
         @Override
-        public boolean containsAll(Collection<?> c) {
+        public boolean containsAll(@NotNull Collection<?> c) {
             return backing.containsAll(c);
         }
 
         @Override
-        public boolean addAll(Collection<? extends V> c) {
+        public boolean addAll(@NotNull Collection<? extends V> c) {
             return backing.addAll(c);
         }
 
         @Override
-        public boolean removeAll(Collection<?> c) {
+        public boolean removeAll(@NotNull Collection<?> c) {
             return backing.removeAll(c);
         }
 
         @Override
-        public boolean retainAll(Collection<?> c) {
+        public boolean retainAll(@NotNull Collection<?> c) {
             return backing.retainAll(c);
         }
 
@@ -813,14 +812,14 @@ public class FastUtilViews {
         }
 
         @Override
-        public ObjectIterator<V> iterator() {
+        public @NotNull ObjectIterator<V> iterator() {
             return FastUtilViews.itrWrap(backing);
         }
 
     }
 
     public static <K> ObjectCollection<K> wrap(Collection<K> c) {
-        return new WrappingObjectCollection<K>(c);
+        return new WrappingObjectCollection<>(c);
     }
 
     public static class WrappingByteCollection implements ByteCollection {
@@ -847,12 +846,12 @@ public class FastUtilViews {
         }
 
         @Override
-        public Object[] toArray() {
+        public Object @NotNull [] toArray() {
             return backing.toArray();
         }
 
         @Override
-        public <T> T[] toArray(T[] a) {
+        public <T> T @NotNull [] toArray(T @NotNull [] a) {
             return backing.toArray(a);
         }
 
@@ -867,22 +866,22 @@ public class FastUtilViews {
         }
 
         @Override
-        public boolean containsAll(Collection<?> c) {
+        public boolean containsAll(@NotNull Collection<?> c) {
             return backing.containsAll(c);
         }
 
         @Override
-        public boolean addAll(Collection<? extends Byte> c) {
+        public boolean addAll(@NotNull Collection<? extends Byte> c) {
             return backing.addAll(c);
         }
 
         @Override
-        public boolean removeAll(Collection<?> c) {
+        public boolean removeAll(@NotNull Collection<?> c) {
             return backing.removeAll(c);
         }
 
         @Override
-        public boolean retainAll(Collection<?> c) {
+        public boolean retainAll(@NotNull Collection<?> c) {
             return backing.retainAll(c);
         }
 
@@ -892,7 +891,7 @@ public class FastUtilViews {
         }
 
         @Override
-        public ByteIterator iterator() {
+        public @NotNull ByteIterator iterator() {
             return FastUtilViews.itrByteWrap(backing);
         }
 
@@ -1122,10 +1121,10 @@ public class FastUtilViews {
     }
 
     public static <T> ObjectIterator<T> itrWrap(Iterator<T> in) {
-        return new WrapperObjectIterator<T>(in);
+        return new WrapperObjectIterator<>(in);
     }
 
     public static <T> ObjectIterator<T> itrWrap(Iterable<T> in) {
-        return new WrapperObjectIterator<T>(in.iterator());
+        return new WrapperObjectIterator<>(in.iterator());
     }
 }
