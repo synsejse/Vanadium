@@ -3,6 +3,8 @@ package com.synsenetwork.vanadium.chunk;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
@@ -19,14 +21,18 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public final class ChunkLockTable {
 
-    private static final long EVICT_INTERVAL_MS = TimeUnit.SECONDS.toMillis(30);
+    private static final long EVICT_INTERVAL_SECONDS = 30;
 
     private final Map<Long, CountedLock> locks = new ConcurrentHashMap<>();
 
     public ChunkLockTable() {
-        Thread evictor = new Thread(this::evictLoop, "Vanadium-ChunkLock-Evictor");
-        evictor.setDaemon(true);
-        evictor.start();
+        ScheduledExecutorService evictor = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "Vanadium-ChunkLock-Evictor");
+            thread.setDaemon(true);
+            return thread;
+        });
+        evictor.scheduleWithFixedDelay(this::evictIdle,
+                EVICT_INTERVAL_SECONDS, EVICT_INTERVAL_SECONDS, TimeUnit.SECONDS);
     }
 
     /** An opaque handle to the locks acquired by one {@link #lock} call; pass it back to {@link #unlock}. */
@@ -91,18 +97,6 @@ public final class ChunkLockTable {
     /** Number of locks currently retained. Visible for tests. */
     int size() {
         return locks.size();
-    }
-
-    private void evictLoop() {
-        while (true) {
-            try {
-                Thread.sleep(EVICT_INTERVAL_MS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-            }
-            evictIdle();
-        }
     }
 
     /** Packs a chunk offset exactly as Minecraft's {@code ChunkPos.toLong}, to match historical keys. */

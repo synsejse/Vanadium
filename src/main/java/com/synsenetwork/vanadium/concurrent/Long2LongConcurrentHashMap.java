@@ -12,7 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class Long2LongConcurrentHashMap implements Long2LongMap {
 
     public Map<Long, Long> backing = new ConcurrentHashMap<Long, Long>();
-    long defaultRV = 0;
+    long defaultRV;
 
     public Long2LongConcurrentHashMap(long defaultRV) {
         this.defaultRV = defaultRV;

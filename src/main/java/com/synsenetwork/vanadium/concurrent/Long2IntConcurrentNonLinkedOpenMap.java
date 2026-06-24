@@ -1,5 +1,7 @@
 package com.synsenetwork.vanadium.concurrent;
 
+import java.io.Serial;
+
 import it.unimi.dsi.fastutil.Hash;
 import it.unimi.dsi.fastutil.ints.IntCollection;
 import it.unimi.dsi.fastutil.longs.*;
@@ -13,6 +15,7 @@ public class Long2IntConcurrentNonLinkedOpenMap extends Long2IntLinkedOpenHashMa
     /**
      *
      */
+    @Serial
     private static final long serialVersionUID = -2082212127278131631L;
 
     public Map<Long, Integer> backing = new ConcurrentHashMap<Long, Integer>();
@@ -137,7 +140,7 @@ public class Long2IntConcurrentNonLinkedOpenMap extends Long2IntLinkedOpenHashMa
     }
 
     public int removeFirstInt() {
-        Integer out = this.remove(backing.keySet().stream().findAny().get());
+        Integer out = this.remove(backing.keySet().stream().findAny().orElseThrow());
         if (out == null) {
             return defRetValue;
         }
@@ -145,7 +148,7 @@ public class Long2IntConcurrentNonLinkedOpenMap extends Long2IntLinkedOpenHashMa
     }
 
     public int removeLastInt() {
-        Integer out = this.remove(backing.keySet().stream().findAny().get());
+        Integer out = this.remove(backing.keySet().stream().findAny().orElseThrow());
         if (out == null) {
             return defRetValue;
         }
@@ -306,12 +309,12 @@ public class Long2IntConcurrentNonLinkedOpenMap extends Long2IntLinkedOpenHashMa
 
     @Override
     public long firstLongKey() {
-        return backing.keySet().stream().findAny().get();
+        return backing.keySet().stream().findAny().orElseThrow();
     }
 
     @Override
     public long lastLongKey() {
-        return backing.keySet().stream().findAny().get();
+        return backing.keySet().stream().findAny().orElseThrow();
     }
 
     @Override

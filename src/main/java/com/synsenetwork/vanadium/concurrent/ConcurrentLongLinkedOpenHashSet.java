@@ -1,5 +1,7 @@
 package com.synsenetwork.vanadium.concurrent;
 
+import java.io.Serial;
+
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListSet;
@@ -15,6 +17,7 @@ import it.unimi.dsi.fastutil.longs.LongSortedSet;
 
 public class ConcurrentLongLinkedOpenHashSet extends LongLinkedOpenHashSet {
 
+    @Serial
     private static final long serialVersionUID = -5532128240738069111L;
 
     private final ConcurrentSkipListSet<Long> backing;

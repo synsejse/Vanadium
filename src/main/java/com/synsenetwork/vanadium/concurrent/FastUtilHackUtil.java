@@ -934,12 +934,12 @@ public class FastUtilHackUtil {
 
         @Override
         public long firstLong() {
-            return backing.stream().findAny().get();
+            return backing.stream().findAny().orElseThrow();
         }
 
         @Override
         public long lastLong() {
-            return backing.stream().findAny().get();
+            return backing.stream().findAny().orElseThrow();
         }
 
     }

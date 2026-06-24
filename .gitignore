@@ -3,3 +3,5 @@
 run
 build
 .superpowers
+qodana.sarif.json
+.qodana

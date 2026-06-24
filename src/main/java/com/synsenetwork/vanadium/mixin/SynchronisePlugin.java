@@ -81,7 +81,7 @@ public class SynchronisePlugin implements IMixinConfigPlugin {
             for (String targetMethod : targetMethods)
                 if (method.name.equals(targetMethod)) {
                     method.access |= Opcodes.ACC_SYNCHRONIZED;
-                    syncLogger.info("Setting synchronize bit for " + method.name + " in " + targetClassName + ".");
+                    logSyncBit(method.name, targetClassName);
                 }
         }
         else if (syncAllSet.contains(mixinClassName)) {
@@ -91,10 +91,14 @@ public class SynchronisePlugin implements IMixinConfigPlugin {
                 if ((method.access & negFilter) == 0 && !method.name.equals("<init>") && !excludedMethods.contains(method.name)) {
                     method.access |= Opcodes.ACC_SYNCHRONIZED;
                     if (!mixinClassName.equals("com.synsenetwork.vanadium.mixin.FastUtilsMixin"))
-                        syncLogger.info("Setting synchronize bit for " + method.name + " in " + targetClassName + ".");
+                        logSyncBit(method.name, targetClassName);
                 }
             }
 
         }
+    }
+
+    private void logSyncBit(String methodName, String targetClassName) {
+        syncLogger.info("Setting synchronize bit for {} in {}.", methodName, targetClassName);
     }
 }

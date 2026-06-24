@@ -27,7 +27,7 @@ public class ConcurrentLongSortedSet implements LongSortedSet {
 
     @Override
     public LongBidirectionalIterator iterator() {
-        return null;
+        throw new UnsupportedOperationException();
     }
 
     @NotNull
@@ -39,7 +39,7 @@ public class ConcurrentLongSortedSet implements LongSortedSet {
     @NotNull
     @Override
     public <T> T[] toArray(@NotNull T[] ts) {
-        return null;
+        throw new UnsupportedOperationException();
     }
 
     @Override

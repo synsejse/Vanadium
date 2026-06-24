@@ -1,5 +1,7 @@
 package com.synsenetwork.vanadium.concurrent.sync;
 
+import java.io.Serial;
+
 import java.util.Collection;
 import java.util.Iterator;
 
@@ -14,6 +16,7 @@ import it.unimi.dsi.fastutil.longs.LongSortedSet;
 
 public class SyncLongLinkedOpenHashSet extends LongLinkedOpenHashSet {
 
+    @Serial
     private static final long serialVersionUID = -5532128240738069111L;
 
     public SyncLongLinkedOpenHashSet() {

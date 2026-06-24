@@ -104,7 +104,7 @@ public class VanadiumConfig implements ConfigData {
             case Override:
                 return config.paraMax <= 1 ?
                         Runtime.getRuntime().availableProcessors() :
-                        Math.max(2, config.paraMax);
+                        config.paraMax; // guarded above: paraMax is already >= 2 here
             case Reduction:
                 return Math.max(
                         Runtime.getRuntime().availableProcessors() - Math.max(0, config.paraMax),

@@ -1,5 +1,7 @@
 package com.synsenetwork.vanadium.concurrent;
 
+import java.io.Serial;
+
 import it.unimi.dsi.fastutil.longs.Long2ObjectFunction;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongSet;
@@ -15,6 +17,7 @@ public class Long2ObjectOpenConcurrentHashMap<V> extends Long2ObjectOpenHashMap<
     /**
      *
      */
+    @Serial
     private static final long serialVersionUID = -121514116954680057L;
 
     Map<Long, V> backing;
