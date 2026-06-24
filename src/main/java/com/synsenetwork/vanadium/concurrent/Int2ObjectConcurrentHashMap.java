@@ -1,5 +1,6 @@
 package com.synsenetwork.vanadium.concurrent;
 
+import it.unimi.dsi.fastutil.ints.Int2ObjectFunction;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import it.unimi.dsi.fastutil.objects.ObjectCollection;
@@ -8,6 +9,8 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiFunction;
+import java.util.function.IntFunction;
 
 /**
  * Thread-safe {@link Int2ObjectMap} backed by a {@code ConcurrentHashMap}, used to replace
@@ -92,6 +95,46 @@ public class Int2ObjectConcurrentHashMap<V> implements Int2ObjectMap<V> {
     public V remove(int key) {
         V out = backing.remove(key);
         return out == null ? defaultReturn : out;
+    }
+
+    @Override
+    public V putIfAbsent(int key, V value) {
+        V out = backing.putIfAbsent(key, value);
+        return out == null ? defaultReturn : out;
+    }
+
+    @Override
+    public V computeIfAbsent(int key, IntFunction<? extends V> mappingFunction) {
+        return backing.computeIfAbsent(key, mappingFunction::apply);
+    }
+
+    @Override
+    public V computeIfAbsent(int key, Int2ObjectFunction<? extends V> mappingFunction) {
+        V out = backing.computeIfAbsent(key, k -> {
+            int unboxed = k;
+            return mappingFunction.containsKey(unboxed) ? mappingFunction.get(unboxed) : null;
+        });
+        return out == null ? defaultReturn : out;
+    }
+
+    @Override
+    public V computeIfAbsentPartial(int key, Int2ObjectFunction<? extends V> mappingFunction) {
+        return computeIfAbsent(key, mappingFunction);
+    }
+
+    @Override
+    public V computeIfPresent(int key, BiFunction<? super Integer, ? super V, ? extends V> remappingFunction) {
+        return backing.computeIfPresent(key, remappingFunction);
+    }
+
+    @Override
+    public V compute(int key, BiFunction<? super Integer, ? super V, ? extends V> remappingFunction) {
+        return backing.compute(key, remappingFunction);
+    }
+
+    @Override
+    public V merge(int key, V value, BiFunction<? super V, ? super V, ? extends V> remappingFunction) {
+        return backing.merge(key, value, remappingFunction);
     }
 
     @Override

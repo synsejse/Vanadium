@@ -195,6 +195,15 @@ public class Long2ObjectOpenConcurrentHashMap<V> extends Long2ObjectOpenHashMap<
     }
 
     @Override
+    public V computeIfAbsent(final long key, final Long2ObjectFunction<? extends V> mappingFunction) {
+        V out = backing.computeIfAbsent(key, k -> {
+            long unboxed = k;
+            return mappingFunction.containsKey(unboxed) ? mappingFunction.get(unboxed) : null;
+        });
+        return out == null ? defaultReturn : out;
+    }
+
+    @Override
     public V computeIfAbsentPartial(final long key, final Long2ObjectFunction<? extends V> mappingFunction) {
         if (!mappingFunction.containsKey(key))
             return defaultReturn;

@@ -2,6 +2,12 @@ package com.synsenetwork.vanadium.concurrent;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 class ConcurrentWrappersTest {
@@ -218,5 +224,112 @@ class ConcurrentWrappersTest {
         assertTrue(copy.contains(1L));
         set.add(3L);
         assertEquals(2, copy.size()); // copy is a snapshot, not a live view
+    }
+
+    // ---- Long2ObjectConcurrentHashMap atomic compute family ------------------
+
+    @Test
+    void long2ObjectMap_computeIfAbsentIsAtomic() throws InterruptedException {
+        // Vanilla's SectionedEntityCache.getTrackingSection relies on this: under contention the
+        // mapping function must run at most once per key, or duplicate sections would be created.
+        var map = new Long2ObjectConcurrentHashMap<String>();
+        AtomicInteger factoryCalls = new AtomicInteger();
+
+        int threads = 16;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch ready = new CountDownLatch(threads);
+        CountDownLatch go = new CountDownLatch(1);
+        var results = new java.util.concurrent.ConcurrentLinkedQueue<String>();
+        for (int t = 0; t < threads; t++) {
+            pool.submit(() -> {
+                ready.countDown();
+                try {
+                    go.await();
+                } catch (InterruptedException ignored) {
+                }
+                results.add(map.computeIfAbsent(42L, k -> {
+                    factoryCalls.incrementAndGet();
+                    return "v" + k;
+                }));
+            });
+        }
+        assertTrue(ready.await(5, TimeUnit.SECONDS));
+        go.countDown(); // release all threads at once to maximise the race
+        pool.shutdown();
+        assertTrue(pool.awaitTermination(5, TimeUnit.SECONDS));
+
+        assertEquals(1, factoryCalls.get(), "mapping function ran more than once → not atomic");
+        assertEquals("v42", map.get(42L));
+        assertTrue(results.stream().allMatch("v42"::equals), "all callers must see the same value");
+    }
+
+    @Test
+    void long2ObjectMap_computeFamilyDelegatesCorrectly() {
+        var map = new Long2ObjectConcurrentHashMap<String>();
+        assertEquals("v1", map.computeIfAbsent(1L, k -> "v" + k));
+        assertEquals("v1", map.computeIfAbsent(1L, k -> "should-not-run"));
+        assertEquals("v1!", map.computeIfPresent(1L, (k, v) -> v + "!"));
+        assertEquals("x", map.compute(2L, (k, v) -> "x"));
+        assertNull(map.putIfAbsent(3L, "a")); // key absent → returns the default (null) and inserts "a"
+        assertEquals("a", map.get(3L));
+        assertEquals("ab", map.merge(3L, "b", (oldV, newV) -> oldV + newV));
+    }
+
+    // ---- Int2ObjectConcurrentHashMap atomic compute family -------------------
+
+    @Test
+    void int2ObjectMap_computeIfAbsentIsAtomic() throws InterruptedException {
+        var map = new Int2ObjectConcurrentHashMap<String>();
+        AtomicInteger factoryCalls = new AtomicInteger();
+
+        int threads = 16;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch ready = new CountDownLatch(threads);
+        CountDownLatch go = new CountDownLatch(1);
+        for (int t = 0; t < threads; t++) {
+            pool.submit(() -> {
+                ready.countDown();
+                try {
+                    go.await();
+                } catch (InterruptedException ignored) {
+                }
+                map.computeIfAbsent(7, k -> {
+                    factoryCalls.incrementAndGet();
+                    return "v" + k;
+                });
+            });
+        }
+        assertTrue(ready.await(5, TimeUnit.SECONDS));
+        go.countDown();
+        pool.shutdown();
+        assertTrue(pool.awaitTermination(5, TimeUnit.SECONDS));
+
+        assertEquals(1, factoryCalls.get(), "mapping function ran more than once → not atomic");
+        assertEquals("v7", map.get(7));
+    }
+
+    // ---- Long2ObjectOpenConcurrentHashMap ------------------------------------
+
+    @Test
+    void long2ObjectOpenMap_computeIfAbsentHitsBackingAndIsAtomic() {
+        // This subclass *extends* Long2ObjectOpenHashMap but delegates everything to a ConcurrentHashMap.
+        // The un-overridden computeIfAbsent(long, Long2ObjectFunction) would run against the unused
+        // superclass open-hash storage, so the value would never reach the backing get() reads.
+        var map = new Long2ObjectOpenConcurrentHashMap<String>();
+        AtomicInteger factoryCalls = new AtomicInteger();
+
+        String first = map.computeIfAbsent(5L, k -> {
+            factoryCalls.incrementAndGet();
+            return "v" + k;
+        });
+        assertEquals("v5", first);
+        assertEquals("v5", map.get(5L), "value must land in the concurrent backing, not superclass storage");
+
+        String second = map.computeIfAbsent(5L, k -> {
+            factoryCalls.incrementAndGet();
+            return "should-not-run";
+        });
+        assertEquals("v5", second);
+        assertEquals(1, factoryCalls.get(), "second computeIfAbsent recomputed → it was not reading the backing");
     }
 }
