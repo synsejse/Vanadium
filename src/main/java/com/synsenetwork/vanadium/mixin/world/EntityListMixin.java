@@ -1,7 +1,7 @@
 package com.synsenetwork.vanadium.mixin.world;
 
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
-import com.synsenetwork.vanadium.concurrent.fastutil.Int2ObjectConcurrentHashMap;
+import com.synsenetwork.vanadium.concurrent.Int2ObjectConcurrentHashMap;
 import net.minecraft.entity.Entity;
 import net.minecraft.world.EntityList;
 import org.spongepowered.asm.mixin.Mixin;

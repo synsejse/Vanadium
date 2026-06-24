@@ -1,7 +1,7 @@
 package com.synsenetwork.vanadium.mixin.util;
 
 import com.llamalad7.mixinextras.sugar.Local;
-import com.synsenetwork.vanadium.concurrent.McThreadTracker;
+import com.synsenetwork.vanadium.chunk.McThreadTracker;
 import net.minecraft.util.Util;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;

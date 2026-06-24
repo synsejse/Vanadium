@@ -1,6 +1,6 @@
 package com.synsenetwork.vanadium.mixin.util.collection;
+import java.util.stream.Collectors;
 
-import com.synsenetwork.vanadium.concurrent.ConcurrentCollections;
 import net.minecraft.util.collection.TypeFilterableList;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -30,6 +30,6 @@ public abstract class TypeFilterableListMixin<T> extends AbstractCollection<T> {
 
     @ModifyArg(method = "method_15217", at = @At(value = "INVOKE", target = "Ljava/util/stream/Stream;collect(Ljava/util/stream/Collector;)Ljava/lang/Object;"))
     private <T> Collector<T, ?, List<T>> overwriteCollectToList(Collector<T, ?, List<T>> collector) {
-        return ConcurrentCollections.toList();
+        return Collectors.toCollection(CopyOnWriteArrayList::new);
     }
 }

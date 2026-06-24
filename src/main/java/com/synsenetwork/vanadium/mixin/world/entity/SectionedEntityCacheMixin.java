@@ -1,7 +1,7 @@
 package com.synsenetwork.vanadium.mixin.world.entity;
 
 import it.unimi.dsi.fastutil.longs.LongSortedSet;
-import com.synsenetwork.vanadium.concurrent.fastutil.ConcurrentLongSortedSet;
+import com.synsenetwork.vanadium.concurrent.ConcurrentLongSortedSet;
 import net.minecraft.world.entity.EntityLike;
 import net.minecraft.world.entity.SectionedEntityCache;
 import org.spongepowered.asm.mixin.Final;

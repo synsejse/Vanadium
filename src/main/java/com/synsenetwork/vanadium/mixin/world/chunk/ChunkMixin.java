@@ -1,6 +1,6 @@
 package com.synsenetwork.vanadium.mixin.world.chunk;
+import java.util.concurrent.ConcurrentHashMap;
 
-import com.synsenetwork.vanadium.concurrent.ConcurrentCollections;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.chunk.Chunk;
@@ -17,6 +17,6 @@ public abstract class ChunkMixin {
     @Shadow
     @Final
     @Mutable
-    private Map<BlockPos, BlockEntity> blockEntities =  ConcurrentCollections.newHashMap();
+    private Map<BlockPos, BlockEntity> blockEntities =  new ConcurrentHashMap<>();
 
 }

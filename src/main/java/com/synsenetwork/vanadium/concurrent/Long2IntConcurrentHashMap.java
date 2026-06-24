@@ -1,4 +1,4 @@
-package com.synsenetwork.vanadium.concurrent.fastutil;
+package com.synsenetwork.vanadium.concurrent;
 
 import it.unimi.dsi.fastutil.ints.IntCollection;
 import it.unimi.dsi.fastutil.longs.Long2IntMap;

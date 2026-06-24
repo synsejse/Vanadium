@@ -1,7 +1,7 @@
 package com.synsenetwork.vanadium.mixin.world.chunk.light;
 
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
-import com.synsenetwork.vanadium.concurrent.fastutil.ConcurrentLongLinkedOpenHashSet;
+import com.synsenetwork.vanadium.concurrent.ConcurrentLongLinkedOpenHashSet;
 import net.minecraft.world.chunk.light.PendingUpdateQueue;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;

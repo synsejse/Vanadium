@@ -1,4 +1,4 @@
-package com.synsenetwork.vanadium.concurrent.fastutil;
+package com.synsenetwork.vanadium.concurrent;
 
 import java.util.Collection;
 import java.util.Iterator;

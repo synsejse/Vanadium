@@ -1,8 +1,9 @@
 package com.synsenetwork.vanadium.mixin.server.world;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.Collections;
 
 import it.unimi.dsi.fastutil.longs.LongSet;
-import com.synsenetwork.vanadium.concurrent.ConcurrentCollections;
-import com.synsenetwork.vanadium.concurrent.fastutil.ConcurrentLongLinkedOpenHashSet;
+import com.synsenetwork.vanadium.concurrent.ConcurrentLongLinkedOpenHashSet;
 import net.minecraft.server.world.ChunkHolder;
 import net.minecraft.server.world.ChunkTicketManager;
 import org.spongepowered.asm.mixin.Final;
@@ -18,7 +19,7 @@ public abstract class ChunkTicketManagerMixin {
     @Shadow
     @Final
     @Mutable
-    Set<ChunkHolder> chunkHoldersWithPendingUpdates = ConcurrentCollections.newHashSet();
+    Set<ChunkHolder> chunkHoldersWithPendingUpdates = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     @Shadow
     @Final

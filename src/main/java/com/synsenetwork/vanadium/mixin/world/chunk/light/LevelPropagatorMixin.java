@@ -1,7 +1,7 @@
 package com.synsenetwork.vanadium.mixin.world.chunk.light;
 
 import it.unimi.dsi.fastutil.longs.Long2ByteMap;
-import com.synsenetwork.vanadium.concurrent.fastutil.Long2ByteConcurrentHashMap;
+import com.synsenetwork.vanadium.concurrent.Long2ByteConcurrentHashMap;
 import net.minecraft.world.chunk.light.LevelPropagator;
 import org.objectweb.asm.Opcodes;
 import org.spongepowered.asm.mixin.Final;
