@@ -2,7 +2,6 @@ package com.synsenetwork.vanadium.tick;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
-import it.unimi.dsi.fastutil.objects.ObjectIterator;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -62,13 +61,7 @@ public final class CellGrid {
     /** Starts a new tick: ages and evicts idle cells, then clears per-tick state. */
     public void beginTick() {
         tick++;
-        ObjectIterator<Cell> it = cells.values().iterator();
-        while (it.hasNext()) {
-            Cell cell = it.next();
-            if (tick - cell.lastActiveTick() > IDLE_EVICT_TICKS) {
-                it.remove();
-            }
-        }
+        cells.values().removeIf(cell -> tick - cell.lastActiveTick() > IDLE_EVICT_TICKS);
         resetActive();
     }
 
@@ -94,8 +87,8 @@ public final class CellGrid {
 
     private void resetActive() {
         for (List<Cell> bucket : buckets) {
-            for (int i = 0; i < bucket.size(); i++) {
-                bucket.get(i).clearTasks();
+            for (Cell cell : bucket) {
+                cell.clearTasks();
             }
             bucket.clear();
         }

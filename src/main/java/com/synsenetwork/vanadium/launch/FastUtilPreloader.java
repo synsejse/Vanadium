@@ -28,7 +28,7 @@ public class FastUtilPreloader implements PreLaunchEntrypoint {
             FabricLauncherBase.getLauncher().loadIntoTarget("it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap$FastEntryIterator");
             FabricLauncherBase.getLauncher().loadIntoTarget("it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap$MapIterator");
         } catch (ClassNotFoundException e) {
-            e.printStackTrace();
+            fastUtilPreloaderLogger.error("Failed to load FastUtil classes into target classloader", e);
         }
     }
 }

@@ -47,8 +47,8 @@ public final class Cell implements Runnable {
 
     @Override
     public void run() {
-        for (int i = 0; i < tasks.size(); i++) {
-            tasks.get(i).run();
+        for (Runnable task : tasks) {
+            task.run();
         }
     }
 }
