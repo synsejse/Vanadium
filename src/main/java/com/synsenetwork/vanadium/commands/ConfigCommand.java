@@ -15,9 +15,10 @@ import static net.minecraft.server.command.CommandManager.literal;
 
 public class ConfigCommand {
     public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
-        LiteralArgumentBuilder<ServerCommandSource> vanadiumconfig = literal("vanadium");
-        vanadiumconfig = vanadiumconfig.then(registerConfig(literal("config")));
-dispatcher.register(vanadiumconfig);
+        LiteralArgumentBuilder<ServerCommandSource> vanadium = literal("vanadium");
+        vanadium = vanadium.then(registerConfig(literal("config")));
+        vanadium = vanadium.then(registerDebug(literal("debug")));
+        dispatcher.register(vanadium);
     }
 
     public static ArgumentBuilder<ServerCommandSource, ?> registerConfig(LiteralArgumentBuilder<ServerCommandSource> root) {
@@ -63,21 +64,6 @@ dispatcher.register(vanadiumconfig);
                     cmdCtx.getSource().sendFeedback(() -> message, true);
                     return 1;
                 }))
-                .then(literal("debug")
-                        .then(literal("on").executes(cmdCtx -> {
-                            ServerPlayerEntity player = cmdCtx.getSource().getPlayerOrThrow();
-                            Vanadium.debug.subscribe(player.getUuid());
-                            cmdCtx.getSource().sendFeedback(
-                                    () -> Text.literal("Vanadium debug rendering enabled"), false);
-                            return 1;
-                        }))
-                        .then(literal("off").executes(cmdCtx -> {
-                            ServerPlayerEntity player = cmdCtx.getSource().getPlayerOrThrow();
-                            Vanadium.debug.unsubscribe(player.getUuid());
-                            cmdCtx.getSource().sendFeedback(
-                                    () -> Text.literal("Vanadium debug rendering disabled"), false);
-                            return 1;
-                        })))
                 .then(literal("save").requires(cmdSrc -> {
                     return cmdSrc.hasPermissionLevel(2);
                 }).executes(cmdCtx -> {
@@ -85,6 +71,24 @@ dispatcher.register(vanadiumconfig);
                     cmdCtx.getSource().sendFeedback(() -> message, true);
                     AutoConfig.getConfigHolder(VanadiumConfig.class).save();
                     cmdCtx.getSource().sendFeedback(() -> Text.literal("Done!"), true);
+                    return 1;
+                }));
+    }
+
+    public static ArgumentBuilder<ServerCommandSource, ?> registerDebug(LiteralArgumentBuilder<ServerCommandSource> root) {
+        return root
+                .then(literal("on").executes(cmdCtx -> {
+                    ServerPlayerEntity player = cmdCtx.getSource().getPlayerOrThrow();
+                    Vanadium.debug.subscribe(player.getUuid());
+                    cmdCtx.getSource().sendFeedback(
+                            () -> Text.literal("Vanadium debug rendering enabled"), false);
+                    return 1;
+                }))
+                .then(literal("off").executes(cmdCtx -> {
+                    ServerPlayerEntity player = cmdCtx.getSource().getPlayerOrThrow();
+                    Vanadium.debug.unsubscribe(player.getUuid());
+                    cmdCtx.getSource().sendFeedback(
+                            () -> Text.literal("Vanadium debug rendering disabled"), false);
                     return 1;
                 }));
     }
