@@ -50,11 +50,8 @@ public final class TickSampler {
                 .add(new DebugFramePayload.ChunkTick(chunkX, chunkZ, nanos));
     }
 
-    /** Builds a frame of just the samples that fall inside the cell owning (playerChunkX, playerChunkZ). */
-    public DebugFramePayload frameFor(RegistryKey<World> world, int playerChunkX, int playerChunkZ) {
-        int cellX = Math.floorDiv(playerChunkX, cellSize);
-        int cellZ = Math.floorDiv(playerChunkZ, cellSize);
-
+    /** Builds a frame of the samples within {@code chunkRadius} chunks of (playerChunkX, playerChunkZ). */
+    public DebugFramePayload frameFor(RegistryKey<World> world, int playerChunkX, int playerChunkZ, int chunkRadius) {
         List<DebugFramePayload.EntityTick> entities = new ArrayList<>();
         List<DebugFramePayload.BlockEntityTick> blockEntities = new ArrayList<>();
         List<DebugFramePayload.ChunkTick> chunks = new ArrayList<>();
@@ -62,18 +59,19 @@ public final class TickSampler {
         Bucket bucket = byWorld.get(world);
         if (bucket != null) {
             for (DebugFramePayload.EntityTick e : bucket.entities) {
-                if (inCell((int) Math.floor(e.x()) >> 4, (int) Math.floor(e.z()) >> 4, cellX, cellZ)) {
+                if (inRadius((int) Math.floor(e.x()) >> 4, (int) Math.floor(e.z()) >> 4,
+                        playerChunkX, playerChunkZ, chunkRadius)) {
                     entities.add(e);
                 }
             }
             for (DebugFramePayload.BlockEntityTick b : bucket.blockEntities) {
                 BlockPos pos = BlockPos.fromLong(b.pos());
-                if (inCell(pos.getX() >> 4, pos.getZ() >> 4, cellX, cellZ)) {
+                if (inRadius(pos.getX() >> 4, pos.getZ() >> 4, playerChunkX, playerChunkZ, chunkRadius)) {
                     blockEntities.add(b);
                 }
             }
             for (DebugFramePayload.ChunkTick c : bucket.chunks) {
-                if (inCell(c.chunkX(), c.chunkZ(), cellX, cellZ)) {
+                if (inRadius(c.chunkX(), c.chunkZ(), playerChunkX, playerChunkZ, chunkRadius)) {
                     chunks.add(c);
                 }
             }
@@ -85,7 +83,7 @@ public final class TickSampler {
         byWorld.clear();
     }
 
-    private boolean inCell(int chunkX, int chunkZ, int cellX, int cellZ) {
-        return Math.floorDiv(chunkX, cellSize) == cellX && Math.floorDiv(chunkZ, cellSize) == cellZ;
+    private static boolean inRadius(int chunkX, int chunkZ, int playerChunkX, int playerChunkZ, int radius) {
+        return Math.abs(chunkX - playerChunkX) <= radius && Math.abs(chunkZ - playerChunkZ) <= radius;
     }
 }

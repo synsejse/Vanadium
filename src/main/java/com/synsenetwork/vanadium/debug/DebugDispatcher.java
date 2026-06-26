@@ -88,8 +88,9 @@ public final class DebugDispatcher {
                 continue;
             }
             ChunkPos chunk = player.getChunkPos();
+            int radius = server.getPlayerManager().getViewDistance();
             DebugFramePayload frame = sampler.frameFor(
-                    player.getServerWorld().getRegistryKey(), chunk.x, chunk.z);
+                    player.getServerWorld().getRegistryKey(), chunk.x, chunk.z, radius);
             ServerPlayNetworking.send(player, frame);
         }
         sampler.reset();
