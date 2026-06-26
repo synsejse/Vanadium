@@ -42,7 +42,7 @@ public final class CellDebugRenderer {
     private static final int COLOR_MEDIUM = 0xFFFFFF55;
     private static final int COLOR_HIGH = 0xFFFF5555;
 
-    private static final long PULSE_MS = 200;
+    private static final float CONTENT_ALPHA = 0.85f;
 
     // Label text scales with distance: scale = LABEL_REF_DIST / distance, clamped.
     private static final double LABEL_REF_DIST = 12.0;
@@ -73,8 +73,6 @@ public final class CellDebugRenderer {
             return;
         }
 
-        float pulse = pulse(now, DebugFrameHolder.receivedAtMs());
-
         double px = client.player.getX();
         double py = client.player.getY();
         double pz = client.player.getZ();
@@ -101,7 +99,7 @@ public final class CellDebugRenderer {
 
         matrices.push();
         matrices.translate(-cam.x, -cam.y, -cam.z);
-        renderContents(client, matrices, lines, frame, pulse);
+        renderContents(client, matrices, lines, frame);
         matrices.pop();
         consumers.draw(RenderLayer.getLines());
 
@@ -111,13 +109,13 @@ public final class CellDebugRenderer {
 
     /** Highlights the ticked objects, each colored by its owning cell's checkerboard color. */
     private static void renderContents(MinecraftClient client, MatrixStack matrices, VertexConsumer lines,
-                                       DebugFramePayload frame, float pulse) {
+                                       DebugFramePayload frame) {
         ClientWorld world = client.world;
         if (world == null || client.player == null) {
             return;
         }
         int cellSize = frame.cellSize();
-        float a = Math.min(1.0f, 0.4f + 0.6f * pulse);
+        float a = CONTENT_ALPHA;
         int playerId = client.player.getId();
 
         // ENTITY: box the live entity by id, falling back to its sampled position if it is gone.
@@ -275,13 +273,5 @@ public final class CellDebugRenderer {
             return String.format(java.util.Locale.ROOT, "%.0fus", nanos / 1_000.0);
         }
         return nanos + "ns";
-    }
-
-    private static float pulse(long now, long receivedAtMs) {
-        long age = now - receivedAtMs;
-        if (age >= PULSE_MS) {
-            return 0.0f;
-        }
-        return 1.0f - (float) age / PULSE_MS;
     }
 }
