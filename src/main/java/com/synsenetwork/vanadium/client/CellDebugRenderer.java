@@ -24,6 +24,7 @@ import org.joml.Vector4f;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public final class CellDebugRenderer {
 
@@ -60,6 +61,7 @@ public final class CellDebugRenderer {
     private static double labelCamY;
     private static double labelCamZ;
     private static boolean labelsReady = false;
+    private static DebugFramePayload.Stats latestStats;
 
     private CellDebugRenderer() {
     }
@@ -104,6 +106,7 @@ public final class CellDebugRenderer {
         consumers.draw(RenderLayer.getLines());
 
         collectLabels(client, frame, px, py, pz);
+        latestStats = frame.stats();
         labelsReady = true;
     }
 
@@ -191,11 +194,17 @@ public final class CellDebugRenderer {
 
     /** HUD pass: project each label and draw two lines — duration, then a colored load word below it. */
     public static void renderHud(DrawContext context) {
-        if (!labelsReady || LABELS.isEmpty()) {
+        if (!labelsReady) {
             return;
         }
         MinecraftClient client = MinecraftClient.getInstance();
         TextRenderer textRenderer = client.textRenderer;
+        if (latestStats != null) {
+            drawStatsPanel(context, textRenderer, latestStats);
+        }
+        if (LABELS.isEmpty()) {
+            return;
+        }
         int screenWidth = client.getWindow().getScaledWidth();
         int screenHeight = client.getWindow().getScaledHeight();
 
@@ -273,5 +282,86 @@ public final class CellDebugRenderer {
             return String.format(java.util.Locale.ROOT, "%.0fus", nanos / 1_000.0);
         }
         return nanos + "ns";
+    }
+
+    /** Top-left scheduler dashboard: per-stage times (longest highlighted), sync wait, cache rate, throughput. */
+    private static void drawStatsPanel(DrawContext ctx, TextRenderer tr, DebugFramePayload.Stats s) {
+        int t = Math.max(1, s.ticks());
+        int w = Math.max(1, s.workers());
+        double chunkMs = perTickMs(s.chunkNanos(), t);
+        double entityMs = perTickMs(s.entityNanos(), t);
+        double beMs = perTickMs(s.blockEntityNanos(), t);
+        double parallelMs = chunkMs + entityMs + beMs;
+        double workMs = perTickMs(s.workNanos(), t);
+        double syncMs = Math.max(0.0, parallelMs - workMs / w);            // imbalance: wall beyond a balanced split
+        double eff = parallelMs > 0 ? Math.min(100.0, workMs / w / parallelMs * 100.0) : 0.0;
+        long hits = s.cacheHits();
+        long lookups = hits + s.cacheMisses();
+        double rate = lookups > 0 ? hits * 100.0 / lookups : 100.0;
+        double maxStage = Math.max(chunkMs, Math.max(entityMs, beMs));
+
+        List<String> texts = new ArrayList<>();
+        List<Integer> colors = new ArrayList<>();
+        addLine(texts, colors, String.format(Locale.ROOT, "Vanadium   MSPT %.1f   workers %d   (avg/%dt)",
+                s.mspt(), s.workers(), s.ticks()), 0xFFFFFFFF);
+        addLine(texts, colors, String.format(Locale.ROOT, "CHUNK    %.2f ms", chunkMs), stageColor(chunkMs, maxStage));
+        addLine(texts, colors, String.format(Locale.ROOT, "ENTITY   %.2f ms", entityMs), stageColor(entityMs, maxStage));
+        addLine(texts, colors, String.format(Locale.ROOT, "BLOCKENT %.2f ms", beMs), stageColor(beMs, maxStage));
+        addLine(texts, colors, String.format(Locale.ROOT, "parallel %.2f ms   sync-wait %.2f ms   %.0f%% eff",
+                parallelMs, syncMs, eff), 0xFFB0B0B0);
+        addLine(texts, colors, String.format(Locale.ROOT, "cache/t   %s hit   %s miss   %s bounce   %.0f%%",
+                compact(s.cacheHits() / t), compact(s.cacheMisses() / t), compact(s.cacheBounces() / t), rate),
+                cacheColor(rate));
+        addLine(texts, colors, String.format(Locale.ROOT, "ticked/t   cells %d   chunk %d   ent %d   be %d",
+                perTick(s.cellsRun(), t), perTick(s.chunksTicked(), t),
+                perTick(s.entitiesTicked(), t), perTick(s.blockEntitiesTicked(), t)), 0xFFFFFFFF);
+
+        int pad = 3;
+        int lineH = tr.fontHeight + 1;
+        int width = 0;
+        for (String line : texts) {
+            width = Math.max(width, tr.getWidth(line));
+        }
+        int x = 4;
+        int y = 4;
+        ctx.fill(x - pad, y - pad, x + width + pad, y + texts.size() * lineH + pad, 0x90000000);
+        for (int i = 0; i < texts.size(); i++) {
+            ctx.drawText(tr, texts.get(i), x, y + i * lineH, colors.get(i), true);
+        }
+    }
+
+    private static void addLine(List<String> texts, List<Integer> colors, String text, int color) {
+        texts.add(text);
+        colors.add(color);
+    }
+
+    private static double perTickMs(long nanos, int ticks) {
+        return nanos / (double) ticks / 1_000_000.0;
+    }
+
+    private static int perTick(int total, int ticks) {
+        return Math.round(total / (float) ticks);
+    }
+
+    private static int stageColor(double ms, double maxMs) {
+        return ms >= maxMs && maxMs > 0 ? COLOR_HIGH : 0xFFD0D0D0;
+    }
+
+    private static int cacheColor(double rate) {
+        return rate >= 90 ? COLOR_LOW : rate >= 70 ? COLOR_MEDIUM : COLOR_HIGH;
+    }
+
+    /** Compact human count: 45123 -> "45k", 1_200_000 -> "1.2M". */
+    private static String compact(long n) {
+        if (n >= 1_000_000) {
+            return String.format(Locale.ROOT, "%.1fM", n / 1_000_000.0);
+        }
+        if (n >= 10_000) {
+            return (n / 1000) + "k";
+        }
+        if (n >= 1_000) {
+            return String.format(Locale.ROOT, "%.1fk", n / 1000.0);
+        }
+        return Long.toString(n);
     }
 }

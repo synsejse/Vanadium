@@ -1,5 +1,6 @@
 package com.synsenetwork.vanadium.debug;
 
+import com.synsenetwork.vanadium.tick.SchedulerStats;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
@@ -10,7 +11,7 @@ class DebugDispatcherTest {
 
     @Test
     void recordingTracksSubscriptions() {
-        var d = new DebugDispatcher(8);
+        var d = new DebugDispatcher(8, new SchedulerStats());
         UUID a = UUID.randomUUID();
         assertFalse(d.isRecording());
 

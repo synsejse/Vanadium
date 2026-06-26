@@ -13,9 +13,22 @@ import java.util.List;
  * sampling window (see the dispatcher). Durations are in nanoseconds.
  */
 public record DebugFramePayload(int cellSize,
+                                Stats stats,
                                 List<EntityTick> entities,
                                 List<BlockEntityTick> blockEntities,
                                 List<ChunkTick> chunks) implements CustomPayload {
+
+    /**
+     * Aggregate scheduler telemetry for the sampling window, for the HUD panel. The {@code *Nanos} and
+     * count fields are summed over {@code ticks}; the client divides by {@code ticks} for per-tick figures.
+     */
+    public record Stats(int ticks, int workers,
+                        long chunkNanos, long entityNanos, long blockEntityNanos,
+                        long workNanos,
+                        int cellsRun, int chunksTicked, int entitiesTicked, int blockEntitiesTicked,
+                        long cacheHits, long cacheMisses, long cacheBounces,
+                        float mspt) {
+    }
 
     /** One entity's tick: its network id, position at sample time, and how long ticking it took. */
     public record EntityTick(int id, double x, double y, double z, long nanos) {
@@ -37,6 +50,21 @@ public record DebugFramePayload(int cellSize,
 
     private void write(PacketByteBuf buf) {
         buf.writeVarInt(cellSize);
+
+        buf.writeVarInt(stats.ticks());
+        buf.writeVarInt(stats.workers());
+        buf.writeVarLong(stats.chunkNanos());
+        buf.writeVarLong(stats.entityNanos());
+        buf.writeVarLong(stats.blockEntityNanos());
+        buf.writeVarLong(stats.workNanos());
+        buf.writeVarInt(stats.cellsRun());
+        buf.writeVarInt(stats.chunksTicked());
+        buf.writeVarInt(stats.entitiesTicked());
+        buf.writeVarInt(stats.blockEntitiesTicked());
+        buf.writeVarLong(stats.cacheHits());
+        buf.writeVarLong(stats.cacheMisses());
+        buf.writeVarLong(stats.cacheBounces());
+        buf.writeFloat(stats.mspt());
 
         buf.writeVarInt(entities.size());
         for (EntityTick e : entities) {
@@ -64,6 +92,13 @@ public record DebugFramePayload(int cellSize,
     private static DebugFramePayload read(PacketByteBuf buf) {
         int cellSize = buf.readVarInt();
 
+        Stats stats = new Stats(buf.readVarInt(), buf.readVarInt(),
+                buf.readVarLong(), buf.readVarLong(), buf.readVarLong(),
+                buf.readVarLong(),
+                buf.readVarInt(), buf.readVarInt(), buf.readVarInt(), buf.readVarInt(),
+                buf.readVarLong(), buf.readVarLong(), buf.readVarLong(),
+                buf.readFloat());
+
         int entityCount = buf.readVarInt();
         List<EntityTick> entities = new ArrayList<>(entityCount);
         for (int i = 0; i < entityCount; i++) {
@@ -83,7 +118,7 @@ public record DebugFramePayload(int cellSize,
             chunks.add(new ChunkTick(buf.readVarInt(), buf.readVarInt(), buf.readVarLong()));
         }
 
-        return new DebugFramePayload(cellSize, entities, blockEntities, chunks);
+        return new DebugFramePayload(cellSize, stats, entities, blockEntities, chunks);
     }
 
     @Override

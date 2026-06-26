@@ -11,6 +11,7 @@ import com.synsenetwork.vanadium.commands.DebugCommand;
 import com.synsenetwork.vanadium.config.VanadiumConfig;
 import com.synsenetwork.vanadium.debug.DebugDispatcher;
 import com.synsenetwork.vanadium.debug.DebugFramePayload;
+import com.synsenetwork.vanadium.tick.SchedulerStats;
 import com.synsenetwork.vanadium.tick.TickScheduler;
 import com.synsenetwork.vanadium.tick.WorkerPool;
 import org.apache.logging.log4j.LogManager;
@@ -21,6 +22,7 @@ public class Vanadium implements ModInitializer {
     public static VanadiumConfig config;
     public static TickScheduler scheduler;
     public static DebugDispatcher debug;
+    public static SchedulerStats stats;
 
     @Override
     public void onInitialize() {
@@ -30,10 +32,13 @@ public class Vanadium implements ModInitializer {
         holder.load();
         config = holder.getConfig();
 
-        WorkerPool pool = new WorkerPool(VanadiumConfig.getParallelism());
-        scheduler = new TickScheduler(pool, VanadiumConfig.resolveCellSize());
+        stats = new SchedulerStats();
+        stats.setWorkers(VanadiumConfig.getParallelism());
 
-        debug = new DebugDispatcher(VanadiumConfig.resolveCellSize());
+        WorkerPool pool = new WorkerPool(VanadiumConfig.getParallelism());
+        scheduler = new TickScheduler(pool, VanadiumConfig.resolveCellSize(), stats);
+
+        debug = new DebugDispatcher(VanadiumConfig.resolveCellSize(), stats);
         PayloadTypeRegistry.playS2C().register(DebugFramePayload.ID, DebugFramePayload.CODEC);
         debug.register();
 

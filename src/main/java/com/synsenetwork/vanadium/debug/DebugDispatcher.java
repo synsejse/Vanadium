@@ -1,5 +1,6 @@
 package com.synsenetwork.vanadium.debug;
 
+import com.synsenetwork.vanadium.tick.SchedulerStats;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
@@ -23,10 +24,12 @@ public final class DebugDispatcher {
 
     private final Set<UUID> subscribers = ConcurrentHashMap.newKeySet();
     private final TickSampler sampler;
+    private final SchedulerStats stats;
     private volatile boolean sampling = false;
 
-    public DebugDispatcher(int cellSize) {
+    public DebugDispatcher(int cellSize, SchedulerStats stats) {
         this.sampler = new TickSampler(cellSize);
+        this.stats = stats;
     }
 
     public boolean isRecording() {
@@ -67,8 +70,11 @@ public final class DebugDispatcher {
     }
 
     public void register() {
-        ServerTickEvents.START_SERVER_TICK.register(server ->
-                sampling = isRecording() && server.getTicks() % SAMPLE_INTERVAL == 0);
+        ServerTickEvents.START_SERVER_TICK.register(server -> {
+            boolean recording = isRecording();
+            stats.setEnabled(recording);
+            sampling = recording && server.getTicks() % SAMPLE_INTERVAL == 0;
+        });
         ServerTickEvents.END_SERVER_TICK.register(this::onEndTick);
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
             ServerPlayerEntity player = handler.getPlayer();
@@ -79,9 +85,13 @@ public final class DebugDispatcher {
     }
 
     private void onEndTick(MinecraftServer server) {
+        if (stats.isEnabled()) {
+            stats.markTick();
+        }
         if (!sampling) {
             return;
         }
+        DebugFramePayload.Stats frameStats = buildStats(server);
         for (UUID id : subscribers) {
             ServerPlayerEntity player = server.getPlayerManager().getPlayer(id);
             if (player == null) {
@@ -90,10 +100,20 @@ public final class DebugDispatcher {
             ChunkPos chunk = player.getChunkPos();
             int radius = server.getPlayerManager().getViewDistance();
             DebugFramePayload frame = sampler.frameFor(
-                    player.getServerWorld().getRegistryKey(), chunk.x, chunk.z, radius);
+                    player.getServerWorld().getRegistryKey(), chunk.x, chunk.z, radius, frameStats);
             ServerPlayNetworking.send(player, frame);
         }
         sampler.reset();
         sampling = false;
+    }
+
+    private DebugFramePayload.Stats buildStats(MinecraftServer server) {
+        SchedulerStats.Snapshot s = stats.snapshotAndReset();
+        return new DebugFramePayload.Stats(s.ticks(), s.workers(),
+                s.chunkNanos(), s.entityNanos(), s.blockEntityNanos(),
+                s.workNanos(),
+                s.cellsRun(), s.chunksTicked(), s.entitiesTicked(), s.blockEntitiesTicked(),
+                s.cacheHits(), s.cacheMisses(), s.cacheBounces(),
+                server.getAverageTickTime());
     }
 }

@@ -17,7 +17,8 @@ class DebugFrameHolderTest {
 
     @Test
     void returnsFrameWithinTimeoutAndNullAfter() {
-        var frame = new DebugFramePayload(8, List.of(), List.of(), List.of());
+        var stats = new DebugFramePayload.Stats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0f);
+        var frame = new DebugFramePayload(8, stats, List.of(), List.of(), List.of());
         DebugFrameHolder.set(frame, 1000L);
 
         assertSame(frame, DebugFrameHolder.current(1500L)); // within 1s

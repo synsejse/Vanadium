@@ -2,6 +2,7 @@ package com.synsenetwork.vanadium.chunk;
 
 import com.mojang.datafixers.DataFixer;
 import com.synsenetwork.vanadium.Vanadium;
+import com.synsenetwork.vanadium.tick.SchedulerStats;
 import net.minecraft.server.WorldGenerationProgressListener;
 import net.minecraft.server.world.ServerChunkManager;
 import net.minecraft.server.world.ServerWorld;
@@ -59,6 +60,7 @@ public class ParallelChunkManager extends ServerChunkManager {
     public Chunk getChunk(int chunkX, int chunkZ, ChunkStatus requiredStatus, boolean load) {
         // A server "Main" worker thread must not load chunks off the main thread; bounce it back.
         if (McThreadTracker.isPooled("Main", Thread.currentThread())) {
+            bounce();
             return CompletableFuture.supplyAsync(
                     () -> getChunk(chunkX, chunkZ, requiredStatus, load), this.mainThreadExecutor).join();
         }
@@ -69,6 +71,7 @@ public class ParallelChunkManager extends ServerChunkManager {
         long pos = ChunkPos.toLong(chunkX, chunkZ);
         Chunk cached = lookup(pos, requiredStatus);
         if (cached != null) {
+            hit();
             return cached;
         }
 
@@ -79,8 +82,10 @@ public class ParallelChunkManager extends ServerChunkManager {
             try {
                 Chunk c = lookup(pos, requiredStatus);
                 if (c != null) {
+                    hit();
                     return c;
                 }
+                miss();
                 chunk = super.getChunk(chunkX, chunkZ, requiredStatus, load);
             } finally {
                 loadingLocks.unlock(held);
@@ -89,8 +94,10 @@ public class ParallelChunkManager extends ServerChunkManager {
             synchronized (this) {
                 Chunk c = lookup(pos, requiredStatus);
                 if (c != null) {
+                    hit();
                     return c;
                 }
+                miss();
                 chunk = super.getChunk(chunkX, chunkZ, requiredStatus, load);
             }
         }
@@ -103,6 +110,21 @@ public class ParallelChunkManager extends ServerChunkManager {
     private Chunk lookup(long chunkPos, ChunkStatus status) {
         WeakReference<Chunk> ref = chunkCache.get(new CacheKey(chunkPos, status.getIndex()));
         return ref != null ? ref.get() : null;
+    }
+
+    private void hit() {
+        SchedulerStats s = Vanadium.stats;
+        if (s != null && s.isEnabled()) s.cacheHit();
+    }
+
+    private void miss() {
+        SchedulerStats s = Vanadium.stats;
+        if (s != null && s.isEnabled()) s.cacheMiss();
+    }
+
+    private void bounce() {
+        SchedulerStats s = Vanadium.stats;
+        if (s != null && s.isEnabled()) s.cacheBounce();
     }
 
     private void cacheCleanupLoop() {

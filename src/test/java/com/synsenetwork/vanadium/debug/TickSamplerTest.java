@@ -10,6 +10,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class TickSamplerTest {
 
     private static final RegistryKey<World> W = World.OVERWORLD;
+    private static final DebugFramePayload.Stats STATS =
+            new DebugFramePayload.Stats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0f);
 
     @Test
     void keepsOnlySamplesWithinRadius() {
@@ -22,7 +24,7 @@ class TickSamplerTest {
         sampler.recordBlockEntity(W, new BlockPos(5, 64, 5).asLong(), 12L);   // chunk (0,0) KEEP
         sampler.recordBlockEntity(W, new BlockPos(200, 64, 5).asLong(), 3L);  // chunk (12,0) DROP
 
-        DebugFramePayload frame = sampler.frameFor(W, 0, 0, 2); // player chunk (0,0), radius 2
+        DebugFramePayload frame = sampler.frameFor(W, 0, 0, 2, STATS); // player chunk (0,0), radius 2
 
         assertEquals(8, frame.cellSize());
         assertEquals(1, frame.entities().size());
@@ -40,7 +42,7 @@ class TickSamplerTest {
         sampler.recordEntity(W, 1, 0.0, 0.0, 0.0, 1L);
         sampler.reset();
 
-        DebugFramePayload frame = sampler.frameFor(W, 0, 0, 8);
+        DebugFramePayload frame = sampler.frameFor(W, 0, 0, 8, STATS);
         assertTrue(frame.entities().isEmpty());
         assertTrue(frame.blockEntities().isEmpty());
         assertTrue(frame.chunks().isEmpty());

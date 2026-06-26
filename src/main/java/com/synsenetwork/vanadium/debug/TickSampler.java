@@ -51,7 +51,8 @@ public final class TickSampler {
     }
 
     /** Builds a frame of the samples within {@code chunkRadius} chunks of (playerChunkX, playerChunkZ). */
-    public DebugFramePayload frameFor(RegistryKey<World> world, int playerChunkX, int playerChunkZ, int chunkRadius) {
+    public DebugFramePayload frameFor(RegistryKey<World> world, int playerChunkX, int playerChunkZ, int chunkRadius,
+                                      DebugFramePayload.Stats stats) {
         List<DebugFramePayload.EntityTick> entities = new ArrayList<>();
         List<DebugFramePayload.BlockEntityTick> blockEntities = new ArrayList<>();
         List<DebugFramePayload.ChunkTick> chunks = new ArrayList<>();
@@ -76,7 +77,7 @@ public final class TickSampler {
                 }
             }
         }
-        return new DebugFramePayload(cellSize, entities, blockEntities, chunks);
+        return new DebugFramePayload(cellSize, stats, entities, blockEntities, chunks);
     }
 
     public void reset() {
