@@ -1,6 +1,7 @@
 package com.synsenetwork.vanadium.mixin.server;
 
 import com.synsenetwork.vanadium.Vanadium;
+import com.synsenetwork.vanadium.config.VanadiumConfig;
 import com.synsenetwork.vanadium.tick.WorkerPool;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.ServerTask;
@@ -36,8 +37,8 @@ public abstract class MinecraftServerMixin extends ReentrantThreadExecutor<Serve
 
     @Inject(method = "tickWorlds", at = @At(value = "INVOKE", target = "Ljava/lang/Iterable;iterator()Ljava/util/Iterator;"))
     private void preTick(BooleanSupplier shouldKeepTicking, CallbackInfo ci) {
-        Vanadium.scheduler.setCellSize(Vanadium.config.cellSize);
-        Vanadium.debug.setCellSize(Vanadium.config.cellSize);
+        Vanadium.scheduler.setCellSize(VanadiumConfig.resolveCellSize());
+        Vanadium.debug.setCellSize(VanadiumConfig.resolveCellSize());
     }
 
     @Redirect(method = "reloadResources", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/MinecraftServer;isOnThread()Z"))

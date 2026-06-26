@@ -30,9 +30,9 @@ public class Vanadium implements ModInitializer {
         config = holder.getConfig();
 
         WorkerPool pool = new WorkerPool(VanadiumConfig.getParallelism());
-        scheduler = new TickScheduler(pool, config.cellSize);
+        scheduler = new TickScheduler(pool, VanadiumConfig.resolveCellSize());
 
-        debug = new DebugDispatcher(config.cellSize);
+        debug = new DebugDispatcher(VanadiumConfig.resolveCellSize());
         PayloadTypeRegistry.playS2C().register(DebugFramePayload.ID, DebugFramePayload.CODEC);
         debug.register();
 

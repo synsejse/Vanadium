@@ -1,7 +1,6 @@
 package com.synsenetwork.vanadium.tick;
 
 import java.util.EnumMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -36,23 +35,22 @@ public final class TickScheduler {
         }
     }
 
-    /** Clears a stage's leftover work before the world starts queuing into it. */
+    /** Starts a stage's tick: ages idle cells and clears leftover work. */
     public void begin(Stage stage) {
-        grids.get(stage).clear();
+        grids.get(stage).beginTick();
     }
 
     /** Queues a tick task into the cell that owns (chunkX, chunkZ). */
     public void enqueue(Stage stage, int chunkX, int chunkZ, Runnable task) {
-        grids.get(stage).cellFor(chunkX, chunkZ).add(task);
+        grids.get(stage).enqueue(chunkX, chunkZ, task);
     }
 
-    /** Runs the stage's queued work as four colored passes, then clears it. */
+    /** Runs the stage's queued work as four colored passes, then resets it. */
     public void run(Stage stage) {
         CellGrid grid = grids.get(stage);
         for (int color = 0; color < COLORS; color++) {
-            List<Cell> cells = grid.cellsWithColor(color);
-            pool.runWave(cells.stream().map(cell -> (Runnable) cell::run).toList());
+            pool.runWave(grid.cellsWithColor(color));
         }
-        grid.clear();
+        grid.endTick();
     }
 }

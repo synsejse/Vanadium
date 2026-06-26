@@ -62,6 +62,15 @@ test {
     useJUnitPlatform()
 }
 
+tasks.register('benchScheduler', JavaExec) {
+    group = 'verification'
+    description = 'Runs the scheduler micro-benchmark (SchedulerBench)'
+    dependsOn 'testClasses'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.synsenetwork.vanadium.bench.SchedulerBench'
+    jvmArgs = ['-XX:+UseParallelGC']
+}
+
 loom {
     accessWidenerPath = file("src/main/resources/vanadium.accesswidener")
 }

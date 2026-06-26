@@ -21,7 +21,7 @@ public final class WorkerPool {
     }
 
     /** Runs every task in parallel and blocks until all have finished (a barrier). */
-    public void runWave(Collection<Runnable> tasks) {
+    public void runWave(Collection<? extends Runnable> tasks) {
         if (tasks.isEmpty()) {
             return;
         }

@@ -1,45 +1,107 @@
 package com.synsenetwork.vanadium.tick;
 
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.objects.ObjectIterator;
+
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
- * The cells that have queued work for the current stage of the current world. Built
- * single-threaded during enqueue, then drained color-by-color. Not thread-safe by design —
- * enqueue happens only on the server thread.
+ * The cells for one stage of one world. Cells and their task lists are reused across ticks; each tick
+ * the cells that receive work are recorded in four reusable color buckets, so a wave allocates nothing.
+ * Cells idle for {@link #IDLE_EVICT_TICKS} ticks are evicted. Single-threaded by contract — enqueue and
+ * the tick boundaries run on the server thread; workers read cells only during a wave.
  */
 public final class CellGrid {
-    private final int cellSize;
-    private final Map<CellPos, Cell> cells = new HashMap<>();
+    static final int IDLE_EVICT_TICKS = 100;
+    private static final int COLORS = 4;
 
+    private final int cellSize;
+    private final Long2ObjectMap<Cell> cells = new Long2ObjectOpenHashMap<>();
+    private final List<Cell>[] buckets;
+    private long tick;
+
+    @SuppressWarnings("unchecked")
     public CellGrid(int cellSize) {
         this.cellSize = cellSize;
+        this.buckets = new List[COLORS];
+        for (int i = 0; i < COLORS; i++) {
+            buckets[i] = new ArrayList<>();
+        }
     }
 
     /** The cell owning the chunk at (chunkX, chunkZ), created on first use. */
     public Cell cellFor(int chunkX, int chunkZ) {
-        CellPos pos = CellPos.fromChunk(chunkX, chunkZ, cellSize);
-        return cells.computeIfAbsent(pos, Cell::new);
+        int cellX = Math.floorDiv(chunkX, cellSize);
+        int cellZ = Math.floorDiv(chunkZ, cellSize);
+        long key = pack(cellX, cellZ);
+        Cell cell = cells.get(key);
+        if (cell == null) {
+            cell = new Cell(new CellPos(cellX, cellZ));
+            cells.put(key, cell);
+        }
+        return cell;
     }
 
-    /** Every cell whose color matches, in arbitrary order. */
+    /** Queues a task into the cell owning (chunkX, chunkZ) and records the cell active this tick. */
+    public void enqueue(int chunkX, int chunkZ, Runnable task) {
+        Cell cell = cellFor(chunkX, chunkZ);
+        if (!cell.hasTasks()) {
+            buckets[cell.color()].add(cell);
+        }
+        cell.markActive(tick);
+        cell.add(task);
+    }
+
+    /** The cells of {@code color} that have work this tick. */
     public List<Cell> cellsWithColor(int color) {
-        List<Cell> out = new ArrayList<>();
-        for (Cell cell : cells.values()) {
-            if (cell.color() == color) {
-                out.add(cell);
+        return buckets[color];
+    }
+
+    /** Starts a new tick: ages and evicts idle cells, then clears per-tick state. */
+    public void beginTick() {
+        tick++;
+        ObjectIterator<Cell> it = cells.values().iterator();
+        while (it.hasNext()) {
+            Cell cell = it.next();
+            if (tick - cell.lastActiveTick() > IDLE_EVICT_TICKS) {
+                it.remove();
             }
         }
-        return out;
+        resetActive();
     }
 
+    /** Clears per-tick state after a stage's waves; keeps the cell objects for reuse. */
+    public void endTick() {
+        resetActive();
+    }
+
+    /** True when no cell has work this tick. */
     public boolean isEmpty() {
-        return cells.isEmpty();
+        for (List<Cell> bucket : buckets) {
+            if (!bucket.isEmpty()) {
+                return false;
+            }
+        }
+        return true;
     }
 
-    public void clear() {
-        cells.clear();
+    /** Number of retained (live) cells. Visible for tests. */
+    int size() {
+        return cells.size();
+    }
+
+    private void resetActive() {
+        for (List<Cell> bucket : buckets) {
+            for (int i = 0; i < bucket.size(); i++) {
+                bucket.get(i).clearTasks();
+            }
+            bucket.clear();
+        }
+    }
+
+    private static long pack(int x, int z) {
+        return ((long) x << 32) | (z & 0xFFFFFFFFL);
     }
 }
