@@ -81,6 +81,12 @@ public final class CellDebugRenderer {
 
         Vec3d cam = context.camera().getPos();
         MatrixStack matrices = context.matrixStack();
+        VertexConsumerProvider.Immediate consumers =
+                (VertexConsumerProvider.Immediate) context.consumers();
+        if (matrices == null || consumers == null) {
+            labelsReady = false;
+            return;
+        }
 
         // Capture the exact world->clip transform the GPU uses this frame, so the HUD pass can project
         // label world positions to the screen (camera rotation may live in either matrix).
@@ -91,8 +97,6 @@ public final class CellDebugRenderer {
         labelCamY = cam.y;
         labelCamZ = cam.z;
 
-        VertexConsumerProvider.Immediate consumers =
-                (VertexConsumerProvider.Immediate) context.consumers();
         VertexConsumer lines = consumers.getBuffer(RenderLayer.getLines());
 
         matrices.push();
@@ -109,6 +113,9 @@ public final class CellDebugRenderer {
     private static void renderContents(MinecraftClient client, MatrixStack matrices, VertexConsumer lines,
                                        DebugFramePayload frame, float pulse) {
         ClientWorld world = client.world;
+        if (world == null || client.player == null) {
+            return;
+        }
         int cellSize = frame.cellSize();
         float a = Math.min(1.0f, 0.4f + 0.6f * pulse);
         int playerId = client.player.getId();
@@ -149,7 +156,7 @@ public final class CellDebugRenderer {
     private static void collectLabels(MinecraftClient client, DebugFramePayload frame, double px, double py, double pz) {
         LABELS.clear();
         ClientWorld world = client.world;
-        if (world == null) {
+        if (world == null || client.player == null) {
             return;
         }
         int playerId = client.player.getId();
