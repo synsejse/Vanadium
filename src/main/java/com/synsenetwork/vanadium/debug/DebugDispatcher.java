@@ -98,7 +98,8 @@ public final class DebugDispatcher {
                 continue;
             }
             ChunkPos chunk = player.getChunkPos();
-            int radius = server.getPlayerManager().getViewDistance();
+            // Ticked objects exist within the simulation distance, not the (often smaller) view distance.
+            int radius = server.getPlayerManager().getSimulationDistance();
             DebugFramePayload frame = sampler.frameFor(
                     player.getServerWorld().getRegistryKey(), chunk.x, chunk.z, radius, frameStats);
             ServerPlayNetworking.send(player, frame);

@@ -14,45 +14,59 @@ import net.minecraft.client.render.WorldRenderer;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.entity.Entity;
-import net.minecraft.util.Util;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
+import net.minecraft.util.math.ChunkPos;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.Heightmap;
 import org.joml.Matrix4f;
 import org.joml.Vector4f;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 public final class CellDebugRenderer {
 
-    /** Indexed by CellPos.color() (0..3): red, green, blue, yellow. */
+    /** Cell checkerboard color (active cells), indexed by CellPos.color() (0..3): red, green, blue, yellow. */
     private static final float[][] COLORS = {
             {1.0f, 0.3f, 0.3f},
             {0.3f, 1.0f, 0.3f},
             {0.3f, 0.5f, 1.0f},
             {1.0f, 1.0f, 0.3f},
     };
+    private static final float[] ORANGE = {1.0f, 0.55f, 0.1f}; // partially-active cells
+    private static final float[] GRAY = {0.55f, 0.55f, 0.55f}; // inactive cells
 
-    // Load classification from tick duration. < MED = LOW (green), [MED, HIGH) = MEDIUM (yellow), >= HIGH = HIGH (red).
-    private static final long LOAD_MED_NANOS = 100_000L;    // 100us
-    private static final long LOAD_HIGH_NANOS = 1_000_000L; // 1ms
+    private static final float ACTIVE_ALPHA = 0.55f;
+    private static final float INACTIVE_ALPHA = 0.16f;
+    private static final float PARTIAL_ALPHA = INACTIVE_ALPHA; // translucent like inactive, just orange
+    private static final float CONTENT_ALPHA = 0.85f; // entity / block-entity boxes
+
+    private static final int COLOR_ACTIVE = 0xFF55FF55;  // green
+    private static final int COLOR_PARTIAL = 0xFFFF9020; // orange
+    // Load thresholds for the stats panel cache/stage coloring.
     private static final int COLOR_LOW = 0xFF55FF55;
     private static final int COLOR_MEDIUM = 0xFFFFFF55;
     private static final int COLOR_HIGH = 0xFFFF5555;
 
-    private static final float CONTENT_ALPHA = 0.85f;
+    // Label text scales with distance: scale = LABEL_REF_DIST / distance, clamped. The low floor lets
+    // far labels keep shrinking (perspective-like) instead of flattening to one size.
+    private static final double LABEL_REF_DIST = 18.0;
+    private static final float LABEL_MIN_SCALE = 0.1f;
+    private static final float LABEL_MAX_SCALE = 1.8f;
 
-    // Label text scales with distance: scale = LABEL_REF_DIST / distance, clamped.
-    private static final double LABEL_REF_DIST = 12.0;
-    private static final float LABEL_MIN_SCALE = 0.4f;
-    private static final float LABEL_MAX_SCALE = 2.0f;
+    private enum Activity {INACTIVE, PARTIAL, ACTIVE}
 
-    // Labels are drawn in a HUD pass (screen space). The world pass collects their world positions and
-    // captures the world->clip transform so the HUD pass can project them. All on the render thread.
-    private record Label(double x, double y, double z, double dist, String time, String load, int loadColor) {
+    /** One cell's aggregated activity for this frame. */
+    private record CellInfo(int cellX, int cellZ, Activity activity,
+                            long chunkNanos, long entityNanos, long blockEntityNanos, double topY) {
+    }
+
+    /** One cell's two-line HUD label: a colored status word over an aggregated-times line. */
+    private record Label(double x, double y, double z, double dist, String status, int statusColor, String times) {
     }
 
     private static final List<Label> LABELS = new ArrayList<>();
@@ -62,15 +76,35 @@ public final class CellDebugRenderer {
     private static double labelCamZ;
     private static boolean labelsReady = false;
     private static DebugFramePayload.Stats latestStats;
+    private static ClientWorld lastWorld;
+
+    // Cell surface heights are expensive (a full heightmap scan per chunk) but terrain rarely moves, so
+    // cache them per cell and refresh the whole cache every few seconds (and whenever cellSize changes).
+    private static final Map<Long, Integer> CELL_TOP_CACHE = new HashMap<>();
+    private static final long CELL_TOP_TTL_MS = 3000;
+    private static long cellTopStampMs;
+    private static int cellTopCacheSize = -1;
 
     private CellDebugRenderer() {
     }
 
     public static void render(WorldRenderContext context) {
-        long now = Util.getMeasuringTimeMs();
-        DebugFramePayload frame = DebugFrameHolder.current(now);
         MinecraftClient client = MinecraftClient.getInstance();
-        if (frame == null || client.player == null || client.world == null) {
+        if (client.player == null || client.world == null) {
+            labelsReady = false;
+            lastWorld = null;
+            return;
+        }
+        if (client.world != lastWorld) {
+            // world / dimension changed: drop stale frame and the per-world cell-height cache
+            lastWorld = client.world;
+            DebugFrameHolder.clear();
+            CELL_TOP_CACHE.clear();
+            labelsReady = false;
+            return;
+        }
+        DebugFramePayload frame = DebugFrameHolder.current(System.currentTimeMillis());
+        if (frame == null) {
             labelsReady = false;
             return;
         }
@@ -88,8 +122,7 @@ public final class CellDebugRenderer {
             return;
         }
 
-        // Capture the exact world->clip transform the GPU uses this frame, so the HUD pass can project
-        // label world positions to the screen (camera rotation may live in either matrix).
+        // Capture the exact world->clip transform the GPU uses this frame so the HUD pass can project labels.
         labelMvp.set(RenderSystem.getProjectionMatrix());
         labelMvp.mul(RenderSystem.getModelViewMatrix());
         labelMvp.mul(matrices.peek().getPositionMatrix());
@@ -99,100 +132,163 @@ public final class CellDebugRenderer {
 
         VertexConsumer lines = consumers.getBuffer(RenderLayer.getLines());
 
+        List<CellInfo> cells = buildCells(client, client.world, frame);
+
         matrices.push();
         matrices.translate(-cam.x, -cam.y, -cam.z);
-        renderContents(client, matrices, lines, frame);
+        drawCells(matrices, lines, cells, client.world, frame.cellSize());
+        renderEntities(client, matrices, lines, frame);
+        renderBlockEntities(matrices, lines, frame);
         matrices.pop();
         consumers.draw(RenderLayer.getLines());
 
-        collectLabels(client, frame, px, py, pz);
+        collectCellLabels(cells, frame.cellSize(), px, py, pz);
         latestStats = frame.stats();
         labelsReady = true;
     }
 
-    /** Highlights the ticked objects, each colored by its owning cell's checkerboard color. */
-    private static void renderContents(MinecraftClient client, MatrixStack matrices, VertexConsumer lines,
+    /** Aggregates the frame's per-object timings into cells, then classifies every cell in render distance. */
+    private static List<CellInfo> buildCells(MinecraftClient client, ClientWorld world, DebugFramePayload frame) {
+        int cellSize = frame.cellSize();
+        if (cellSize <= 0) {
+            return List.of();
+        }
+        manageCellTopCache(cellSize);
+
+        // cell key -> {tickedChunks, chunkNanos, entityNanos, blockEntityNanos}
+        Map<Long, long[]> agg = new HashMap<>();
+        for (DebugFramePayload.ChunkTick c : frame.chunks()) {
+            long[] a = agg.computeIfAbsent(cellKey(c.chunkX(), c.chunkZ(), cellSize), k -> new long[4]);
+            a[0]++;
+            a[1] += c.nanos();
+        }
+        for (DebugFramePayload.EntityTick e : frame.entities()) {
+            agg.computeIfAbsent(cellKey((int) Math.floor(e.x()) >> 4, (int) Math.floor(e.z()) >> 4, cellSize),
+                    k -> new long[4])[2] += e.nanos();
+        }
+        for (DebugFramePayload.BlockEntityTick b : frame.blockEntities()) {
+            BlockPos p = BlockPos.fromLong(b.pos());
+            agg.computeIfAbsent(cellKey(p.getX() >> 4, p.getZ() >> 4, cellSize), k -> new long[4])[3] += b.nanos();
+        }
+
+        int viewDist = client.options.getViewDistance().getValue();
+        ChunkPos pc = client.player.getChunkPos();
+        int minCellX = Math.floorDiv(pc.x - viewDist, cellSize);
+        int maxCellX = Math.floorDiv(pc.x + viewDist, cellSize);
+        int minCellZ = Math.floorDiv(pc.z - viewDist, cellSize);
+        int maxCellZ = Math.floorDiv(pc.z + viewDist, cellSize);
+        int totalChunks = cellSize * cellSize;
+
+        List<CellInfo> cells = new ArrayList<>();
+        for (int cellX = minCellX; cellX <= maxCellX; cellX++) {
+            for (int cellZ = minCellZ; cellZ <= maxCellZ; cellZ++) {
+                long[] a = agg.get(pack(cellX, cellZ));
+                int ticked = a == null ? 0 : (int) a[0];
+                boolean entitiesTicking = a != null && (a[2] > 0 || a[3] > 0); // entities or block entities
+                Activity activity;
+                if (ticked >= totalChunks) {
+                    activity = Activity.ACTIVE;
+                } else if (ticked > 0 || entitiesTicking) {
+                    activity = Activity.PARTIAL; // some chunks, or entities/BEs ticking without chunk ticks
+                } else {
+                    activity = Activity.INACTIVE;
+                }
+                cells.add(new CellInfo(cellX, cellZ, activity,
+                        a == null ? 0 : a[1], a == null ? 0 : a[2], a == null ? 0 : a[3],
+                        cellTop(world, cellX, cellZ, cellSize)));
+            }
+        }
+        return cells;
+    }
+
+    /** Footprint column per cell: build floor up to the cell surface, colored by activity. */
+    private static void drawCells(MatrixStack matrices, VertexConsumer lines, List<CellInfo> cells,
+                                  ClientWorld world, int cellSize) {
+        double bottom = world.getBottomY();
+        for (CellInfo c : cells) {
+            float[] color;
+            float alpha;
+            switch (c.activity()) {
+                case ACTIVE -> {
+                    color = COLORS[new CellPos(c.cellX(), c.cellZ()).color()];
+                    alpha = ACTIVE_ALPHA;
+                }
+                case PARTIAL -> {
+                    color = ORANGE;
+                    alpha = PARTIAL_ALPHA;
+                }
+                default -> {
+                    color = GRAY;
+                    alpha = INACTIVE_ALPHA;
+                }
+            }
+            double x0 = (double) c.cellX() * cellSize * 16;
+            double z0 = (double) c.cellZ() * cellSize * 16;
+            Box box = new Box(x0, bottom, z0, x0 + cellSize * 16, c.topY(), z0 + cellSize * 16);
+            WorldRenderer.drawBox(matrices, lines, box, color[0], color[1], color[2], alpha);
+        }
+    }
+
+    /** Boxes the ticked entities (colored by their cell). No per-entity text — that lives on the cell label. */
+    private static void renderEntities(MinecraftClient client, MatrixStack matrices, VertexConsumer lines,
                                        DebugFramePayload frame) {
         ClientWorld world = client.world;
-        if (world == null || client.player == null) {
-            return;
-        }
         int cellSize = frame.cellSize();
-        float a = CONTENT_ALPHA;
         int playerId = client.player.getId();
-
-        // ENTITY: box the live entity by id, falling back to its sampled position if it is gone.
         for (DebugFramePayload.EntityTick e : frame.entities()) {
             if (e.id() == playerId) {
-                continue; // don't box ourselves
+                continue;
             }
             Entity entity = world.getEntityById(e.id());
             Box box = entity != null
                     ? entity.getBoundingBox()
                     : new Box(e.x() - 0.4, e.y(), e.z() - 0.4, e.x() + 0.4, e.y() + 1.0, e.z() + 0.4);
-            float[] c = cellColor((int) Math.floor(e.x()) >> 4, (int) Math.floor(e.z()) >> 4, cellSize);
-            WorldRenderer.drawBox(matrices, lines, box, c[0], c[1], c[2], a);
+            float[] col = cellColor((int) Math.floor(e.x()) >> 4, (int) Math.floor(e.z()) >> 4, cellSize);
+            WorldRenderer.drawBox(matrices, lines, box, col[0], col[1], col[2], CONTENT_ALPHA);
         }
+    }
 
-        // BLOCK_ENTITY: a small marker at each ticked block entity's position.
+    /** Markers at the ticked block entities (colored by their cell). */
+    private static void renderBlockEntities(MatrixStack matrices, VertexConsumer lines, DebugFramePayload frame) {
+        int cellSize = frame.cellSize();
         for (DebugFramePayload.BlockEntityTick b : frame.blockEntities()) {
             BlockPos p = BlockPos.fromLong(b.pos());
             Box marker = new Box(p).expand(0.05);
-            float[] c = cellColor(p.getX() >> 4, p.getZ() >> 4, cellSize);
-            WorldRenderer.drawBox(matrices, lines, marker, c[0], c[1], c[2], a);
-        }
-
-        // CHUNK: a column from the build floor up to the chunk's highest block.
-        double bottom = world.getBottomY();
-        for (DebugFramePayload.ChunkTick ct : frame.chunks()) {
-            double x0 = ct.chunkX() * 16.0;
-            double z0 = ct.chunkZ() * 16.0;
-            double top = highestBlock(world, ct.chunkX(), ct.chunkZ());
-            Box column = new Box(x0, bottom, z0, x0 + 16, top, z0 + 16);
-            float[] c = cellColor(ct.chunkX(), ct.chunkZ(), cellSize);
-            WorldRenderer.drawBox(matrices, lines, column, c[0], c[1], c[2], a * 0.5f);
+            float[] col = cellColor(p.getX() >> 4, p.getZ() >> 4, cellSize);
+            WorldRenderer.drawBox(matrices, lines, marker, col[0], col[1], col[2], CONTENT_ALPHA);
         }
     }
 
-    private static void collectLabels(MinecraftClient client, DebugFramePayload frame, double px, double py, double pz) {
+    private static void collectCellLabels(List<CellInfo> cells, int cellSize, double px, double py, double pz) {
         LABELS.clear();
-        ClientWorld world = client.world;
-        if (world == null || client.player == null) {
-            return;
-        }
-        int playerId = client.player.getId();
-
-        for (DebugFramePayload.EntityTick e : frame.entities()) {
-            if (e.id() == playerId) {
-                continue; // don't label ourselves
+        for (CellInfo c : cells) {
+            if (c.activity() == Activity.INACTIVE) {
+                continue; // the gray box already says "inactive"; no text, to avoid spamming labels
             }
-            Entity entity = world.getEntityById(e.id());
-            double lx = entity != null ? entity.getX() : e.x();
-            double ly = (entity != null ? entity.getY() + entity.getHeight() : e.y()) + 0.4;
-            double lz = entity != null ? entity.getZ() : e.z();
-            addLabel(lx, ly, lz, formatDuration(e.nanos()), e.nanos(), px, py, pz);
-        }
-        for (DebugFramePayload.BlockEntityTick b : frame.blockEntities()) {
-            BlockPos p = BlockPos.fromLong(b.pos());
-            addLabel(p.getX() + 0.5, p.getY() + 1.0, p.getZ() + 0.5, formatDuration(b.nanos()), b.nanos(), px, py, pz);
-        }
-        for (DebugFramePayload.ChunkTick c : frame.chunks()) {
-            double top = highestBlock(world, c.chunkX(), c.chunkZ()) + 0.5;
-            addLabel(c.chunkX() * 16 + 8, top, c.chunkZ() * 16 + 8,
-                    "chunk " + formatDuration(c.nanos()), c.nanos(), px, py, pz);
+            double x = (c.cellX() * cellSize + cellSize / 2.0) * 16.0;
+            double z = (c.cellZ() * cellSize + cellSize / 2.0) * 16.0;
+            double y = c.topY() + 1.0;
+
+            String status;
+            int statusColor;
+            if (c.activity() == Activity.ACTIVE) {
+                status = "active";
+                statusColor = COLOR_ACTIVE;
+            } else {
+                status = "partially active";
+                statusColor = COLOR_PARTIAL;
+            }
+            String times = "chunk " + dur(c.chunkNanos()) + "  ent " + dur(c.entityNanos())
+                    + "  be " + dur(c.blockEntityNanos());
+
+            double dx = x - px;
+            double dy = y - py;
+            double dz = z - pz;
+            LABELS.add(new Label(x, y, z, Math.sqrt(dx * dx + dy * dy + dz * dz), status, statusColor, times));
         }
     }
 
-    private static void addLabel(double x, double y, double z, String time, long nanos,
-                                 double px, double py, double pz) {
-        double dx = x - px;
-        double dy = y - py;
-        double dz = z - pz;
-        LABELS.add(new Label(x, y, z, Math.sqrt(dx * dx + dy * dy + dz * dz),
-                time, loadWord(nanos), loadColor(nanos)));
-    }
-
-    /** HUD pass: project each label and draw two lines — duration, then a colored load word below it. */
+    /** HUD pass: project each cell label, draw the status word over the aggregated-times line. */
     public static void renderHud(DrawContext context) {
         if (!labelsReady) {
             return;
@@ -230,10 +326,10 @@ public final class CellDebugRenderer {
             stack.push();
             stack.translate(sx, sy, 0);
             stack.scale(scale, scale, 1.0f);
-            context.drawText(textRenderer, label.time(),
-                    -textRenderer.getWidth(label.time()) / 2, 0, 0xFFFFFFFF, true);
-            context.drawText(textRenderer, label.load(),
-                    -textRenderer.getWidth(label.load()) / 2, textRenderer.fontHeight + 1, label.loadColor(), true);
+            context.drawText(textRenderer, label.status(),
+                    -textRenderer.getWidth(label.status()) / 2, 0, label.statusColor(), true);
+            context.drawText(textRenderer, label.times(),
+                    -textRenderer.getWidth(label.times()) / 2, textRenderer.fontHeight + 1, 0xFFFFFFFF, true);
             stack.pop();
         }
     }
@@ -242,7 +338,43 @@ public final class CellDebugRenderer {
         return COLORS[new CellPos(Math.floorDiv(chunkX, cellSize), Math.floorDiv(chunkZ, cellSize)).color()];
     }
 
-    /** Highest surface block in the chunk (max of the WORLD_SURFACE heightmap over its 16x16 columns). */
+    private static void manageCellTopCache(int cellSize) {
+        long now = System.currentTimeMillis();
+        if (cellSize != cellTopCacheSize || now - cellTopStampMs > CELL_TOP_TTL_MS) {
+            CELL_TOP_CACHE.clear();
+            cellTopStampMs = now;
+            cellTopCacheSize = cellSize;
+        }
+    }
+
+    /** Cached cell surface height. Computed once per cell per refresh window; see {@link #manageCellTopCache}. */
+    private static double cellTop(ClientWorld world, int cellX, int cellZ, int cellSize) {
+        long key = pack(cellX, cellZ);
+        Integer cached = CELL_TOP_CACHE.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        int top = computeCellTop(world, cellX, cellZ, cellSize);
+        if (top > world.getBottomY()) {
+            CELL_TOP_CACHE.put(key, top); // only cache once the chunks are loaded (a real surface was found)
+        }
+        return top;
+    }
+
+    /** The highest surface block across every chunk in the cell (so the column reaches the cell's peak). */
+    private static int computeCellTop(ClientWorld world, int cellX, int cellZ, int cellSize) {
+        int baseChunkX = cellX * cellSize;
+        int baseChunkZ = cellZ * cellSize;
+        int max = world.getBottomY();
+        for (int dx = 0; dx < cellSize; dx++) {
+            for (int dz = 0; dz < cellSize; dz++) {
+                max = Math.max(max, highestBlock(world, baseChunkX + dx, baseChunkZ + dz));
+            }
+        }
+        return max;
+    }
+
+    /** Highest surface block in one chunk (max of the WORLD_SURFACE heightmap over its 16x16 columns). */
     private static int highestBlock(ClientWorld world, int chunkX, int chunkZ) {
         Heightmap heightmap = world.getChunk(chunkX, chunkZ).getHeightmap(Heightmap.Type.WORLD_SURFACE);
         int max = world.getBottomY();
@@ -254,32 +386,24 @@ public final class CellDebugRenderer {
         return max;
     }
 
-    private static String loadWord(long nanos) {
-        if (nanos >= LOAD_HIGH_NANOS) {
-            return "HIGH";
-        }
-        if (nanos >= LOAD_MED_NANOS) {
-            return "MEDIUM";
-        }
-        return "LOW";
+    private static long pack(int x, int z) {
+        return ((long) x << 32) | (z & 0xFFFFFFFFL);
     }
 
-    private static int loadColor(long nanos) {
-        if (nanos >= LOAD_HIGH_NANOS) {
-            return COLOR_HIGH;
-        }
-        if (nanos >= LOAD_MED_NANOS) {
-            return COLOR_MEDIUM;
-        }
-        return COLOR_LOW;
+    private static long cellKey(int chunkX, int chunkZ, int cellSize) {
+        return pack(Math.floorDiv(chunkX, cellSize), Math.floorDiv(chunkZ, cellSize));
+    }
+
+    private static String dur(long nanos) {
+        return nanos > 0 ? formatDuration(nanos) : "—"; // em dash for an idle category
     }
 
     private static String formatDuration(long nanos) {
         if (nanos >= 1_000_000L) {
-            return String.format(java.util.Locale.ROOT, "%.1fms", nanos / 1_000_000.0);
+            return String.format(Locale.ROOT, "%.1fms", nanos / 1_000_000.0);
         }
         if (nanos >= 1_000L) {
-            return String.format(java.util.Locale.ROOT, "%.0fus", nanos / 1_000.0);
+            return String.format(Locale.ROOT, "%.0fus", nanos / 1_000.0);
         }
         return nanos + "ns";
     }
@@ -293,7 +417,7 @@ public final class CellDebugRenderer {
         double beMs = perTickMs(s.blockEntityNanos(), t);
         double parallelMs = chunkMs + entityMs + beMs;
         double workMs = perTickMs(s.workNanos(), t);
-        double syncMs = Math.max(0.0, parallelMs - workMs / w);            // imbalance: wall beyond a balanced split
+        double syncMs = Math.max(0.0, parallelMs - workMs / w);
         double eff = parallelMs > 0 ? Math.min(100.0, workMs / w / parallelMs * 100.0) : 0.0;
         long hits = s.cacheHits();
         long lookups = hits + s.cacheMisses();
@@ -360,7 +484,7 @@ public final class CellDebugRenderer {
             return (n / 1000) + "k";
         }
         if (n >= 1_000) {
-            return String.format(Locale.ROOT, "%.1fk", n / 1000.0);
+            return String.format(Locale.ROOT, "%.1fk", n / 1_000.0);
         }
         return Long.toString(n);
     }

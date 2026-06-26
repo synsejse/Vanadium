@@ -1,35 +1,35 @@
 package com.synsenetwork.vanadium.client;
 
 import com.synsenetwork.vanadium.debug.DebugFramePayload;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 class DebugFrameHolderTest {
 
-    @BeforeEach
-    void reset() {
-        DebugFrameHolder.set(null, 0L);
-    }
+    private static final DebugFramePayload.Stats STATS =
+            new DebugFramePayload.Stats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0f);
 
     @Test
-    void returnsFrameWithinTimeoutAndNullAfter() {
-        var stats = new DebugFramePayload.Stats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0f);
-        var frame = new DebugFramePayload(8, stats, List.of(), List.of(), List.of());
+    void heldWithinTimeoutThenExpires() {
+        var frame = new DebugFramePayload(8, STATS, List.of(), List.of(), List.of());
         DebugFrameHolder.set(frame, 1000L);
 
-        assertSame(frame, DebugFrameHolder.current(1500L)); // within 1s
-        assertNull(DebugFrameHolder.current(2500L));        // 1.5s later -> expired
-        assertSame(frame, DebugFrameHolder.current(2000L)); // age == 1000ms exactly, still valid
-        assertNull(DebugFrameHolder.current(2001L));        // age == 1001ms, expired
+        assertSame(frame, DebugFrameHolder.current(1500L)); // well within the window
+        assertSame(frame, DebugFrameHolder.current(4000L)); // age == 3000ms exactly, still valid
+        assertNull(DebugFrameHolder.current(4001L));        // age == 3001ms, expired (debug stopped)
     }
 
     @Test
-    void nullWhenNeverSet() {
-        DebugFrameHolder.set(null, 0L);
-        assertNull(DebugFrameHolder.current(10L));
+    void clearDropsFrameImmediately() {
+        var frame = new DebugFramePayload(8, STATS, List.of(), List.of(), List.of());
+        DebugFrameHolder.set(frame, 1000L);
+        assertSame(frame, DebugFrameHolder.current(1000L));
+
+        DebugFrameHolder.clear();
+        assertNull(DebugFrameHolder.current(1000L));
     }
 }
