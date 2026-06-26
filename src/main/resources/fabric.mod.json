@@ -23,6 +23,9 @@
     ],
     "client": [
       "com.synsenetwork.vanadium.client.VanadiumClient"
+    ],
+    "mixinsquared": [
+      "com.synsenetwork.vanadium.mixin.utils.VanadiumMixinCanceller"
     ]
   },
   "accessWidener": "vanadium.accesswidener",

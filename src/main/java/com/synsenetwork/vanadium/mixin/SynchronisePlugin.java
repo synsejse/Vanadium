@@ -51,7 +51,12 @@ public class SynchronisePlugin implements IMixinConfigPlugin {
 
     @Override
     public List<String> getMixins() {
-        return null;
+        // FastUtilsMixin can't apply once C2ME has loaded fastutil, and would serialize C2ME's chunk
+        // system anyway — so skip it under C2ME; standalone, add it dynamically as before.
+        if (FabricLoader.getInstance().isModLoaded("c2me")) {
+            return null;
+        }
+        return List.of("FastUtilsMixin");
     }
 
     @Override

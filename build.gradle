@@ -32,6 +32,9 @@ dependencies {
         exclude(group: "net.fabricmc.fabric-api")
     }
 
+    // MixinSquared API for our C2ME-compat MixinCanceller; provided at runtime by C2ME, so compileOnly.
+    compileOnly "com.github.bawnorton.mixinsquared:mixinsquared-fabric:0.3.3"
+
     testImplementation "org.junit.jupiter:junit-jupiter:5.10.2"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
 }

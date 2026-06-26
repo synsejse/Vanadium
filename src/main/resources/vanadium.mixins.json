@@ -4,7 +4,6 @@
   "package": "com.synsenetwork.vanadium.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "FastUtilsMixin",
     "SyncAllMixin",
     "entity.EntityMixin",
     "entity.ItemEntityMixin",
