@@ -1,31 +1,26 @@
 package com.synsenetwork.vanadium.commands;
 
 import com.mojang.brigadier.CommandDispatcher;
-import com.mojang.brigadier.builder.ArgumentBuilder;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import me.shedaniel.autoconfig.AutoConfig;
 import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.config.VanadiumConfig;
 import net.minecraft.server.command.ServerCommandSource;
-import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 
 import static net.minecraft.server.command.CommandManager.literal;
 
+/** Registers {@code /vanadium config ...} — toggling threading flags, inspecting state, and saving. */
 public class ConfigCommand {
     public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
-        LiteralArgumentBuilder<ServerCommandSource> vanadium = literal("vanadium");
-        vanadium = vanadium.then(registerConfig(literal("config")));
-        vanadium = vanadium.then(registerDebug(literal("debug")));
-        dispatcher.register(vanadium);
+        dispatcher.register(literal("vanadium").then(config()));
     }
 
-    public static ArgumentBuilder<ServerCommandSource, ?> registerConfig(LiteralArgumentBuilder<ServerCommandSource> root) {
+    private static LiteralArgumentBuilder<ServerCommandSource> config() {
         VanadiumConfig config = Vanadium.config;
-        return root.then(literal("toggle").requires(cmdSrc -> {
-                            return cmdSrc.hasPermissionLevel(2);
-                        }).executes(cmdCtx -> {
+        return literal("config")
+                .then(literal("toggle").requires(cmdSrc -> cmdSrc.hasPermissionLevel(2)).executes(cmdCtx -> {
                             config.disabled = !config.disabled;
                             MutableText message = Text.literal(
                                     "Vanadium is now " + (config.disabled ? "disabled" : "enabled"));
@@ -49,8 +44,7 @@ public class ConfigCommand {
                                     + (config.disableEnvironment ? "disabled" : "enabled"));
                             cmdCtx.getSource().sendFeedback(() -> message, true);
                             return 1;
-                        }))
-                )
+                        })))
                 .then(literal("state").executes(cmdCtx -> {
                     StringBuilder messageString = new StringBuilder(
                             "Vanadium is currently " + (config.disabled ? "disabled" : "enabled"));
@@ -64,31 +58,11 @@ public class ConfigCommand {
                     cmdCtx.getSource().sendFeedback(() -> message, true);
                     return 1;
                 }))
-                .then(literal("save").requires(cmdSrc -> {
-                    return cmdSrc.hasPermissionLevel(2);
-                }).executes(cmdCtx -> {
+                .then(literal("save").requires(cmdSrc -> cmdSrc.hasPermissionLevel(2)).executes(cmdCtx -> {
                     MutableText message = Text.literal("Saving Vanadium config to disk...");
                     cmdCtx.getSource().sendFeedback(() -> message, true);
                     AutoConfig.getConfigHolder(VanadiumConfig.class).save();
                     cmdCtx.getSource().sendFeedback(() -> Text.literal("Done!"), true);
-                    return 1;
-                }));
-    }
-
-    public static ArgumentBuilder<ServerCommandSource, ?> registerDebug(LiteralArgumentBuilder<ServerCommandSource> root) {
-        return root
-                .then(literal("on").executes(cmdCtx -> {
-                    ServerPlayerEntity player = cmdCtx.getSource().getPlayerOrThrow();
-                    Vanadium.debug.subscribe(player.getUuid());
-                    cmdCtx.getSource().sendFeedback(
-                            () -> Text.literal("Vanadium debug rendering enabled"), false);
-                    return 1;
-                }))
-                .then(literal("off").executes(cmdCtx -> {
-                    ServerPlayerEntity player = cmdCtx.getSource().getPlayerOrThrow();
-                    Vanadium.debug.unsubscribe(player.getUuid());
-                    cmdCtx.getSource().sendFeedback(
-                            () -> Text.literal("Vanadium debug rendering disabled"), false);
                     return 1;
                 }));
     }

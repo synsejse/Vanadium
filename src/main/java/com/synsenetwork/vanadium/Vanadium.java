@@ -7,6 +7,7 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import com.synsenetwork.vanadium.commands.ConfigCommand;
+import com.synsenetwork.vanadium.commands.DebugCommand;
 import com.synsenetwork.vanadium.config.VanadiumConfig;
 import com.synsenetwork.vanadium.debug.DebugDispatcher;
 import com.synsenetwork.vanadium.debug.DebugFramePayload;
@@ -36,8 +37,10 @@ public class Vanadium implements ModInitializer {
         PayloadTypeRegistry.playS2C().register(DebugFramePayload.ID, DebugFramePayload.CODEC);
         debug.register();
 
-        CommandRegistrationCallback.EVENT.register(
-                (dispatcher, registryAccess, environment) -> ConfigCommand.register(dispatcher));
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
+            ConfigCommand.register(dispatcher);
+            DebugCommand.register(dispatcher);
+        });
 
         LOGGER.info("Vanadium Initialized");
     }
