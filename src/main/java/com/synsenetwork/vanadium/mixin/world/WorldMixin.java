@@ -51,16 +51,7 @@ public abstract class WorldMixin implements WorldAccess, AutoCloseable {
         BlockEntity blockEntity = direct.blockEntity;
         int chunkX = blockEntity.getPos().getX() >> 4;
         int chunkZ = blockEntity.getPos().getZ() >> 4;
-        if (Vanadium.debug.isSampling()) {
-            long pos = blockEntity.getPos().asLong();
-            Vanadium.scheduler.enqueue(Stage.BLOCK_ENTITY, chunkX, chunkZ, () -> {
-                long start = System.nanoTime();
-                blockEntityTickInvoker.tick();
-                Vanadium.debug.recordBlockEntity((ServerWorld) (Object) this, pos, System.nanoTime() - start);
-            });
-        } else {
-            Vanadium.scheduler.enqueue(Stage.BLOCK_ENTITY, chunkX, chunkZ, blockEntityTickInvoker::tick);
-        }
+        Vanadium.scheduler.enqueue(Stage.BLOCK_ENTITY, chunkX, chunkZ, blockEntityTickInvoker::tick);
     }
 
     @Redirect(method = "getBlockEntity", at = @At(value = "INVOKE", target = "Ljava/lang/Thread;currentThread()Ljava/lang/Thread;"))

@@ -75,17 +75,8 @@ public abstract class ServerWorldMixin implements StructureWorldAccess {
             consumer.accept(entity);
             return;
         }
-        if (Vanadium.debug.isSampling()) {
-            Vanadium.scheduler.enqueue(Stage.ENTITY, entity.getChunkPos().x, entity.getChunkPos().z, () -> {
-                long start = System.nanoTime();
-                consumer.accept(entity);
-                Vanadium.debug.recordEntity(instance, entity.getId(),
-                        entity.getX(), entity.getY(), entity.getZ(), System.nanoTime() - start);
-            });
-        } else {
-            Vanadium.scheduler.enqueue(Stage.ENTITY, entity.getChunkPos().x, entity.getChunkPos().z,
-                    () -> consumer.accept(entity));
-        }
+        Vanadium.scheduler.enqueue(Stage.ENTITY, entity.getChunkPos().x, entity.getChunkPos().z,
+                () -> consumer.accept(entity));
     }
 
     @Redirect(method = "addSyncedBlockEvent", at = @At(value = "INVOKE", target = "Lit/unimi/dsi/fastutil/objects/ObjectLinkedOpenHashSet;add(Ljava/lang/Object;)Z"))

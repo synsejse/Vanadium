@@ -21,9 +21,6 @@
     "main": [
       "com.synsenetwork.vanadium.Vanadium"
     ],
-    "client": [
-      "com.synsenetwork.vanadium.client.VanadiumClient"
-    ],
     "mixinsquared": [
       "com.synsenetwork.vanadium.mixin.utils.VanadiumMixinCanceller"
     ]
