@@ -13,6 +13,7 @@ repositories {
     maven { url = "https://maven.shedaniel.me/" }
     maven { url = "https://maven.terraformersmc.com/releases/" }
     maven { url = "https://jitpack.io" }
+    maven { url = "https://api.modrinth.com/maven" }
     mavenCentral()
 }
 
@@ -34,6 +35,10 @@ dependencies {
 
     // MixinSquared API for our C2ME-compat MixinCanceller; provided at runtime by C2ME, so compileOnly.
     compileOnly "com.github.bawnorton.mixinsquared:mixinsquared-fabric:0.3.3"
+
+    // spark profiler — dev-only
+    modLocalRuntime "maven.modrinth:spark:1.10.109-fabric"
+    modLocalRuntime "maven.modrinth:fabric-permissions-api:0.3.1"
 
     testImplementation "org.junit.jupiter:junit-jupiter:5.10.2"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
