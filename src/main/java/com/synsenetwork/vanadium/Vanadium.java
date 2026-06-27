@@ -25,8 +25,12 @@ public class Vanadium implements ModInitializer {
         holder.load();
         config = holder.getConfig();
 
-        WorkerPool pool = new WorkerPool(VanadiumConfig.getParallelism());
-        scheduler = new TickScheduler(pool, VanadiumConfig.resolveCellSize());
+        int parallelism = VanadiumConfig.getParallelism();
+        int cellSize = VanadiumConfig.resolveCellSize();
+        LOGGER.info("Will use {} threads and cell size {} by {} chunks", parallelism, cellSize, cellSize);
+
+        WorkerPool pool = new WorkerPool(parallelism);
+        scheduler = new TickScheduler(pool, cellSize);
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             ConfigCommand.register(dispatcher);
