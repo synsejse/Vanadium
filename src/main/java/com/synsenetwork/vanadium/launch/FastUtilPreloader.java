@@ -1,6 +1,6 @@
 package com.synsenetwork.vanadium.launch;
 
-import net.fabricmc.loader.api.FabricLoader;
+import com.synsenetwork.vanadium.compat.C2ME;
 import net.fabricmc.loader.api.entrypoint.PreLaunchEntrypoint;
 import net.fabricmc.loader.impl.launch.FabricLauncherBase;
 import org.apache.logging.log4j.LogManager;
@@ -11,8 +11,7 @@ public class FastUtilPreloader implements PreLaunchEntrypoint {
 
     @Override
     public void onPreLaunch() {
-        // FastUtilsMixin is disabled under C2ME (see SynchronisePlugin#getMixins), so this preload is moot.
-        if (FabricLoader.getInstance().isModLoaded("c2me")) {
+        if (C2ME.LOADED) {
             fastUtilPreloaderLogger.info("C2ME detected: skipping fastutil preload.");
             return;
         }

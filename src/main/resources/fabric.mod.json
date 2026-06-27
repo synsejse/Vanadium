@@ -22,7 +22,7 @@
       "com.synsenetwork.vanadium.Vanadium"
     ],
     "mixinsquared": [
-      "com.synsenetwork.vanadium.mixin.utils.VanadiumMixinCanceller"
+      "com.synsenetwork.vanadium.compat.C2ME"
     ]
   },
   "accessWidener": "vanadium.accesswidener",
@@ -36,6 +36,12 @@
     "java": ">=21",
     "cloth-config2": ">=5.0.34"
   },
+  "recommends": {
+    "c2me": "*"
+  },
   "suggests": {
+  },
+  "breaks": {
+    "lithium": "*"
   }
 }
