@@ -70,6 +70,24 @@ test {
     useJUnitPlatform()
 }
 
+// C2ME is a hard dependency (fabric.mod.json), so the dev runtime can't boot without it. Loom's
+// dependency-side JiJ extraction chokes on the fat Modrinth jar, so fetch the release jar into
+// run/mods instead — fabric-loader then loads it exactly like production. Pinned to the version
+// running on the test server.
+def c2meVersion = '0.4.0-alpha.0.16+1.21.1'
+def c2meJar = file("run/mods/c2me-fabric-${c2meVersion}.jar")
+tasks.register('downloadDevC2me') {
+    outputs.file(c2meJar)
+    onlyIf { !c2meJar.exists() }
+    doLast {
+        c2meJar.parentFile.mkdirs()
+        def url = "https://api.modrinth.com/maven/maven/modrinth/c2me-fabric/${c2meVersion}/c2me-fabric-${c2meVersion}.jar"
+        new URI(url).toURL().withInputStream { input -> c2meJar.withOutputStream { it << input } }
+    }
+}
+tasks.named('runServer') { dependsOn 'downloadDevC2me' }
+tasks.named('runClient') { dependsOn 'downloadDevC2me' }
+
 tasks.register('benchScheduler', JavaExec) {
     group = 'verification'
     description = 'Runs the scheduler micro-benchmark (SchedulerBench)'
