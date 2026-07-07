@@ -42,7 +42,7 @@ public abstract class WorldMixin implements WorldAccess, AutoCloseable {
     @Redirect(method = "tickBlockEntities", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/chunk/BlockEntityTickInvoker;tick()V"))
     private void overwriteBlockEntityTick(BlockEntityTickInvoker blockEntityTickInvoker) {
         if (!((Object) this instanceof ServerWorld)
-                || Vanadium.config.disabled || Vanadium.config.disableBlockEntity
+                || !Vanadium.config.enabled || !Vanadium.config.parallelBlockEntities
                 || !(blockEntityTickInvoker instanceof WorldChunk.WrappedBlockEntityTickInvoker wrapped)
                 || !(wrapped.wrapped instanceof WorldChunk.DirectBlockEntityTickInvoker<?> direct)) {
             blockEntityTickInvoker.tick();

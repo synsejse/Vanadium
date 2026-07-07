@@ -7,87 +7,52 @@ import com.synsenetwork.vanadium.Vanadium;
 
 @Config(name = "vanadium")
 public class VanadiumConfig implements ConfigData {
-    // Actual config stuff
-    //////////////////////
+    @Comment("Master switch: false = fully vanilla ticking (all parallelism off)")
+    public boolean enabled = true;
 
-    // General
-    @Comment("Globally disable all toggleable functionality")
-    public boolean disabled = false;
+    @Comment("Worker threads for parallel ticking. <= 0 = one per CPU core, otherwise capped at this "
+            + "value (never above core count, floor 2). Takes effect on restart.")
+    public int workers = 0;
 
-    // Parallelism
-    @Comment("Thread count config; In standard mode: will never create more threads than there are CPU threads (as that causeses Context switch churning)\n" +
-            "Values <=1 are treated as 'all cores'")
-    public int paraMax = -1;
-
-    @Comment("""
-            Other modes for paraMax
-            Override: Standard but without the CoreCount Ceiling (So you can have 64k threads if you want)
-            Reduction: Parallelism becomes Math.max(CoreCount-paramax, 2), if paramax is set to be -1, it's treated as 0
-            Todo: add more"""
-    )
-    public ParaMaxMode paraMaxMode = ParaMaxMode.Standard;
-
-    // World
-    @Comment("Disable world parallel chunk loading")
-    public boolean disableMultiChunk = false;
-
-    // Entity
-    @Comment("Disable entity parallelisation")
-    public boolean disableEntity = false;
-
-    // TE
-    @Comment("Disable block entity parallelisation")
-    public boolean disableBlockEntity = false;
-
-    @Comment("Width/height, in chunks, of each automatic parallel cell. 0 = auto (chosen from CPU "
-            + "core count). Smaller cells = finer parallelism but more overhead. Takes effect next tick.")
+    @Comment("Width/height, in chunks, of each parallel cell. 0 = auto (chosen from CPU core count). "
+            + "Smaller cells = finer parallelism but more overhead. Applies next tick.")
     public int cellSize = 0;
 
-    // Misc
-    @Comment("Disable environment (plant ticks, etc.) parallelisation")
-    public boolean disableEnvironment = false;
+    @Comment("Tick entities in parallel")
+    public boolean parallelEntities = true;
 
-    @Comment("Disable parallelised chunk caching; doing this will result in much lower performance with little to no gain")
-    public boolean disableChunkProvider = false;
+    @Comment("Tick block entities in parallel")
+    public boolean parallelBlockEntities = true;
 
-    public enum ParaMaxMode {
-        Standard,
-        Override,
-        Reduction
-    }
+    @Comment("Tick chunks (weather, random ticks) in parallel")
+    public boolean parallelChunkTicks = true;
 
-    // Functions intended for usage
-    ///////////////////////////////
+    @Comment("Thread-safe chunk lookup cache for worker threads (disabling costs performance)")
+    public boolean chunkCache = true;
+
+    @Comment("Per-chunk load locks so different chunks can load in parallel; false = one global lock")
+    public boolean parallelChunkLoads = true;
 
     @Override
     public void validatePostLoad() throws ValidationException {
-        if (paraMax < -1) {
-            throw new ValidationException("paraMax must be >= -1 (got " + paraMax + ").");
-        }
         if (cellSize < 0) {
             throw new ValidationException("cellSize must be >= 0 (0 = auto) (got " + cellSize + ").");
         }
     }
 
-    public static int getParallelism() {
-        VanadiumConfig config = Vanadium.config;
-        return switch (config.paraMaxMode) {
-            case Standard -> config.paraMax <= 1 ?
-                    Runtime.getRuntime().availableProcessors() :
-                    Math.clamp(Runtime.getRuntime().availableProcessors(), 2, config.paraMax);
-            case Override -> config.paraMax <= 1 ?
-                    Runtime.getRuntime().availableProcessors() :
-                    config.paraMax; // guarded above: paraMax is already >= 2 here
-            case Reduction -> Math.max(
-                    Runtime.getRuntime().availableProcessors() - Math.max(0, config.paraMax),
-                    2);
-        };
+    /** Worker count from config: {@code <= 0} = one per core; otherwise capped at core count, floor 2. */
+    public static int resolveWorkers() {
+        return resolveWorkers(Vanadium.config.workers, Runtime.getRuntime().availableProcessors());
+    }
+
+    static int resolveWorkers(int workers, int cores) {
+        return workers <= 0 ? cores : Math.clamp(workers, 2, Math.max(2, cores));
     }
 
     /** The cell size to use: the explicit config value, or the core-count heuristic when 0 (auto). */
     public static int resolveCellSize() {
         int configured = Vanadium.config.cellSize;
-        return configured > 0 ? configured : autoCellSize(getParallelism());
+        return configured > 0 ? configured : autoCellSize(resolveWorkers());
     }
 
     /**

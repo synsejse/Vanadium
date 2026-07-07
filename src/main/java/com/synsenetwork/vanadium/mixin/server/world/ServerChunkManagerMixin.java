@@ -40,7 +40,7 @@ public abstract class ServerChunkManagerMixin extends ChunkManager {
 
     @Redirect(method = "tickChunks", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/world/ServerWorld;tickChunk(Lnet/minecraft/world/chunk/WorldChunk;I)V"))
     private void overwriteTickChunk(ServerWorld serverWorld, WorldChunk chunk, int randomTickSpeed) {
-        if (Vanadium.config.disabled || Vanadium.config.disableEnvironment) {
+        if (!Vanadium.config.enabled || !Vanadium.config.parallelChunkTicks) {
             serverWorld.tickChunk(chunk, randomTickSpeed);
             return;
         }
@@ -56,8 +56,8 @@ public abstract class ServerChunkManagerMixin extends ChunkManager {
 
     @Redirect(method = "getChunk(IILnet/minecraft/world/chunk/ChunkStatus;Z)Lnet/minecraft/world/chunk/Chunk;", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/profiler/Profiler;visit(Ljava/lang/String;)V"))
     private void overwriteProfilerVisit(Profiler instance, String s) {
-        if (!Vanadium.config.disableMultiChunk) return;
-        else instance.visit("getChunkCacheMiss");
+        if (Vanadium.config.parallelChunkLoads) return;
+        instance.visit("getChunkCacheMiss");
     }
 
     @WrapMethod(method = "putInCache")

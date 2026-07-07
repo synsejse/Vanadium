@@ -4,8 +4,6 @@ import me.shedaniel.autoconfig.AutoConfig;
 import me.shedaniel.autoconfig.ConfigHolder;
 import me.shedaniel.autoconfig.serializer.Toml4jConfigSerializer;
 import net.fabricmc.api.ModInitializer;
-import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
-import com.synsenetwork.vanadium.commands.ConfigCommand;
 import com.synsenetwork.vanadium.config.VanadiumConfig;
 import com.synsenetwork.vanadium.tick.TickScheduler;
 import com.synsenetwork.vanadium.tick.WorkerPool;
@@ -16,6 +14,8 @@ public class Vanadium implements ModInitializer {
     public static final Logger LOGGER = LogManager.getLogger();
     public static VanadiumConfig config;
     public static TickScheduler scheduler;
+    /** Worker count the pool was actually built with; /vanadium status flags drift from config. */
+    public static int bootWorkers;
 
     @Override
     public void onInitialize() {
@@ -25,16 +25,13 @@ public class Vanadium implements ModInitializer {
         holder.load();
         config = holder.getConfig();
 
-        int parallelism = VanadiumConfig.getParallelism();
+        int workers = VanadiumConfig.resolveWorkers();
         int cellSize = VanadiumConfig.resolveCellSize();
-        LOGGER.info("Will use {} threads and cell size {} by {} chunks", parallelism, cellSize, cellSize);
+        bootWorkers = workers;
+        LOGGER.info("Will use {} threads and cell size {} by {} chunks", workers, cellSize, cellSize);
 
-        WorkerPool pool = new WorkerPool(parallelism);
+        WorkerPool pool = new WorkerPool(workers);
         scheduler = new TickScheduler(pool, cellSize);
-
-        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
-            ConfigCommand.register(dispatcher);
-        });
 
         LOGGER.info("Vanadium Initialized");
     }

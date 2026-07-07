@@ -69,7 +69,7 @@ public abstract class ServerWorldMixin implements StructureWorldAccess {
     @SuppressWarnings("unchecked")
     @Redirect(method = "method_31420", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/world/ServerWorld;tickEntity(Ljava/util/function/Consumer;Lnet/minecraft/entity/Entity;)V"))
     private void overwriteEntityTicking(ServerWorld instance, Consumer consumer, Entity entity) {
-        if (Vanadium.config.disabled || Vanadium.config.disableEntity
+        if (!Vanadium.config.enabled || !Vanadium.config.parallelEntities
                 || (entity.portalManager != null && entity.portalManager.isInPortal())
                 || entity instanceof ProjectileEntity) {
             consumer.accept(entity);

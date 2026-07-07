@@ -62,7 +62,7 @@ public class ParallelChunkManager extends ServerChunkManager {
             return CompletableFuture.supplyAsync(
                     () -> getChunk(chunkX, chunkZ, requiredStatus, load), this.mainThreadExecutor).join();
         }
-        if (Vanadium.config.disabled || Vanadium.config.disableChunkProvider) {
+        if (!Vanadium.config.enabled || !Vanadium.config.chunkCache) {
             return super.getChunk(chunkX, chunkZ, requiredStatus, load);
         }
 
@@ -73,7 +73,7 @@ public class ParallelChunkManager extends ServerChunkManager {
         }
 
         Chunk chunk;
-        if (!Vanadium.config.disableMultiChunk) {
+        if (Vanadium.config.parallelChunkLoads) {
             // Serialise loads of this one chunk so only a single thread does the work.
             ChunkLockTable.Held held = loadingLocks.lock(pos, 0);
             try {
