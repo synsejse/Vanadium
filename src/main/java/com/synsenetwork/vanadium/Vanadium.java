@@ -4,6 +4,8 @@ import me.shedaniel.autoconfig.AutoConfig;
 import me.shedaniel.autoconfig.ConfigHolder;
 import me.shedaniel.autoconfig.serializer.Toml4jConfigSerializer;
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import com.synsenetwork.vanadium.commands.VanadiumCommand;
 import com.synsenetwork.vanadium.config.VanadiumConfig;
 import com.synsenetwork.vanadium.tick.TickScheduler;
 import com.synsenetwork.vanadium.tick.WorkerPool;
@@ -32,6 +34,9 @@ public class Vanadium implements ModInitializer {
 
         WorkerPool pool = new WorkerPool(workers);
         scheduler = new TickScheduler(pool, cellSize);
+
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
+                VanadiumCommand.register(dispatcher));
 
         LOGGER.info("Vanadium Initialized");
     }
