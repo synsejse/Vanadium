@@ -47,8 +47,10 @@ dependencies {
 processResources {
     inputs.property "version", project.version
 
+    // Captured outside the closure: referencing `project` at execution time breaks the configuration cache.
+    def modVersion = project.version
     filesMatching("fabric.mod.json") {
-        expand "version": project.version
+        expand "version": modVersion
     }
 }
 
