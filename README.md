@@ -17,6 +17,8 @@ Vanadium handles parallel *ticking*; [C2ME](https://modrinth.com/mod/c2me-fabric
 
 **Incompatible with [Lithium](https://modrinth.com/mod/lithium)** — it assumes single-threaded world access; the server refuses to start with both installed.
 
+**Incompatible with [VMP](https://modrinth.com/mod/vmp-fabric)** — both mods thread entity tracking, with different threading models, in the same vanilla methods. Vanadium ships its own replacements for VMP's server-side features; the server refuses to start with both installed.
+
 ## Configuration
 
 `config/vanadium.toml` — every option is also live-editable in game via `/vanadium` (except `workers`, which needs a restart).

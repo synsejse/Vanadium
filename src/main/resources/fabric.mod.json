@@ -37,6 +37,7 @@
   "suggests": {
   },
   "breaks": {
-    "lithium": "*"
+    "lithium": "*",
+    "vmp": "*"
   }
 }
