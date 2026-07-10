@@ -19,6 +19,7 @@
     "entity.passive.PandaEntityMixin",
     "entity.raid.RaiderEntityMixin",
     "server.MinecraftServerMixin",
+    "server.ServerTickManagerMixin",
     "server.network.ServerPlayerEntityMixin",
     "server.world.ChunkHolderMixin",
     "server.world.ChunkTicketManagerMixin",

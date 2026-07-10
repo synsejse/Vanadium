@@ -43,6 +43,7 @@ Vanadium handles parallel *ticking*; [C2ME](https://modrinth.com/mod/c2me-fabric
 | `/vanadium save` | op (2) | Persist current values to `vanadium.toml` |
 | `/vanadium reload` | op (2) | Re-read `vanadium.toml` and apply live |
 | `/vanadium defaults` | op (2) | Reset all options in memory (`save` to persist) |
+| `/vanadium benchmark` | op (2) | Unlock TPS for 30s (via vanilla tick-sprint) and report ticks run, average and peak TPS |
 
 ## Development
 

@@ -35,7 +35,8 @@ public final class VanadiumCommand {
                 .then(set())
                 .then(literal("save").requires(src -> src.hasPermissionLevel(2)).executes(VanadiumCommand::save))
                 .then(literal("reload").requires(src -> src.hasPermissionLevel(2)).executes(VanadiumCommand::reload))
-                .then(literal("defaults").requires(src -> src.hasPermissionLevel(2)).executes(VanadiumCommand::defaults)));
+                .then(literal("defaults").requires(src -> src.hasPermissionLevel(2)).executes(VanadiumCommand::defaults))
+                .then(literal("benchmark").requires(src -> src.hasPermissionLevel(2)).executes(VanadiumCommand::benchmark)));
     }
 
     // --- subtrees generated from the registry ---------------------------------
@@ -131,6 +132,15 @@ public final class VanadiumCommand {
     private static int defaults(CommandContext<ServerCommandSource> ctx) {
         ConfigOptions.resetToDefaults(Vanadium.config);
         feedback(ctx, "all options reset to defaults (in memory — /vanadium save to persist)");
+        return 1;
+    }
+
+    private static int benchmark(CommandContext<ServerCommandSource> ctx) {
+        if (!TickBenchmark.start(ctx.getSource().getServer(), ctx.getSource())) {
+            ctx.getSource().sendError(Text.literal("Vanadium: a benchmark (or /tick sprint) is already running"));
+            return 0;
+        }
+        feedback(ctx, "benchmark started — TPS unlocked for the next 30s");
         return 1;
     }
 
