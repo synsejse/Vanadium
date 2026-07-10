@@ -8,6 +8,7 @@ import com.synsenetwork.vanadium.tick.Stage;
 import net.minecraft.server.world.ServerChunkManager;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.profiler.Profiler;
+import net.minecraft.world.SpawnHelper;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.ChunkManager;
 import net.minecraft.world.chunk.ChunkStatus;
@@ -36,6 +37,23 @@ public abstract class ServerChunkManagerMixin extends ChunkManager {
     @Inject(method = "tickChunks", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/Util;shuffle(Ljava/util/List;Lnet/minecraft/util/math/random/Random;)V"))
     private void preChunkTick(CallbackInfo ci) {
         Vanadium.scheduler.begin(Stage.CHUNK);
+    }
+
+    /**
+     * Runs per-chunk natural mob spawning as part of the CHUNK wave. Spawning is enqueued before
+     * tickChunk for the same chunk, so within each cell the vanilla per-chunk order (spawn, then
+     * tick) is preserved. The shared spawn aggregator ({@link SpawnHelper.Info}) is made
+     * thread-safe via SyncAllMixin.
+     */
+    @Redirect(method = "tickChunks", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/SpawnHelper;spawn(Lnet/minecraft/server/world/ServerWorld;Lnet/minecraft/world/chunk/WorldChunk;Lnet/minecraft/world/SpawnHelper$Info;ZZZ)V"))
+    private void overwriteSpawn(ServerWorld serverWorld, WorldChunk chunk, SpawnHelper.Info info,
+                                boolean spawnAnimals, boolean spawnMonsters, boolean rareSpawn) {
+        if (!Vanadium.config.enabled || !Vanadium.config.parallelSpawning) {
+            SpawnHelper.spawn(serverWorld, chunk, info, spawnAnimals, spawnMonsters, rareSpawn);
+            return;
+        }
+        Vanadium.scheduler.enqueue(Stage.CHUNK, chunk.getPos().x, chunk.getPos().z,
+                () -> SpawnHelper.spawn(serverWorld, chunk, info, spawnAnimals, spawnMonsters, rareSpawn));
     }
 
     @Redirect(method = "tickChunks", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/world/ServerWorld;tickChunk(Lnet/minecraft/world/chunk/WorldChunk;I)V"))

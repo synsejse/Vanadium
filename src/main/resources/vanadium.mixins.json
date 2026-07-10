@@ -32,7 +32,6 @@
     "util.thread.LockHelperMixin",
     "world.EntityListMixin",
     "world.SimulationDistanceLevelPropagatorMixin",
-    "world.SpawnHelperMixin",
     "world.WorldMixin",
     "world.block.ChainRestrictedNeighborUpdaterMixin",
     "world.chunk.ChunkLoaderMixin",

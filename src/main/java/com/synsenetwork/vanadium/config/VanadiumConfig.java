@@ -30,6 +30,9 @@ public class VanadiumConfig implements ConfigData {
     @Comment("Run scheduled block and fluid ticks (redstone, fluid spread, leaf decay) in parallel")
     public boolean parallelScheduledTicks = true;
 
+    @Comment("Run per-chunk natural mob spawning in parallel")
+    public boolean parallelSpawning = true;
+
     @Comment("Thread-safe chunk lookup cache for worker threads (disabling costs performance)")
     public boolean chunkCache = true;
 
