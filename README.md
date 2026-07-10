@@ -29,6 +29,7 @@ Vanadium handles parallel *ticking*; [C2ME](https://modrinth.com/mod/c2me-fabric
 | `parallelEntities` | `true` | Tick entities in parallel |
 | `parallelBlockEntities` | `true` | Tick block entities in parallel |
 | `parallelChunkTicks` | `true` | Tick chunks (weather, random ticks) in parallel |
+| `parallelScheduledTicks` | `true` | Run scheduled block/fluid ticks (redstone, fluid spread, leaf decay) in parallel |
 | `chunkCache` | `true` | Thread-safe chunk lookup cache for worker threads |
 | `parallelChunkLoads` | `true` | Per-chunk load locks; `false` = one global lock |
 

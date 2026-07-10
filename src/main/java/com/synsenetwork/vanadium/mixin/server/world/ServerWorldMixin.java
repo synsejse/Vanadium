@@ -15,7 +15,9 @@ import net.minecraft.server.world.BlockEvent;
 import net.minecraft.server.world.ServerChunkManager;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.structure.StructureTemplateManager;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.*;
+import net.minecraft.world.tick.WorldTickScheduler;
 import net.minecraft.world.chunk.ChunkStatusChangeListener;
 import net.minecraft.world.gen.chunk.ChunkGenerator;
 import net.minecraft.world.level.storage.LevelStorage;
@@ -30,6 +32,7 @@ import java.util.Collection;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.Executor;
+import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
@@ -54,6 +57,29 @@ public abstract class ServerWorldMixin implements StructureWorldAccess {
     @Redirect(method = "<init>", at = @At(value = "NEW", target = "(Lnet/minecraft/server/world/ServerWorld;Lnet/minecraft/world/level/storage/LevelStorage$Session;Lcom/mojang/datafixers/DataFixer;Lnet/minecraft/structure/StructureTemplateManager;Ljava/util/concurrent/Executor;Lnet/minecraft/world/gen/chunk/ChunkGenerator;IIZLnet/minecraft/server/WorldGenerationProgressListener;Lnet/minecraft/world/chunk/ChunkStatusChangeListener;Ljava/util/function/Supplier;)Lnet/minecraft/server/world/ServerChunkManager;"))
     private ServerChunkManager overwriteServerChunkManager(ServerWorld world, LevelStorage.Session session, DataFixer dataFixer, StructureTemplateManager structureTemplateManager, Executor workerExecutor, ChunkGenerator chunkGenerator, int viewDistance, int simulationDistance, boolean dsync, WorldGenerationProgressListener worldGenerationProgressListener, ChunkStatusChangeListener chunkStatusChangeListener, Supplier<PersistentStateManager> persistentStateManagerFactory) {
         return new ParallelChunkManager(world, session, dataFixer, structureTemplateManager, workerExecutor, chunkGenerator, viewDistance, simulationDistance, dsync, worldGenerationProgressListener, chunkStatusChangeListener, persistentStateManagerFactory);
+    }
+
+    /**
+     * Runs each scheduler's due ticks as a parallel wave. The ticker handed to
+     * {@link net.minecraft.world.tick.WorldTickScheduler#tick} enqueues into cells instead of
+     * executing, and the wave runs only after tick() returns — the scheduler's monitor
+     * (ACC_SYNCHRONIZED via SyncAllMixin) is released by then, so workers scheduling follow-up
+     * ticks (fluid spread does every step) can't deadlock against the barrier. Per-chunk order is
+     * preserved (cells run their tasks in insertion order); only cross-chunk interleaving becomes
+     * nondeterministic, matching the rest of the cell model.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    @Redirect(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/tick/WorldTickScheduler;tick(JILjava/util/function/BiConsumer;)V"))
+    private void overwriteScheduledTicks(WorldTickScheduler instance, long time, int maxTicks, BiConsumer ticker) {
+        if (!Vanadium.config.enabled || !Vanadium.config.parallelScheduledTicks) {
+            instance.tick(time, maxTicks, ticker);
+            return;
+        }
+        Vanadium.scheduler.begin(Stage.SCHEDULED_TICK);
+        instance.tick(time, maxTicks, (BiConsumer<BlockPos, Object>) (pos, type) ->
+                Vanadium.scheduler.enqueue(Stage.SCHEDULED_TICK, pos.getX() >> 4, pos.getZ() >> 4,
+                        () -> ticker.accept(pos, type)));
+        Vanadium.scheduler.run(Stage.SCHEDULED_TICK);
     }
 
     @Inject(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/profiler/Profiler;swap(Ljava/lang/String;)V", ordinal = 5))

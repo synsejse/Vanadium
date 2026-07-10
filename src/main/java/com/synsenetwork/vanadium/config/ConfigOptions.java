@@ -47,6 +47,8 @@ public final class ConfigOptions {
                     c -> c.parallelBlockEntities, (c, v) -> c.parallelBlockEntities = v, true),
             new BoolOption("parallelChunkTicks", "tick chunks (weather, random ticks) in parallel", true,
                     c -> c.parallelChunkTicks, (c, v) -> c.parallelChunkTicks = v, true),
+            new BoolOption("parallelScheduledTicks", "run scheduled block/fluid ticks in parallel", true,
+                    c -> c.parallelScheduledTicks, (c, v) -> c.parallelScheduledTicks = v, true),
             new BoolOption("chunkCache", "thread-safe chunk lookup cache for workers", true,
                     c -> c.chunkCache, (c, v) -> c.chunkCache = v, true),
             new BoolOption("parallelChunkLoads", "per-chunk load locks (false = one global lock)", true,
