@@ -33,6 +33,9 @@ public class VanadiumConfig implements ConfigData {
     @Comment("Run per-chunk natural mob spawning in parallel")
     public boolean parallelSpawning = true;
 
+    @Comment("Run entity tracking (movement/data packets to watching players) in parallel")
+    public boolean parallelTracking = true;
+
     @Comment("Thread-safe chunk lookup cache for worker threads (disabling costs performance)")
     public boolean chunkCache = true;
 

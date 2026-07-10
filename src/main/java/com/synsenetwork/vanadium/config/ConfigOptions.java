@@ -51,6 +51,8 @@ public final class ConfigOptions {
                     c -> c.parallelScheduledTicks, (c, v) -> c.parallelScheduledTicks = v, true),
             new BoolOption("parallelSpawning", "run per-chunk natural mob spawning in parallel", true,
                     c -> c.parallelSpawning, (c, v) -> c.parallelSpawning = v, true),
+            new BoolOption("parallelTracking", "run entity tracking (packets to watchers) in parallel", true,
+                    c -> c.parallelTracking, (c, v) -> c.parallelTracking = v, true),
             new BoolOption("chunkCache", "thread-safe chunk lookup cache for workers", true,
                     c -> c.chunkCache, (c, v) -> c.chunkCache = v, true),
             new BoolOption("parallelChunkLoads", "per-chunk load locks (false = one global lock)", true,
