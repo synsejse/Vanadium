@@ -48,8 +48,11 @@ Vanadium handles parallel *ticking*; [C2ME](https://modrinth.com/mod/c2me-fabric
 ```
 ./gradlew build            # jar + tests
 ./gradlew test             # unit tests
-./gradlew runServer        # dev server (C2ME is auto-downloaded into run/mods)
+./gradlew runServer        # dev server
 ./gradlew benchScheduler   # scheduler micro-benchmark
 ```
+
+The dev server loads runtime mods from `run/mods` — drop the required release jars there yourself (at
+minimum [C2ME](https://modrinth.com/mod/c2me-fabric); optionally spark etc.). Gradle does not manage them.
 
 Happy playing!
