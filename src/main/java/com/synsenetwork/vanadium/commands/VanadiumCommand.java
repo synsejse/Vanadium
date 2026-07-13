@@ -7,9 +7,6 @@ import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.config.ConfigOptions;
-import com.synsenetwork.vanadium.config.ConfigOptions.BoolOption;
-import com.synsenetwork.vanadium.config.ConfigOptions.IntOption;
-import com.synsenetwork.vanadium.config.ConfigOptions.Option;
 import com.synsenetwork.vanadium.config.VanadiumConfig;
 import me.shedaniel.autoconfig.AutoConfig;
 import me.shedaniel.autoconfig.ConfigHolder;
@@ -18,6 +15,8 @@ import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
+
+import java.lang.reflect.Field;
 
 import static net.minecraft.server.command.CommandManager.argument;
 import static net.minecraft.server.command.CommandManager.literal;
@@ -44,12 +43,12 @@ public final class VanadiumCommand {
     private static LiteralArgumentBuilder<ServerCommandSource> toggle() {
         LiteralArgumentBuilder<ServerCommandSource> toggle =
                 literal("toggle").requires(src -> src.hasPermissionLevel(2));
-        for (Option option : ConfigOptions.ALL) {
-            if (option instanceof BoolOption bool) {
-                toggle.then(literal(bool.name()).executes(ctx -> {
-                    boolean next = !bool.get().apply(Vanadium.config);
-                    bool.set().accept(Vanadium.config, next);
-                    feedback(ctx, bool.name() + " is now " + (next ? "on" : "off") + restartHint(bool));
+        for (Field field : ConfigOptions.fields()) {
+            if (field.getType() == boolean.class) {
+                toggle.then(literal(field.getName()).executes(ctx -> {
+                    boolean next = !ConfigOptions.getBool(field, Vanadium.config);
+                    ConfigOptions.setBool(field, Vanadium.config, next);
+                    feedback(ctx, field.getName() + " is now " + (next ? "on" : "off") + restartHint(field));
                     return 1;
                 }));
             }
@@ -60,23 +59,27 @@ public final class VanadiumCommand {
     private static LiteralArgumentBuilder<ServerCommandSource> set() {
         LiteralArgumentBuilder<ServerCommandSource> set =
                 literal("set").requires(src -> src.hasPermissionLevel(2));
-        for (Option option : ConfigOptions.ALL) {
-            set.then(switch (option) {
-                case BoolOption bool -> literal(bool.name())
+        for (Field field : ConfigOptions.fields()) {
+            String name = field.getName();
+            if (field.getType() == boolean.class) {
+                set.then(literal(name)
                         .then(argument("value", BoolArgumentType.bool()).executes(ctx -> {
                             boolean value = BoolArgumentType.getBool(ctx, "value");
-                            bool.set().accept(Vanadium.config, value);
-                            feedback(ctx, bool.name() + " is now " + (value ? "on" : "off") + restartHint(bool));
+                            ConfigOptions.setBool(field, Vanadium.config, value);
+                            feedback(ctx, name + " is now " + (value ? "on" : "off") + restartHint(field));
                             return 1;
-                        }));
-                case IntOption anInt -> literal(anInt.name())
-                        .then(argument("value", IntegerArgumentType.integer(anInt.min())).executes(ctx -> {
+                        })));
+            } else if (field.getType() == int.class) {
+                set.then(literal(name)
+                        .then(argument("value", IntegerArgumentType.integer(ConfigOptions.min(field))).executes(ctx -> {
                             int value = IntegerArgumentType.getInteger(ctx, "value");
-                            anInt.set().accept(Vanadium.config, value);
-                            feedback(ctx, anInt.name() + " is now " + value + restartHint(anInt));
+                            ConfigOptions.setInt(field, Vanadium.config, value);
+                            feedback(ctx, name + " is now " + value + restartHint(field));
                             return 1;
-                        }));
-            });
+                        })));
+            } else {
+                throw new IllegalStateException("Unsupported config field type: " + field);
+            }
         }
         return set;
     }
@@ -99,10 +102,10 @@ public final class VanadiumCommand {
         message.append(Text.literal("\n  cellSize: " + config.cellSize
                 + (config.cellSize == 0 ? " (auto → " + VanadiumConfig.resolveCellSize() + ")" : "")));
 
-        for (Option option : ConfigOptions.ALL) {
-            if (option instanceof BoolOption bool && !bool.name().equals("enabled")) {
-                message.append(Text.literal("\n  " + bool.name() + ": "))
-                        .append(onOff(bool.get().apply(config), "on", "off"));
+        for (Field field : ConfigOptions.fields()) {
+            if (field.getType() == boolean.class && !field.getName().equals("enabled")) {
+                message.append(Text.literal("\n  " + field.getName() + ": "))
+                        .append(onOff(ConfigOptions.getBool(field, config), "on", "off"));
             }
         }
 
@@ -151,8 +154,8 @@ public final class VanadiumCommand {
         ctx.getSource().sendFeedback(() -> message, true);
     }
 
-    private static String restartHint(Option option) {
-        return option.live() ? "" : " (takes effect on restart)";
+    private static String restartHint(Field field) {
+        return ConfigOptions.isLive(field) ? "" : " (takes effect on restart)";
     }
 
     private static MutableText onOff(boolean value, String on, String off) {
