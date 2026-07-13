@@ -25,6 +25,7 @@
     "server.world.ChunkHolderMixin",
     "server.world.ChunkTicketManagerMixin",
     "server.world.EntityTrackerAccessor",
+    "server.world.EntityTrackerMixin",
     "server.world.ServerChunkLoadingManagerMixin",
     "server.world.ServerChunkManagerMixin",
     "server.world.ServerEntityManagerListenerMixin",

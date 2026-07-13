@@ -9,4 +9,16 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 public interface EntityTrackerEntryAccessor {
     @Accessor("entity")
     Entity vanadium$entity();
+
+    @Accessor("trackingTick")
+    int vanadium$trackingTick();
+
+    @Accessor("trackingTick")
+    void vanadium$setTrackingTick(int trackingTick);
+
+    @Accessor("tickInterval")
+    int vanadium$tickInterval();
+
+    @Accessor("updatesWithoutVehicle")
+    void vanadium$setUpdatesWithoutVehicle(int updatesWithoutVehicle);
 }
