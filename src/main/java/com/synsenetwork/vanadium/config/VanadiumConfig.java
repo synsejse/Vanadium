@@ -36,6 +36,9 @@ public class VanadiumConfig implements ConfigData {
     @Comment("Run entity tracking (movement/data packets to watching players) in parallel")
     public boolean parallelTracking = true;
 
+    @Comment("Batch each connection's packets into one flush per tick instead of one per packet")
+    public boolean consolidateFlushes = true;
+
     @Comment("Thread-safe chunk lookup cache for worker threads (disabling costs performance)")
     public boolean chunkCache = true;
 

@@ -34,6 +34,7 @@ Vanadium handles parallel *ticking*; [C2ME](https://modrinth.com/mod/c2me-fabric
 | `parallelScheduledTicks` | `true` | Run scheduled block/fluid ticks (redstone, fluid spread, leaf decay) in parallel |
 | `parallelSpawning` | `true` | Run per-chunk natural mob spawning in parallel |
 | `parallelTracking` | `true` | Run entity tracking (movement/data packets to watching players) in parallel |
+| `consolidateFlushes` | `true` | Batch each connection's packets into one flush per tick instead of one per packet |
 | `chunkCache` | `true` | Thread-safe chunk lookup cache for worker threads |
 | `parallelChunkLoads` | `true` | Per-chunk load locks; `false` = one global lock |
 
