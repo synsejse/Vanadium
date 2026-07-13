@@ -1,70 +1,70 @@
 package com.synsenetwork.vanadium.config;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.ObjIntConsumer;
 import java.util.function.ToIntFunction;
 
 /**
- * Single source of truth for every user-facing config option. The /vanadium command tree, tab
- * completion, status output, and defaults reset are all generated from {@link #ALL} — adding an
- * entry here is all it takes to expose a new config field.
+ * The user-facing config options, derived reflectively from {@link VanadiumConfig}'s public
+ * instance fields — the POJO is the single source of truth. The /vanadium command tree, tab
+ * completion, status output, and defaults reset are all generated from {@link #ALL}: adding a
+ * field to VanadiumConfig is all it takes to expose a new option. Defaults come from the field
+ * initializers, {@link RestartRequired} marks restart-only options, and {@link Min} bounds the
+ * accepted values of int options.
  */
 public final class ConfigOptions {
     /** One user-facing option. {@code live() == false} → changes only take effect on restart. */
     public sealed interface Option permits BoolOption, IntOption {
         String name();
 
-        String description();
-
         boolean live();
     }
 
-    public record BoolOption(String name, String description, boolean live,
+    public record BoolOption(String name, boolean live,
                              Function<VanadiumConfig, Boolean> get,
                              BiConsumer<VanadiumConfig, Boolean> set,
                              boolean def) implements Option {
     }
 
-    public record IntOption(String name, String description, boolean live,
+    public record IntOption(String name, boolean live,
                             ToIntFunction<VanadiumConfig> get,
                             ObjIntConsumer<VanadiumConfig> set,
                             int def, int min) implements Option {
     }
 
-    public static final List<Option> ALL = List.of(
-            new BoolOption("enabled", "master switch for all parallelism", true,
-                    c -> c.enabled, (c, v) -> c.enabled = v, true),
-            new IntOption("workers", "worker threads (<= 0 = one per core)", false,
-                    c -> c.workers, (c, v) -> c.workers = v, 0, Integer.MIN_VALUE),
-            new IntOption("cellSize", "parallel cell size in chunks (0 = auto)", true,
-                    c -> c.cellSize, (c, v) -> c.cellSize = v, 0, 0),
-            new BoolOption("parallelEntities", "tick entities in parallel", true,
-                    c -> c.parallelEntities, (c, v) -> c.parallelEntities = v, true),
-            new BoolOption("parallelBlockEntities", "tick block entities in parallel", true,
-                    c -> c.parallelBlockEntities, (c, v) -> c.parallelBlockEntities = v, true),
-            new BoolOption("parallelChunkTicks", "tick chunks (weather, random ticks) in parallel", true,
-                    c -> c.parallelChunkTicks, (c, v) -> c.parallelChunkTicks = v, true),
-            new BoolOption("parallelScheduledTicks", "run scheduled block/fluid ticks in parallel", true,
-                    c -> c.parallelScheduledTicks, (c, v) -> c.parallelScheduledTicks = v, true),
-            new BoolOption("parallelSpawning", "run per-chunk natural mob spawning in parallel", true,
-                    c -> c.parallelSpawning, (c, v) -> c.parallelSpawning = v, true),
-            new BoolOption("parallelTracking", "run entity tracking (packets to watchers) in parallel", true,
-                    c -> c.parallelTracking, (c, v) -> c.parallelTracking = v, true),
-            new BoolOption("consolidateFlushes", "batch each connection's packets into one flush per tick", true,
-                    c -> c.consolidateFlushes, (c, v) -> c.consolidateFlushes = v, true),
-            new BoolOption("chunkCache", "thread-safe chunk lookup cache for workers", true,
-                    c -> c.chunkCache, (c, v) -> c.chunkCache = v, true),
-            new BoolOption("parallelChunkLoads", "per-chunk load locks (false = one global lock)", true,
-                    c -> c.parallelChunkLoads, (c, v) -> c.parallelChunkLoads = v, true));
+    public static final List<Option> ALL = build();
 
     private ConfigOptions() {
     }
 
-    public static Optional<Option> find(String name) {
-        return ALL.stream().filter(option -> option.name().equals(name)).findFirst();
+    private static List<Option> build() {
+        VanadiumConfig defaults = new VanadiumConfig();
+        List<Option> options = new ArrayList<>();
+        for (Field field : VanadiumConfig.class.getDeclaredFields()) {
+            if (!Modifier.isPublic(field.getModifiers()) || Modifier.isStatic(field.getModifiers())) {
+                continue;
+            }
+            String name = field.getName();
+            boolean live = !field.isAnnotationPresent(RestartRequired.class);
+            if (field.getType() == boolean.class) {
+                options.add(new BoolOption(name, live,
+                        config -> getBool(field, config), (config, value) -> setBool(field, config, value),
+                        getBool(field, defaults)));
+            } else if (field.getType() == int.class) {
+                Min min = field.getAnnotation(Min.class);
+                options.add(new IntOption(name, live,
+                        config -> getInt(field, config), (config, value) -> setInt(field, config, value),
+                        getInt(field, defaults), min != null ? min.value() : Integer.MIN_VALUE));
+            } else {
+                throw new IllegalStateException("Unsupported config field type: " + field);
+            }
+        }
+        return List.copyOf(options);
     }
 
     /** Resets every option on the given config to its default value. */
@@ -74,6 +74,38 @@ public final class ConfigOptions {
                 case BoolOption bool -> bool.set().accept(config, bool.def());
                 case IntOption anInt -> anInt.set().accept(config, anInt.def());
             }
+        }
+    }
+
+    private static boolean getBool(Field field, VanadiumConfig config) {
+        try {
+            return field.getBoolean(config);
+        } catch (IllegalAccessException e) {
+            throw new AssertionError(e); // fields are public
+        }
+    }
+
+    private static void setBool(Field field, VanadiumConfig config, boolean value) {
+        try {
+            field.setBoolean(config, value);
+        } catch (IllegalAccessException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    private static int getInt(Field field, VanadiumConfig config) {
+        try {
+            return field.getInt(config);
+        } catch (IllegalAccessException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    private static void setInt(Field field, VanadiumConfig config, int value) {
+        try {
+            field.setInt(config, value);
+        } catch (IllegalAccessException e) {
+            throw new AssertionError(e);
         }
     }
 }

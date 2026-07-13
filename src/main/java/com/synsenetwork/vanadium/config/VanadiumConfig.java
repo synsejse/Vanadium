@@ -12,10 +12,12 @@ public class VanadiumConfig implements ConfigData {
 
     @Comment("Worker threads for parallel ticking. <= 0 = one per CPU core, otherwise capped at this "
             + "value (never above core count, floor 2). Takes effect on restart.")
+    @RestartRequired
     public int workers = 0;
 
     @Comment("Width/height, in chunks, of each parallel cell. 0 = auto (chosen from CPU core count). "
             + "Smaller cells = finer parallelism but more overhead. Applies next tick.")
+    @Min(0)
     public int cellSize = 0;
 
     @Comment("Tick entities in parallel")
