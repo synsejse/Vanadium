@@ -66,27 +66,55 @@ public final class AreaMap<T> {
     /** Moves/resizes an object's square, touching only cells in the symmetric difference. */
     public void update(T object, int chunkX, int chunkZ, int radius) {
         int oldRadius = radii.replace(object, radius);
-        long oldCenter = centers.put(object, ChunkPos.toLong(chunkX, chunkZ));
+        long center = ChunkPos.toLong(chunkX, chunkZ);
+        long oldCenter = centers.put(object, center);
         int oldX = ChunkPos.getPackedX(oldCenter);
         int oldZ = ChunkPos.getPackedZ(oldCenter);
-        for (int x = chunkX - radius; x <= chunkX + radius; x++) {
-            for (int z = chunkZ - radius; z <= chunkZ + radius; z++) {
-                if (!within(x, z, oldX, oldZ, oldRadius)) {
-                    paint(x, z, object);
-                }
-            }
+        if (oldX == chunkX && oldZ == chunkZ && oldRadius == radius) {
+            return;
         }
-        for (int x = oldX - oldRadius; x <= oldX + oldRadius; x++) {
-            for (int z = oldZ - oldRadius; z <= oldZ + oldRadius; z++) {
-                if (!within(x, z, chunkX, chunkZ, radius)) {
+
+        updateOutside(object, center, radius, oldCenter, oldRadius, true);
+        updateOutside(object, oldCenter, oldRadius, center, radius, false);
+    }
+
+    /** Updates the four non-overlapping strips outside the excluded square. Centers are packed chunks. */
+    private void updateOutside(T object, long center, int radius, long excludedCenter, int excludedRadius,
+                               boolean add) {
+        int x = ChunkPos.getPackedX(center);
+        int z = ChunkPos.getPackedZ(center);
+        int excludedX = ChunkPos.getPackedX(excludedCenter);
+        int excludedZ = ChunkPos.getPackedZ(excludedCenter);
+        int minX = x - radius, maxX = x + radius;
+        int minZ = z - radius, maxZ = z + radius;
+        int overlapMinX = Math.max(minX, excludedX - excludedRadius);
+        int overlapMaxX = Math.min(maxX, excludedX + excludedRadius);
+        int overlapMinZ = Math.max(minZ, excludedZ - excludedRadius);
+        int overlapMaxZ = Math.min(maxZ, excludedZ + excludedRadius);
+        if (overlapMinX > overlapMaxX || overlapMinZ > overlapMaxZ) {
+            updateRectangle(object, minX, maxX, minZ, maxZ, add);
+            return;
+        }
+        // Full-height left/right strips, then bottom/top restricted to the overlapping X range.
+        updateRectangle(object, minX, overlapMinX - 1, minZ, maxZ, add);
+        updateRectangle(object, overlapMaxX + 1, maxX, minZ, maxZ, add);
+        updateRectangle(object, overlapMinX, overlapMaxX, minZ, overlapMinZ - 1, add);
+        updateRectangle(object, overlapMinX, overlapMaxX, overlapMaxZ + 1, maxZ, add);
+    }
+
+    private void updateRectangle(T object, int minX, int maxX, int minZ, int maxZ, boolean add) {
+        if (minX > maxX || minZ > maxZ) {
+            return;
+        }
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                if (add) {
+                    paint(x, z, object);
+                } else {
                     erase(x, z, object);
                 }
             }
         }
-    }
-
-    private static boolean within(int x, int z, int centerX, int centerZ, int radius) {
-        return Math.abs(x - centerX) <= radius && Math.abs(z - centerZ) <= radius;
     }
 
     private void paint(int x, int z, T object) {

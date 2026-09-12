@@ -92,9 +92,10 @@ public final class VanadiumCommand {
                 .append(onOff(config.enabled, "enabled", "disabled"));
 
         int resolvedWorkers = VanadiumConfig.resolveWorkers();
-        MutableText workers = Text.literal("\n  workers: " + Vanadium.bootWorkers + " active (config "
+        int activeWorkers = Vanadium.scheduler.workerCount();
+        MutableText workers = Text.literal("\n  workers: " + activeWorkers + " active (config "
                 + config.workers + " → " + resolvedWorkers + ")");
-        if (resolvedWorkers != Vanadium.bootWorkers) {
+        if (resolvedWorkers != activeWorkers) {
             workers.append(Text.literal(" restart pending").formatted(Formatting.YELLOW));
         }
         message.append(workers);

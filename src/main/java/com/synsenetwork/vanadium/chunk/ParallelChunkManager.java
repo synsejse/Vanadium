@@ -2,10 +2,12 @@ package com.synsenetwork.vanadium.chunk;
 
 import com.mojang.datafixers.DataFixer;
 import com.synsenetwork.vanadium.Vanadium;
+import it.unimi.dsi.fastutil.HashCommon;
 import net.minecraft.server.WorldGenerationProgressListener;
 import net.minecraft.server.world.ServerChunkManager;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.structure.StructureTemplateManager;
+import net.minecraft.util.Util;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.world.PersistentStateManager;
 import net.minecraft.world.World;
@@ -20,6 +22,7 @@ import java.lang.ref.WeakReference;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
@@ -58,7 +61,7 @@ public class ParallelChunkManager extends ServerChunkManager {
     @Nullable
     public Chunk getChunk(int chunkX, int chunkZ, ChunkStatus requiredStatus, boolean load) {
         // A server "Main" worker thread must not load chunks off the main thread; bounce it back.
-        if (McThreadTracker.isPooled("Main", Thread.currentThread())) {
+        if (isMinecraftMainWorker(Thread.currentThread())) {
             return CompletableFuture.supplyAsync(
                     () -> getChunk(chunkX, chunkZ, requiredStatus, load), this.mainThreadExecutor).join();
         }
@@ -72,31 +75,38 @@ public class ParallelChunkManager extends ServerChunkManager {
             return cached;
         }
 
-        Chunk chunk;
         if (Vanadium.config.parallelChunkLoads) {
             // Serialise loads of this one chunk so only a single thread does the work.
             ChunkLockTable.Held held = loadingLocks.lock(pos, 0);
             try {
-                Chunk c = lookup(pos, requiredStatus);
-                if (c != null) {
-                    return c;
-                }
-                chunk = super.getChunk(chunkX, chunkZ, requiredStatus, load);
+                return loadAndCache(chunkX, chunkZ, pos, requiredStatus, load);
             } finally {
                 loadingLocks.unlock(held);
             }
         } else {
             synchronized (this) {
-                Chunk c = lookup(pos, requiredStatus);
-                if (c != null) {
-                    return c;
-                }
-                chunk = super.getChunk(chunkX, chunkZ, requiredStatus, load);
+                return loadAndCache(chunkX, chunkZ, pos, requiredStatus, load);
             }
         }
+    }
 
-        chunkCache.put(new CacheKey(pos, requiredStatus.getIndex()), new WeakReference<>(chunk));
+    /** Called under the load lock so the next acquirer can see the published chunk. */
+    @Nullable
+    private Chunk loadAndCache(int chunkX, int chunkZ, long pos, ChunkStatus status, boolean load) {
+        Chunk cached = lookup(pos, status);
+        if (cached != null) {
+            return cached;
+        }
+        Chunk chunk = super.getChunk(chunkX, chunkZ, status, load);
+        if (chunk != null) {
+            chunkCache.put(new CacheKey(pos, status.getIndex()), new WeakReference<>(chunk));
+        }
         return chunk;
+    }
+
+    private static boolean isMinecraftMainWorker(Thread thread) {
+        return thread instanceof ForkJoinWorkerThread worker
+                && worker.getPool() == Util.getMainWorkerExecutor();
     }
 
     @Nullable
@@ -123,6 +133,11 @@ public class ParallelChunkManager extends ServerChunkManager {
         }
     }
 
-    private record CacheKey(long chunkPos, int statusIndex) {
+    record CacheKey(long chunkPos, int statusIndex) {
+        @Override
+        public int hashCode() {
+            // Plain Long.hashCode folds packed X/Z together, clustering nearby chunk keys.
+            return 31 * Long.hashCode(HashCommon.mix(chunkPos)) + statusIndex;
+        }
     }
 }

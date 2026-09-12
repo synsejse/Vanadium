@@ -4,32 +4,106 @@ import it.unimi.dsi.fastutil.longs.*;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.NavigableSet;
+import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentSkipListSet;
 
 /**
  * Thread-safe {@link LongSortedSet} backed by a {@code ConcurrentSkipListSet}, used to replace
  * vanilla's internal sorted long sets under parallel ticking via mixins.
+ * Range sets are live, bounded views; iterators are weakly consistent and support removal.
+ * Minecraft's section queries only iterate forward and tolerate concurrently removed sections.
  */
-public class ConcurrentLongSortedSet implements LongSortedSet {
+public class ConcurrentLongSortedSet extends AbstractLongSortedSet {
 
-    private final ConcurrentSkipListSet<Long> back = new ConcurrentSkipListSet<>();
+    private final NavigableSet<Long> back;
 
-    /**
-     * Bidirectional iteration over a {@code ConcurrentSkipListSet} is not supported because
-     * the underlying skip-list iterator is forward-only and does not expose a stable snapshot
-     * safe for backwards traversal under concurrent mutation.
-     */
-    @Override
-    public LongBidirectionalIterator iterator(long fromElement) {
-        throw new UnsupportedOperationException("Bidirectional iteration is not supported on ConcurrentLongSortedSet");
+    public ConcurrentLongSortedSet() {
+        this(new ConcurrentSkipListSet<>());
+    }
+
+    private ConcurrentLongSortedSet(NavigableSet<Long> back) {
+        this.back = back;
     }
 
     /**
-     * Bidirectional iteration over a {@code ConcurrentSkipListSet} is not supported.
+     * Positions the cursor after {@code fromElement}, matching fastutil's iterator contract.
+     */
+    @Override
+    public LongBidirectionalIterator iterator(long fromElement) {
+        return new SetIterator(forwardFrom(back.higher(fromElement)), back.floor(fromElement));
+    }
+
+    /**
+     * Traverses directly without copying the range.
      */
     @Override
     public @NotNull LongBidirectionalIterator iterator() {
-        throw new UnsupportedOperationException("Bidirectional iteration is not supported on ConcurrentLongSortedSet");
+        return new SetIterator(back.iterator(), null);
+    }
+
+    private Iterator<Long> forwardFrom(Long first) {
+        return first == null ? Collections.emptyIterator() : back.tailSet(first, true).iterator();
+    }
+
+    /** Forward traversal uses the skip-list iterator; reverse traversal repositions it by key. */
+    private final class SetIterator implements LongBidirectionalIterator {
+        private Iterator<Long> forward;
+        private Long previous;
+        private Long lastReturned;
+        private boolean movedForward;
+
+        private SetIterator(Iterator<Long> forward, Long previous) {
+            this.forward = forward;
+            this.previous = previous;
+        }
+
+        @Override
+        public boolean hasNext() {
+            return forward.hasNext();
+        }
+
+        @Override
+        public long nextLong() {
+            lastReturned = forward.next();
+            previous = lastReturned;
+            movedForward = true;
+            return lastReturned;
+        }
+
+        @Override
+        public boolean hasPrevious() {
+            return previous != null;
+        }
+
+        @Override
+        public long previousLong() {
+            if (previous == null) {
+                throw new NoSuchElementException();
+            }
+            lastReturned = previous;
+            previous = back.lower(lastReturned);
+            forward = forwardFrom(lastReturned);
+            movedForward = false;
+            return lastReturned;
+        }
+
+        @Override
+        public void remove() {
+            if (lastReturned == null) {
+                throw new IllegalStateException();
+            }
+            if (movedForward) {
+                forward.remove();
+                previous = back.lower(lastReturned);
+            } else {
+                back.remove(lastReturned);
+                forward = forwardFrom(back.higher(lastReturned));
+            }
+            lastReturned = null;
+        }
     }
 
     @Override
@@ -131,17 +205,17 @@ public class ConcurrentLongSortedSet implements LongSortedSet {
 
     @Override
     public LongSortedSet subSet(long fromElement, long toElement) {
-        return new LongAVLTreeSet(back.subSet(fromElement, toElement));
+        return new ConcurrentLongSortedSet(back.subSet(fromElement, true, toElement, false));
     }
 
     @Override
     public LongSortedSet headSet(long toElement) {
-        return new LongAVLTreeSet(back.headSet(toElement));
+        return new ConcurrentLongSortedSet(back.headSet(toElement, false));
     }
 
     @Override
     public LongSortedSet tailSet(long fromElement) {
-        return new LongAVLTreeSet(back.tailSet(fromElement));
+        return new ConcurrentLongSortedSet(back.tailSet(fromElement, true));
     }
 
     /**

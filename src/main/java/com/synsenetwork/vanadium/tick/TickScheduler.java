@@ -21,6 +21,10 @@ public final class TickScheduler {
         rebuildGrids();
     }
 
+    public int workerCount() {
+        return pool.workerCount();
+    }
+
     private void rebuildGrids() {
         for (Stage stage : Stage.values()) {
             grids.put(stage, new CellGrid(cellSize));

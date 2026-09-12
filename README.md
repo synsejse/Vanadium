@@ -52,14 +52,24 @@ Vanadium handles parallel *ticking*; [C2ME](https://modrinth.com/mod/c2me-fabric
 
 ## Development
 
-```
+```sh
+nix develop               # pinned Java 21 + development tools (optional)
 ./gradlew build            # jar + tests
 ./gradlew test             # unit tests
 ./gradlew runServer        # dev server
 ./gradlew benchScheduler   # scheduler micro-benchmark
+python3 scripts/dev-server.py prepare  # verified C2ME runtime jar
+python3 scripts/dev-server.py smoke    # isolated server test; see EULA setup below
 ```
 
-The dev server loads runtime mods from `run/mods` — drop the required release jars there yourself (at
-minimum [C2ME](https://modrinth.com/mod/c2me-fabric); optionally spark etc.). Gradle does not manage them.
+See [development and testing](docs/DEVELOPMENT.md) for setup, EULA handling, isolated server
+checks, reports, and troubleshooting; [architecture notes](docs/ARCHITECTURE.md) describe
+the concurrency model and follow-up investigation areas. [AGENTS.md](AGENTS.md) records
+repository guidance for coding agents.
+
+The interactive dev server loads runtime mods from `run/mods`. The setup helper downloads
+a pinned, checksum-verified C2ME jar to `.vanadium/mods/`; copy it to `run/mods` for interactive
+use. Automated smoke tests and benchmarks use fresh `.vanadium/runs/` worlds. Gradle does
+not manage C2ME's runtime jar.
 
 Happy playing!

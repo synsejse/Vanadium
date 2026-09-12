@@ -32,7 +32,6 @@
     "server.world.ServerChunkManagerMixin",
     "server.world.ServerEntityManagerListenerMixin",
     "server.world.ServerWorldMixin",
-    "util.UtilMixin",
     "util.collection.TypeFilterableListMixin",
     "util.thread.LockHelperMixin",
     "world.EntityListMixin",

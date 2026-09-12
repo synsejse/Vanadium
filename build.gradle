@@ -55,6 +55,7 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
     // Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
     // if it is present.
     // If you remove this line, sources will not be generated.
@@ -81,8 +82,31 @@ tasks.register('benchScheduler', JavaExec) {
     jvmArgs = ['-XX:+UseParallelGC']
 }
 
+tasks.register('benchWorkerPool', JavaExec) {
+    group = 'verification'
+    description = 'Compares small, large, balanced and uneven worker waves'
+    dependsOn 'testClasses'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.synsenetwork.vanadium.bench.WorkerPoolBench'
+    jvmArgs = ['-XX:+UseParallelGC']
+}
+
+tasks.register('benchAreaMap', JavaExec) {
+    group = 'verification'
+    description = 'Measures tracking-area moves, teleports and radius changes'
+    dependsOn 'testClasses'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.synsenetwork.vanadium.bench.AreaMapBench'
+    jvmArgs = ['-XX:+UseParallelGC']
+}
+
 loom {
     accessWidenerPath = file("src/main/resources/vanadium.accesswidener")
+    runs {
+        server {
+            runDir = providers.gradleProperty('vanadiumRunDir').getOrElse('run')
+        }
+    }
 }
 
 def archiveBaseName = project.archives_base_name

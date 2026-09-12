@@ -1,11 +1,10 @@
 package com.synsenetwork.vanadium.mixin.entity;
 
+import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import net.minecraft.entity.ItemEntity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
-import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -14,14 +13,13 @@ public class ItemEntityMixin {
     @Unique
     private static final ReentrantLock lock = new ReentrantLock();
 
-    @Inject(method="tryMerge()V",at=@At(value="HEAD"))
-    private void lock(CallbackInfo ci) {
+    @WrapMethod(method = "tryMerge()V")
+    private void tryMerge(Operation<Void> original) {
         lock.lock();
+        try {
+            original.call();
+        } finally {
+            lock.unlock();
+        }
     }
-
-    @Inject(method="tryMerge()V",at=@At(value="RETURN"))
-    private void unlock(CallbackInfo ci) {
-        lock.unlock();
-    }
-
 }

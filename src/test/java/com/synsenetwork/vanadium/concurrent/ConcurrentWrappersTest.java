@@ -182,9 +182,14 @@ class ConcurrentWrappersTest {
     }
 
     @Test
-    void longSortedSet_iteratorThrows() {
+    void longSortedSet_iteratorTraversesInOrder() {
         var set = new ConcurrentLongSortedSet();
-        assertThrows(UnsupportedOperationException.class, set::iterator);
+        set.add(2);
+        set.add(-1);
+        var iterator = set.iterator();
+        assertEquals(-1, iterator.nextLong());
+        assertEquals(2, iterator.nextLong());
+        assertFalse(iterator.hasNext());
     }
 
     // ---- ConcurrentLongLinkedOpenHashSet -------------------------------------

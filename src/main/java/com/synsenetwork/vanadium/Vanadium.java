@@ -18,8 +18,6 @@ public class Vanadium implements ModInitializer {
     public static final Logger LOGGER = LogManager.getLogger();
     public static VanadiumConfig config;
     public static TickScheduler scheduler;
-    /** Worker count the pool was actually built with; /vanadium status flags drift from config. */
-    public static int bootWorkers;
 
     @Override
     public void onInitialize() {
@@ -31,7 +29,6 @@ public class Vanadium implements ModInitializer {
 
         int workers = VanadiumConfig.resolveWorkers();
         int cellSize = VanadiumConfig.resolveCellSize();
-        bootWorkers = workers;
         LOGGER.info("Will use {} threads and cell size {} by {} chunks", workers, cellSize, cellSize);
 
         WorkerPool pool = new WorkerPool(workers);

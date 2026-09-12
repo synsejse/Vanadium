@@ -9,20 +9,17 @@ import java.util.List;
  * the cell, and {@link #lastActiveTick()} drives idle eviction in {@link CellGrid}.
  */
 public final class Cell implements Runnable {
-    private final CellPos pos;
+    private final int color;
     private final List<Runnable> tasks = new ArrayList<>();
     private long lastActiveTick;
 
-    public Cell(CellPos pos) {
-        this.pos = pos;
-    }
-
-    public CellPos pos() {
-        return pos;
+    /** Coordinates are in cell units. Cache their parity for the four-color grid. */
+    public Cell(int cellX, int cellZ) {
+        this.color = Math.floorMod(cellX, 2) + 2 * Math.floorMod(cellZ, 2);
     }
 
     public int color() {
-        return pos.color();
+        return color;
     }
 
     public void add(Runnable task) {
@@ -31,10 +28,6 @@ public final class Cell implements Runnable {
 
     public boolean hasTasks() {
         return !tasks.isEmpty();
-    }
-
-    public int taskCount() {
-        return tasks.size();
     }
 
     public void clearTasks() {

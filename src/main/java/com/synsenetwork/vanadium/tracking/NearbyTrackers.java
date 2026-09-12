@@ -4,6 +4,7 @@ import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.mixin.server.network.EntityTrackerEntryAccessor;
 import com.synsenetwork.vanadium.mixin.server.world.EntityTrackerAccessor;
 import com.synsenetwork.vanadium.tick.Stage;
+import it.unimi.dsi.fastutil.objects.Reference2LongLinkedOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Reference2LongOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet;
@@ -17,7 +18,6 @@ import net.minecraft.util.math.ChunkSectionPos;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 
-import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Set;
 
@@ -52,17 +52,14 @@ public final class NearbyTrackers {
     private final Reference2ObjectOpenHashMap<EntityTracker, Vec3d> trackerPrevPos = new Reference2ObjectOpenHashMap<>();
     private final Reference2ObjectOpenHashMap<ServerPlayerEntity, Vec3d> playerPrevPos = new Reference2ObjectOpenHashMap<>();
 
-    private final ArrayDeque<StagedTracker> staging = new ArrayDeque<>();
-    private final ReferenceOpenHashSet<EntityTracker> staged = new ReferenceOpenHashSet<>();
+    /** Staged trackers in arrival order, with the tick they were added. */
+    private final Reference2LongLinkedOpenHashMap<EntityTracker> staging = new Reference2LongLinkedOpenHashMap<>();
 
     /** Per-tick scratch, cleared at the end of every tick. */
     private final ReferenceOpenHashSet<EntityTracker> movedTrackers = new ReferenceOpenHashSet<>();
     private final ReferenceOpenHashSet<EntityTracker> tickedOnce = new ReferenceOpenHashSet<>();
 
     private long tick;
-
-    private record StagedTracker(EntityTracker tracker, long addedTick) {
-    }
 
     /**
      * Registers a freshly loaded tracker and runs the initial visibility pass (the same
@@ -72,8 +69,7 @@ public final class NearbyTrackers {
         if (entity(tracker) instanceof ServerPlayerEntity player) {
             playerTrackers.put(player, new ReferenceOpenHashSet<>());
         }
-        staging.addLast(new StagedTracker(tracker, tick));
-        staged.add(tracker);
+        staging.put(tracker, tick);
         for (ServerPlayerEntity player : players) {
             tracker.updateTrackedStatus(player);
         }
@@ -84,9 +80,7 @@ public final class NearbyTrackers {
         if (entity(tracker) instanceof ServerPlayerEntity player) {
             removePlayer(player);
         }
-        if (staged.remove(tracker)) {
-            staging.removeIf(st -> st.tracker == tracker);
-        }
+        staging.removeLong(tracker);
         if (paintedChunk.containsKey(tracker)) {
             paintedChunk.removeLong(tracker);
             areaMap.remove(tracker);
@@ -98,8 +92,8 @@ public final class NearbyTrackers {
     }
 
     private void removePlayer(ServerPlayerEntity player) {
-        for (StagedTracker st : staging) {
-            st.tracker.stopTracking(player);
+        for (EntityTracker tracker : staging.keySet()) {
+            tracker.stopTracking(player);
         }
         ReferenceOpenHashSet<EntityTracker> known = playerTrackers.remove(player);
         if (known != null) {
@@ -118,6 +112,7 @@ public final class NearbyTrackers {
     public synchronized void tick(List<ServerPlayerEntity> players, ChunkTicketManager tickets) {
         tick++;
         detectMoves();
+        migrateStaging();
         tickStaging(players, tickets);
         diffPlayers(players, tickets);
         commitPositions(players);
@@ -137,33 +132,36 @@ public final class NearbyTrackers {
                 entry.setValue(now);
             }
         }
-        for (StagedTracker st : staging) {
-            if (trackerPrevPos.get(st.tracker) != entity(st.tracker).getPos()) {
-                movedTrackers.add(st.tracker);
+        for (EntityTracker tracker : staging.keySet()) {
+            if (trackerPrevPos.get(tracker) != entity(tracker).getPos()) {
+                movedTrackers.add(tracker);
             }
         }
     }
 
-    /**
-     * Staged trackers get vanilla-strength treatment (status vs every player, every tick)
-     * until they either die or survive {@link #STAGING_TICKS} and migrate into the area map.
-     */
-    private void tickStaging(List<ServerPlayerEntity> players, ChunkTicketManager tickets) {
-        while (!staging.isEmpty() && tick - staging.peekFirst().addedTick > STAGING_TICKS) {
-            EntityTracker tracker = staging.removeFirst().tracker;
-            staged.remove(tracker);
+    /** Moves surviving trackers into the area map in arrival order, after their staging window. */
+    private void migrateStaging() {
+        while (!staging.isEmpty()) {
+            EntityTracker tracker = staging.firstKey();
+            if (tick - staging.getLong(tracker) <= STAGING_TICKS) {
+                break;
+            }
+            staging.removeFirstLong();
             Entity entity = entity(tracker);
             areaMap.add(tracker, entity.getChunkPos().x, entity.getChunkPos().z, radius(tracker));
             paintedChunk.put(tracker, entity.getChunkPos().toLong());
         }
-        for (StagedTracker st : staging) {
-            EntityTracker tracker = st.tracker;
+    }
+
+    /** Staged trackers update their status against every player on every tick. */
+    private void tickStaging(List<ServerPlayerEntity> players, ChunkTicketManager tickets) {
+        for (EntityTracker tracker : staging.keySet()) {
             Entity entity = entity(tracker);
             boolean moved = movedTrackers.contains(tracker);
             boolean shouldTick = moved || tickets.shouldTickEntities(entity.getChunkPos().toLong());
             enqueue(tracker, () -> {
                 if (shouldTick) {
-                    ((EntityTrackerAccessor) (Object) tracker).vanadium$entry().tick();
+                    entry(tracker).tick();
                 }
                 for (ServerPlayerEntity player : players) {
                     tracker.updateTrackedStatus(player);
@@ -192,7 +190,7 @@ public final class NearbyTrackers {
             for (EntityTracker tracker : current) {
                 boolean fresh = known.add(tracker);
                 if (tickedOnce.add(tracker) && tickets.shouldTickEntities(entity(tracker).getChunkPos().toLong())) {
-                    EntityTrackerEntry entry = ((EntityTrackerAccessor) (Object) tracker).vanadium$entry();
+                    EntityTrackerEntry entry = entry(tracker);
                     enqueue(tracker, entry::tick);
                 }
                 if (fresh || playerMoved || movedTrackers.contains(tracker)) {
@@ -207,7 +205,7 @@ public final class NearbyTrackers {
         for (EntityTracker tracker : movedTrackers) {
             Entity entity = entity(tracker);
             trackerPrevPos.put(tracker, entity.getPos());
-            ((EntityTrackerAccessor) (Object) tracker).vanadium$setTrackedSection(ChunkSectionPos.from(entity));
+            access(tracker).vanadium$setTrackedSection(ChunkSectionPos.from(entity));
         }
         movedTrackers.clear();
         tickedOnce.clear();
@@ -222,11 +220,19 @@ public final class NearbyTrackers {
     }
 
     private static Entity entity(EntityTracker tracker) {
-        return ((EntityTrackerAccessor) (Object) tracker).vanadium$entity();
+        return access(tracker).vanadium$entity();
+    }
+
+    private static EntityTrackerEntry entry(EntityTracker tracker) {
+        return access(tracker).vanadium$entry();
+    }
+
+    private static EntityTrackerAccessor access(EntityTracker tracker) {
+        return (EntityTrackerAccessor) (Object) tracker;
     }
 
     private static int radius(EntityTracker tracker) {
-        return (int) Math.ceil(((EntityTrackerAccessor) (Object) tracker).vanadium$maxTrackDistance() / 16.0) + 1;
+        return (int) Math.ceil(access(tracker).vanadium$maxTrackDistance() / 16.0) + 1;
     }
 
     /**

@@ -66,5 +66,10 @@ class CellGridTest {
         CellGrid grid = new CellGrid(8);
         assertSame(grid.cellFor(-1, -1), grid.cellFor(-8, -8)); // cell (-1,-1)
         assertNotSame(grid.cellFor(-1, -1), grid.cellFor(0, 0));
+        assertNotSame(grid.cellFor(-8, -8), grid.cellFor(-9, -9));
+        assertEquals(3, grid.cellFor(-1, -1).color());
+        assertEquals(0, grid.cellFor(-9, -9).color());
+        assertEquals(1, grid.cellFor(-1, 0).color());
+        assertEquals(2, grid.cellFor(0, -1).color());
     }
 }

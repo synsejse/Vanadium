@@ -51,6 +51,17 @@ public final class ChunkLockTable {
 
     /** Locks the {@code (2*radius+1)^2} square of chunks centred on {@code chunkPos}. */
     public Held lock(long chunkPos, int radius) {
+        long[] keys = orderedKeys(chunkPos, radius);
+        CountedLock[] held = new CountedLock[keys.length];
+        for (int i = 0; i < keys.length; i++) {
+            CountedLock reserved = reserve(keys[i]);
+            reserved.lock.lock();
+            held[i] = reserved;
+        }
+        return new Held(held);
+    }
+
+    private static long[] orderedKeys(long chunkPos, int radius) {
         int side = 1 + radius * 2;
         long[] keys = new long[side * side];
         int n = 0;
@@ -60,20 +71,16 @@ public final class ChunkLockTable {
             }
         }
         Arrays.sort(keys); // a single global order means concurrent callers cannot deadlock
+        return keys;
+    }
 
-        CountedLock[] held = new CountedLock[keys.length];
-        for (int i = 0; i < keys.length; i++) {
-            // Reserve (refs++) atomically with the lock's presence in the map, so the evictor cannot
-            // remove it between us finding it and acquiring it.
-            CountedLock cl = locks.compute(keys[i], (key, existing) -> {
-                CountedLock c = (existing != null) ? existing : new CountedLock();
-                c.refs.incrementAndGet();
-                return c;
-            });
-            cl.lock.lock();
-            held[i] = cl;
-        }
-        return new Held(held);
+    /** Reserves the map entry atomically, before a caller attempts to acquire its lock. */
+    private CountedLock reserve(long key) {
+        return locks.compute(key, (position, existing) -> {
+            CountedLock reserved = existing != null ? existing : new CountedLock();
+            reserved.refs.incrementAndGet();
+            return reserved;
+        });
     }
 
     /** Releases the locks from a {@link #lock} call, in reverse acquisition order. */

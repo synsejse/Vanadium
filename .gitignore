@@ -5,3 +5,11 @@ build
 .superpowers
 qodana.sarif.json
 .qodana
+.direnv/
+result
+result-*
+logs/
+*.jfr
+hs_err_pid*.log
+.vanadium/
+__pycache__/

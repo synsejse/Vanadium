@@ -8,7 +8,7 @@ import java.util.List;
 
 /**
  * The cells for one stage of one world. Cells and their task lists are reused across ticks; each tick
- * the cells that receive work are recorded in four reusable color buckets, so a wave allocates nothing.
+ * the cells that receive work are recorded in four reusable color buckets, avoiding per-wave list copies.
  * Cells idle for {@link #IDLE_EVICT_TICKS} ticks are evicted. Single-threaded by contract — enqueue and
  * the tick boundaries run on the server thread; workers read cells only during a wave.
  */
@@ -37,7 +37,7 @@ public final class CellGrid {
         long key = pack(cellX, cellZ);
         Cell cell = cells.get(key);
         if (cell == null) {
-            cell = new Cell(new CellPos(cellX, cellZ));
+            cell = new Cell(cellX, cellZ);
             cells.put(key, cell);
         }
         return cell;

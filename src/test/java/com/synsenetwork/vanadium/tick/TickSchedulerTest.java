@@ -32,7 +32,7 @@ class TickSchedulerTest {
         scheduler.begin(Stage.ENTITY);
         for (int x = 0; x < 4; x++)
             for (int z = 0; z < 4; z++) {
-                int color = new CellPos(x, z).color();
+                int color = (x % 2) + 2 * (z % 2);
                 scheduler.enqueue(Stage.ENTITY, x, z, () -> {
                     try { Thread.sleep(2); } catch (InterruptedException ignored) {}
                     order.add(color);

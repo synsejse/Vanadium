@@ -5,6 +5,7 @@ on: [ push, pull_request ]
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
     - uses: actions/checkout@v4
@@ -20,7 +21,7 @@ jobs:
         path: |
           ~/.gradle/caches
           ~/.gradle/wrapper
-        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle') }}
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle', 'gradle.properties', 'gradle/wrapper/gradle-wrapper.properties') }}
         restore-keys: |
           ${{ runner.os }}-gradle-
 
@@ -32,3 +33,13 @@ jobs:
       with:
         name: build-artifacts
         path: build/libs
+
+    - name: Upload test reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-reports
+        path: |
+          build/reports/tests
+          build/test-results
+        if-no-files-found: ignore
