@@ -34,6 +34,10 @@ The actual stage timing comes from Minecraft mixin injection points, not the enu
 
 Projectiles and entities currently in portals retain serial entity ticking. Stage flags
 and `enabled` select fallback paths, but mixins and structural synchronization remain installed.
+Exact-ID serial rules also route selected entity and block-entity tickers through the inline
+server-thread path, before the corresponding wave. Rule lists are validated before command
+updates and after config loading. At each tick start, changed lists are compiled into ID sets;
+individual ticker lookups do not scan the configured lists.
 
 ## Shared state and compatibility
 

@@ -3,6 +3,7 @@ package com.synsenetwork.vanadium.commands;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.synsenetwork.vanadium.Vanadium;
@@ -17,6 +18,8 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 
 import java.lang.reflect.Field;
+import java.util.Arrays;
+import java.util.List;
 
 import static net.minecraft.server.command.CommandManager.argument;
 import static net.minecraft.server.command.CommandManager.literal;
@@ -77,6 +80,21 @@ public final class VanadiumCommand {
                             feedback(ctx, name + " is now " + value + restartHint(field));
                             return 1;
                         })));
+            } else if (field.getType() == List.class) {
+                set.then(literal(name)
+                        .then(argument("value", StringArgumentType.greedyString()).executes(ctx -> {
+                            String value = StringArgumentType.getString(ctx, "value");
+                            try {
+                                List<String> ids = value.equals("none") ? List.of()
+                                        : Arrays.stream(value.split(",", -1)).map(String::trim).toList();
+                                ConfigOptions.setList(field, Vanadium.config, ids);
+                            } catch (IllegalArgumentException e) {
+                                ctx.getSource().sendError(Text.literal(e.getMessage()));
+                                return 0;
+                            }
+                            feedback(ctx, name + " is now " + value + restartHint(field));
+                            return 1;
+                        })));
             } else {
                 throw new IllegalStateException("Unsupported config field type: " + field);
             }
@@ -107,6 +125,9 @@ public final class VanadiumCommand {
             if (field.getType() == boolean.class && !field.getName().equals("enabled")) {
                 message.append(Text.literal("\n  " + field.getName() + ": "))
                         .append(onOff(ConfigOptions.getBool(field, config), "on", "off"));
+            } else if (field.getType() == List.class) {
+                List<String> rules = ConfigOptions.getList(field, config);
+                message.append(Text.literal("\n  " + field.getName() + ": " + (rules.isEmpty() ? "none" : String.join(", ", rules))));
             }
         }
 

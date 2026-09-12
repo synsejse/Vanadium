@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class ConfigOptionsTest {
@@ -16,9 +17,9 @@ class ConfigOptionsTest {
         assertFalse(ConfigOptions.fields().isEmpty());
     }
 
-    @Test void everyFieldIsBoolOrInt() {
+    @Test void everyFieldHasSupportedType() {
         for (Field field : ConfigOptions.fields()) {
-            assertTrue(field.getType() == boolean.class || field.getType() == int.class, field.getName());
+            assertTrue(field.getType() == boolean.class || field.getType() == int.class || field.getType() == List.class, field.getName());
         }
     }
 
@@ -65,6 +66,8 @@ class ConfigOptionsTest {
         for (Field field : ConfigOptions.fields()) {
             if (field.getType() == boolean.class) {
                 ConfigOptions.setBool(field, config, !ConfigOptions.getBool(field, defaults));
+            } else if (field.getType() == List.class) {
+                ConfigOptions.setList(field, config, List.of("minecraft:pig"));
             } else {
                 ConfigOptions.setInt(field, config, ConfigOptions.getInt(field, defaults) + 99);
             }
@@ -73,6 +76,8 @@ class ConfigOptionsTest {
         for (Field field : ConfigOptions.fields()) {
             if (field.getType() == boolean.class) {
                 assertEquals(ConfigOptions.getBool(field, defaults), ConfigOptions.getBool(field, config), field.getName());
+            } else if (field.getType() == List.class) {
+                assertEquals(ConfigOptions.getList(field, defaults), ConfigOptions.getList(field, config));
             } else {
                 assertEquals(ConfigOptions.getInt(field, defaults), ConfigOptions.getInt(field, config), field.getName());
             }

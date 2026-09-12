@@ -4,6 +4,10 @@ import me.shedaniel.autoconfig.ConfigData;
 import me.shedaniel.autoconfig.annotation.Config;
 import me.shedaniel.cloth.clothconfig.shadowed.blue.endless.jankson.Comment;
 import com.synsenetwork.vanadium.Vanadium;
+import net.minecraft.util.Identifier;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @Config(name = "vanadium")
 public class VanadiumConfig implements ConfigData {
@@ -26,6 +30,23 @@ public class VanadiumConfig implements ConfigData {
     @Comment("Tick block entities in parallel")
     public boolean parallelBlockEntities = true;
 
+    @Comment("Entity type IDs to tick on the server thread (namespace:type). Empty list disables rules.")
+    public List<String> serialEntityTypes = new ArrayList<>();
+
+    @Comment("Block entity type IDs to tick on the server thread (namespace:type). Empty list disables rules.")
+    public List<String> serialBlockEntityTypes = new ArrayList<>();
+
+    private transient TypeRules entityRules = new TypeRules();
+    private transient TypeRules blockEntityRules = new TypeRules();
+
+    public boolean isSerialEntity(Identifier id) {
+        return entityRules.contains(id);
+    }
+
+    public boolean isSerialBlockEntity(Identifier id) {
+        return blockEntityRules.contains(id);
+    }
+
     @Comment("Tick chunks (weather, random ticks) in parallel")
     public boolean parallelChunkTicks = true;
 
@@ -47,10 +68,21 @@ public class VanadiumConfig implements ConfigData {
     @Comment("Per-chunk load locks so different chunks can load in parallel; false = one global lock")
     public boolean parallelChunkLoads = true;
 
+    /** Refresh once per tick so in-place list edits never add scans to individual ticker lookups. */
+    public void refreshSerialRules() {
+        entityRules.update(serialEntityTypes);
+        blockEntityRules.update(serialBlockEntityTypes);
+    }
+
     @Override
     public void validatePostLoad() throws ValidationException {
         if (cellSize < 0) {
             throw new ValidationException("cellSize must be >= 0 (0 = auto) (got " + cellSize + ").");
+        }
+        try {
+            refreshSerialRules();
+        } catch (IllegalArgumentException e) {
+            throw new ValidationException(e.getMessage());
         }
     }
 

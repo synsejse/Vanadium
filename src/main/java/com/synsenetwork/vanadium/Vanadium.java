@@ -36,6 +36,7 @@ public class Vanadium implements ModInitializer {
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
                 VanadiumCommand.register(dispatcher));
+        ServerTickEvents.START_SERVER_TICK.register(server -> config.refreshSerialRules());
         ServerTickEvents.END_SERVER_TICK.register(TickBenchmark::onTickEnd);
 
         LOGGER.info("Vanadium Initialized");

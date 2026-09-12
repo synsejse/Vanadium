@@ -9,6 +9,7 @@ import com.synsenetwork.vanadium.tick.Stage;
 import net.minecraft.entity.projectile.ProjectileEntity;
 import com.synsenetwork.vanadium.chunk.ParallelChunkManager;
 import net.minecraft.entity.Entity;
+import net.minecraft.registry.Registries;
 import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.server.WorldGenerationProgressListener;
 import net.minecraft.server.world.BlockEvent;
@@ -97,7 +98,8 @@ public abstract class ServerWorldMixin implements StructureWorldAccess {
     private void overwriteEntityTicking(ServerWorld instance, Consumer consumer, Entity entity) {
         if (!Vanadium.config.enabled || !Vanadium.config.parallelEntities
                 || (entity.portalManager != null && entity.portalManager.isInPortal())
-                || entity instanceof ProjectileEntity) {
+                || entity instanceof ProjectileEntity
+                || Vanadium.config.isSerialEntity(Registries.ENTITY_TYPE.getId(entity.getType()))) {
             consumer.accept(entity);
             return;
         }

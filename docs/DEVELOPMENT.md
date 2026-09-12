@@ -166,3 +166,17 @@ The command readability changes were subsequently reverted to keep the inline ha
   movement, and watcher checks using simulated server-side players.
 - `git diff --check` passed. Evidence is in `.vanadium/readability-review/` and
   `.vanadium/runs/smoke-d0uubtdu/`. Real multiplayer and modpack compatibility remain untested.
+
+## Serial type rules validation (2026-09-13)
+
+The full build passed **101 tests**, including exact-ID parsing, list edits, invalid-input
+rejection, and reset behavior. A disposable Fabric fixture invoked the applied entity and
+block-entity dispatch injections: unlisted tickers remained queued, listed tickers ran
+immediately on the server thread, and neither ticked twice. The block-entity fixture used
+a wrapped direct invoker with an instrumented ticker.
+
+Live command checks covered both rule lists, rejected malformed IDs without changing the
+active list, and verified TOML save/reload and defaults. Startup/tick/save/shutdown with
+pinned C2ME passed in `.vanadium/runs/smoke-7v637gn1/`; fixture sources and logs are in
+`.vanadium/features/serial/`. Actual modded machines, callbacks, and multiplayer remain
+untested. Serial rules do not establish safety for a mod's other shared state.

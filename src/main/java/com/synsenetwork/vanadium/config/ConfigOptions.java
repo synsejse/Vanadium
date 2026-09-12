@@ -72,6 +72,25 @@ public final class ConfigOptions {
         }
     }
 
+    /** Reads an ID-list option. */
+    @SuppressWarnings("unchecked")
+    public static List<String> getList(Field field, VanadiumConfig config) {
+        try {
+            return (List<String>) field.get(config);
+        } catch (IllegalAccessException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    public static void setList(Field field, VanadiumConfig config, List<String> value) {
+        TypeRules.parse(value); // Validate before changing the active rules.
+        try {
+            field.set(config, new ArrayList<>(value));
+        } catch (IllegalAccessException e) {
+            throw new AssertionError(e);
+        }
+    }
+
     /** Copies every option's default value (from a fresh config) onto the given config. */
     public static void resetToDefaults(VanadiumConfig config) {
         VanadiumConfig defaults = new VanadiumConfig();

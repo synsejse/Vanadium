@@ -30,6 +30,8 @@ Vanadium handles parallel *ticking*; [C2ME](https://modrinth.com/mod/c2me-fabric
 | `cellSize` | `0` | Cell width/height in chunks; `0` = auto from core count |
 | `parallelEntities` | `true` | Tick entities in parallel |
 | `parallelBlockEntities` | `true` | Tick block entities in parallel |
+| `serialEntityTypes` | `[]` | Entity type IDs that tick serially |
+| `serialBlockEntityTypes` | `[]` | Block-entity type IDs that tick serially |
 | `parallelChunkTicks` | `true` | Tick chunks (weather, random ticks) in parallel |
 | `parallelScheduledTicks` | `true` | Run scheduled block/fluid ticks (redstone, fluid spread, leaf decay) in parallel |
 | `parallelSpawning` | `true` | Run per-chunk natural mob spawning in parallel |
@@ -39,6 +41,17 @@ Vanadium handles parallel *ticking*; [C2ME](https://modrinth.com/mod/c2me-fabric
 | `parallelChunkLoads` | `true` | Per-chunk load locks; `false` = one global lock |
 
 ## Commands
+
+Serial rules match exact registry IDs, for example
+`/vanadium set serialEntityTypes minecraft:villager, example:custom_mob` and
+`/vanadium set serialBlockEntityTypes minecraft:hopper, example:machine`.
+Use `none` to clear a rule, and `/vanadium save` to persist it. In TOML, use string arrays:
+`serialEntityTypes = ["minecraft:villager", "example:custom_mob"]`.
+Unknown but well-formed IDs are allowed and have no effect until that type is present.
+Matching tickers run on the server thread before the stage's queued parallel work;
+projectiles, portals, and existing fallback paths retain their serial treatment.
+Rules govern these tickers only: they do not isolate a mod's shared state, callbacks,
+scheduled ticks, or tracking. Validate the actual modpack before deployment.
 
 | Command | Permission | Effect |
 |---|---|---|

@@ -3,6 +3,7 @@ package com.synsenetwork.vanadium.mixin.world;
 import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.tick.Stage;
 import net.minecraft.block.entity.BlockEntity;
+import net.minecraft.registry.Registries;
 import net.minecraft.world.chunk.WorldChunk;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.world.World;
@@ -49,6 +50,10 @@ public abstract class WorldMixin implements WorldAccess, AutoCloseable {
             return;
         }
         BlockEntity blockEntity = direct.blockEntity;
+        if (Vanadium.config.isSerialBlockEntity(Registries.BLOCK_ENTITY_TYPE.getId(blockEntity.getType()))) {
+            blockEntityTickInvoker.tick();
+            return;
+        }
         int chunkX = blockEntity.getPos().getX() >> 4;
         int chunkZ = blockEntity.getPos().getZ() >> 4;
         Vanadium.scheduler.enqueue(Stage.BLOCK_ENTITY, chunkX, chunkZ, blockEntityTickInvoker::tick);
