@@ -62,6 +62,16 @@ scheduled ticks, or tracking. Validate the actual modpack before deployment.
 | `/vanadium reload` | op (2) | Re-read `vanadium.toml` and apply live |
 | `/vanadium defaults` | op (2) | Reset all options in memory (`save` to persist) |
 | `/vanadium benchmark` | op (2) | Unlock TPS for 30s (via vanilla tick-sprint) and report ticks run, average and peak TPS |
+| `/vanadium profile [seconds]` | op (2) | Capture tick/stage timings at the current tick rate; default 30s, range 1–300s |
+| `/vanadium profile stop` | op (2) | Finish the current capture early |
+| `/vanadium profile report` | op (2) | Show the last completed capture for this server |
+
+Profiles report average/p50/p95/p99 tick work and queued stage execution, caller tail-wait
+time, cell/task counts, and average/maximum tasks per cell. Stage measurements exclude
+collection and serial fallbacks; whole-tick measurements include them but exclude idle
+time between ticks. Worlds are aggregated, and cell counts count executions rather than
+unique locations. Keep configuration and workload fixed when comparing captures. Profiling
+adds measurement overhead and does not unlock TPS. Reports are also written to the server log.
 
 ## Development
 

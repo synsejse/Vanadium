@@ -30,6 +30,10 @@ public final class Cell implements Runnable {
         return !tasks.isEmpty();
     }
 
+    public int taskCount() {
+        return tasks.size();
+    }
+
     public void clearTasks() {
         tasks.clear();
     }

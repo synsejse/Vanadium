@@ -2,6 +2,8 @@ package com.synsenetwork.vanadium.tick;
 
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.List;
+import java.util.function.LongConsumer;
 
 /**
  * Runs each {@link Stage} of a world tick as four colored passes on a {@link WorkerPool}.
@@ -14,6 +16,7 @@ public final class TickScheduler {
     private final WorkerPool pool;
     private int cellSize;
     private final Map<Stage, CellGrid> grids = new EnumMap<>(Stage.class);
+    private TickProfile profile;
 
     public TickScheduler(WorkerPool pool, int cellSize) {
         this.pool = pool;
@@ -23,6 +26,15 @@ public final class TickScheduler {
 
     public int workerCount() {
         return pool.workerCount();
+    }
+
+    public int cellSize() {
+        return cellSize;
+    }
+
+    /** Server-thread only; profiling is opt-in and does not change dispatch. */
+    public void setProfile(TickProfile profile) {
+        this.profile = profile;
     }
 
     private void rebuildGrids() {
@@ -52,8 +64,17 @@ public final class TickScheduler {
     /** Runs the stage's queued work as four colored passes, then resets it. */
     public void run(Stage stage) {
         CellGrid grid = grids.get(stage);
-        for (int color = 0; color < COLORS; color++) {
-            pool.runWave(grid.cellsWithColor(color));
+        TickProfile recording = profile;
+        long start = recording != null ? System.nanoTime() : 0;
+        LongConsumer waitRecorder = recording != null ? nanos -> recording.recordWait(stage, nanos) : null;
+        try {
+            for (int color = 0; color < COLORS; color++) {
+                List<Cell> cells = grid.cellsWithColor(color);
+                if (recording != null) recording.recordWave(stage, cells);
+                pool.runWave(cells, waitRecorder);
+            }
+        } finally {
+            if (recording != null) recording.recordStage(stage, System.nanoTime() - start);
         }
         grid.endTick();
     }

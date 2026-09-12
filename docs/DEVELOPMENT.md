@@ -180,3 +180,16 @@ active list, and verified TOML save/reload and defaults. Startup/tick/save/shutd
 pinned C2ME passed in `.vanadium/runs/smoke-7v637gn1/`; fixture sources and logs are in
 `.vanadium/features/serial/`. Actual modded machines, callbacks, and multiplayer remain
 untested. Serial rules do not establish safety for a mod's other shared state.
+
+## Stage profiler validation (2026-09-13)
+
+`./gradlew build` passed **105 tests**. Scheduler tests were rerun, and new tests cover
+nearest-rank percentiles, bounded sample storage, cell/task counts, detaching a capture,
+and reporting caller wait after all tasks finish even when a task fails.
+
+The isolated server exercised `/vanadium profile` with 16 zombies, automatic completion,
+manual stop, duplicate starts, duration bounds, and report retrieval. The report contained
+nonzero entity work, percentiles, wait time, and task distribution. Startup/tick/save/shutdown
+and serial dispatch checks also passed with pinned C2ME in `.vanadium/runs/smoke-esv9urx3/`.
+Evidence is under `.vanadium/features/profile/`. This validates instrumentation, not a
+performance gain; real modpack, multiplayer, and dual-Xeon measurements remain outstanding.

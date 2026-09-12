@@ -12,6 +12,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.LongConsumer;
 
 /**
  * A fixed pool of worker threads that runs a batch of tasks and waits for all of them.
@@ -48,6 +49,11 @@ public final class WorkerPool {
      * lists are read directly; other collections are copied to an indexed list.
      */
     public void runWave(Collection<? extends Runnable> tasks) {
+        runWave(tasks, null);
+    }
+
+    /** Optional profiling callback receives the caller's tail-wait time after it finishes claiming work. */
+    public void runWave(Collection<? extends Runnable> tasks, LongConsumer callerWait) {
         int n = tasks.size();
         if (n == 0) {
             return;
@@ -68,7 +74,12 @@ public final class WorkerPool {
         } finally {
             // Even if submission fails, finish all tasks, including those claimed by helpers.
             wave.run();
-            wave.awaitCompletion();
+            long waitStart = callerWait != null ? System.nanoTime() : 0;
+            try {
+                wave.awaitCompletion();
+            } finally {
+                if (callerWait != null) callerWait.accept(System.nanoTime() - waitStart);
+            }
         }
     }
 

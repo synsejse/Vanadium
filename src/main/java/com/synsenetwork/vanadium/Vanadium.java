@@ -6,6 +6,8 @@ import me.shedaniel.autoconfig.serializer.Toml4jConfigSerializer;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import com.synsenetwork.vanadium.commands.TickProfiler;
 import com.synsenetwork.vanadium.commands.TickBenchmark;
 import com.synsenetwork.vanadium.commands.VanadiumCommand;
 import com.synsenetwork.vanadium.config.VanadiumConfig;
@@ -38,6 +40,9 @@ public class Vanadium implements ModInitializer {
                 VanadiumCommand.register(dispatcher));
         ServerTickEvents.START_SERVER_TICK.register(server -> config.refreshSerialRules());
         ServerTickEvents.END_SERVER_TICK.register(TickBenchmark::onTickEnd);
+        ServerTickEvents.START_SERVER_TICK.register(TickProfiler::onTickStart);
+        ServerTickEvents.END_SERVER_TICK.register(TickProfiler::onTickEnd);
+        ServerLifecycleEvents.SERVER_STOPPED.register(TickProfiler::onServerStopped);
 
         LOGGER.info("Vanadium Initialized");
     }

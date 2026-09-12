@@ -35,6 +35,19 @@ public final class VanadiumCommand {
                 .then(literal("status").executes(VanadiumCommand::status))
                 .then(toggle())
                 .then(set())
+                .then(literal("profile").requires(src -> src.hasPermissionLevel(2))
+                        .executes(ctx -> profile(ctx, 30))
+                        .then(argument("seconds", IntegerArgumentType.integer(1, 300))
+                                .executes(ctx -> profile(ctx, IntegerArgumentType.getInteger(ctx, "seconds"))))
+                        .then(literal("stop").executes(ctx -> {
+                            if (TickProfiler.stop()) return 1;
+                            ctx.getSource().sendError(Text.literal("Vanadium: no profile is running"));
+                            return 0;
+                        }))
+                        .then(literal("report").executes(ctx -> {
+                            ctx.getSource().sendFeedback(() -> Text.literal(TickProfiler.lastReport()), false);
+                            return 1;
+                        })))
                 .then(literal("save").requires(src -> src.hasPermissionLevel(2)).executes(VanadiumCommand::save))
                 .then(literal("reload").requires(src -> src.hasPermissionLevel(2)).executes(VanadiumCommand::reload))
                 .then(literal("defaults").requires(src -> src.hasPermissionLevel(2)).executes(VanadiumCommand::defaults))
@@ -166,6 +179,15 @@ public final class VanadiumCommand {
             return 0;
         }
         feedback(ctx, "benchmark started — TPS unlocked for the next 30s");
+        return 1;
+    }
+
+    private static int profile(CommandContext<ServerCommandSource> ctx, int seconds) {
+        if (!TickProfiler.start(ctx.getSource(), seconds)) {
+            ctx.getSource().sendError(Text.literal("Vanadium: a profile is already running"));
+            return 0;
+        }
+        feedback(ctx, "profiling for " + seconds + "s at the current tick rate; /vanadium profile report shows the last result");
         return 1;
     }
 
