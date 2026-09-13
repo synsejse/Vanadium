@@ -54,7 +54,7 @@ class ConfigOptionsTest {
     @Test void minBoundsFollowAnnotations() {
         for (Field field : ConfigOptions.fields()) {
             if (field.getType() == int.class) {
-                int expected = field.getName().equals("cellSize") ? 0 : Integer.MIN_VALUE;
+                int expected = field.getName().equals("workers") ? Integer.MIN_VALUE : 0;
                 assertEquals(expected, ConfigOptions.min(field), field.getName());
             }
         }

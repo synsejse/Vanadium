@@ -13,6 +13,7 @@ import com.synsenetwork.vanadium.commands.VanadiumCommand;
 import com.synsenetwork.vanadium.config.VanadiumConfig;
 import com.synsenetwork.vanadium.tick.TickScheduler;
 import com.synsenetwork.vanadium.tick.WorkerPool;
+import com.synsenetwork.vanadium.tick.WaveDiagnostics;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -20,6 +21,7 @@ public class Vanadium implements ModInitializer {
     public static final Logger LOGGER = LogManager.getLogger();
     public static VanadiumConfig config;
     public static TickScheduler scheduler;
+    private static WaveDiagnostics diagnostics;
 
     @Override
     public void onInitialize() {
@@ -43,6 +45,20 @@ public class Vanadium implements ModInitializer {
         ServerTickEvents.START_SERVER_TICK.register(TickProfiler::onTickStart);
         ServerTickEvents.END_SERVER_TICK.register(TickProfiler::onTickEnd);
         ServerLifecycleEvents.SERVER_STOPPED.register(TickProfiler::onServerStopped);
+        ServerLifecycleEvents.SERVER_STARTING.register(server -> {
+            diagnostics = new WaveDiagnostics(LOGGER::warn);
+            scheduler.setDiagnostics(diagnostics);
+        });
+        ServerTickEvents.START_SERVER_TICK.register(server ->
+                diagnostics.configure(config.slowWaveMillis, config.detailedTickDiagnostics));
+        ServerTickEvents.START_WORLD_TICK.register(world -> {
+            if (diagnostics.enabled()) scheduler.setDimension(world.getRegistryKey().getValue().toString());
+        });
+        ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
+            diagnostics.close();
+            scheduler.setDiagnostics(null);
+            diagnostics = null;
+        });
 
         LOGGER.info("Vanadium Initialized");
     }

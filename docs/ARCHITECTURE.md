@@ -49,6 +49,14 @@ samples per series; reaching the tick sample limit also finishes the capture. St
 that reach their cap retain totals and label their percentile truncation. Server stop clears
 active/previous captures and releases the command source.
 
+`WaveDiagnostics` is an optional daemon watchdog, created for each server lifecycle and
+closed at server stop. The scheduler publishes one watched wave with its dimension/stage
+context. Caller and workers publish/remove their current cell around execution; detailed
+mode also updates a volatile task label. The watchdog reads this progress map and thread
+stacks without acquiring world or scheduler monitors. Reports are bounded and rate-limited,
+and completed waves are detached in `finally`, including failures. Task completion barriers
+and interruption behavior are unchanged. No monitoring thread is started while disabled.
+
 ## Shared state and compatibility
 
 Coloring separates neighboring cells; it does not bound every possible interaction.

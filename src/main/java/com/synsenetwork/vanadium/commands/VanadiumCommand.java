@@ -141,6 +141,9 @@ public final class VanadiumCommand {
             } else if (field.getType() == List.class) {
                 List<String> rules = ConfigOptions.getList(field, config);
                 message.append(Text.literal("\n  " + field.getName() + ": " + (rules.isEmpty() ? "none" : String.join(", ", rules))));
+            } else if (field.getType() == int.class && !field.getName().equals("workers")
+                    && !field.getName().equals("cellSize")) {
+                message.append(Text.literal("\n  " + field.getName() + ": " + ConfigOptions.getInt(field, config)));
             }
         }
 

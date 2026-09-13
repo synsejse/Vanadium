@@ -39,6 +39,8 @@ Vanadium handles parallel *ticking*; [C2ME](https://modrinth.com/mod/c2me-fabric
 | `consolidateFlushes` | `true` | Batch each connection's packets into one flush per tick instead of one per packet |
 | `chunkCache` | `true` | Thread-safe chunk lookup cache for worker threads |
 | `parallelChunkLoads` | `true` | Per-chunk load locks; `false` = one global lock |
+| `slowWaveMillis` | `0` | Warn when a wave exceeds this duration; `0` disables diagnostics |
+| `detailedTickDiagnostics` | `false` | Add current task/type labels while wave diagnostics are enabled |
 
 ## Commands
 
@@ -72,6 +74,19 @@ collection and serial fallbacks; whole-tick measurements include them but exclud
 time between ticks. Worlds are aggregated, and cell counts count executions rather than
 unique locations. Keep configuration and workload fixed when comparing captures. Profiling
 adds measurement overhead and does not unlock TPS. Reports are also written to the server log.
+
+For a stall investigation, use `/vanadium set slowWaveMillis 1000` and optionally
+`/vanadium set detailedTickDiagnostics true`. A separate watchdog reports the stage,
+dimension, color, cell size, elapsed time, and active caller/worker stacks while the wave
+is still running. Cell coordinates are **cell units**, not chunks or blocks. Reports are
+limited to one per 30 seconds, with up to eight participant stacks and twelve frames each.
+Polling occurs every 100ms, so this is a diagnostic threshold, not a deadline.
+
+Detailed mode labels queued entity and block-entity ticks with registry type IDs; other
+tasks show their runnable class. It adds wrappers and per-task progress updates. Basic
+mode tracks progress once per cell; disabled mode starts no watchdog thread. Diagnostics
+never cancel, retry, or interrupt tick work. Turn them off with `slowWaveMillis 0` after
+investigating; inline serial fallbacks outside scheduler waves are not monitored.
 
 ## Development
 

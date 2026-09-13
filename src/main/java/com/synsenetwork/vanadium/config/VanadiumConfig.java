@@ -68,6 +68,13 @@ public class VanadiumConfig implements ConfigData {
     @Comment("Per-chunk load locks so different chunks can load in parallel; false = one global lock")
     public boolean parallelChunkLoads = true;
 
+    @Comment("Warn about waves exceeding this many milliseconds. 0 disables diagnostics; live next tick.")
+    @Min(0)
+    public int slowWaveMillis = 0;
+
+    @Comment("Include current task/type labels in slow-wave reports. Adds per-task overhead while diagnostics are enabled.")
+    public boolean detailedTickDiagnostics = false;
+
     /** Refresh once per tick so in-place list edits never add scans to individual ticker lookups. */
     public void refreshSerialRules() {
         entityRules.update(serialEntityTypes);
@@ -79,6 +86,7 @@ public class VanadiumConfig implements ConfigData {
         if (cellSize < 0) {
             throw new ValidationException("cellSize must be >= 0 (0 = auto) (got " + cellSize + ").");
         }
+        if (slowWaveMillis < 0) throw new ValidationException("slowWaveMillis must be >= 0");
         try {
             refreshSerialRules();
         } catch (IllegalArgumentException e) {

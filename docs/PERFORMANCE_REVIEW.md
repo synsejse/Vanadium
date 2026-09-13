@@ -544,3 +544,29 @@ are in `.vanadium/tracking-review/`. The live world and logs are retained at
 `.vanadium/runs/smoke-f4djc3ta/`. The test mod is not included in the distributable jar.
 Real client connections, join/leave protocol behavior, dimension changes, and sustained
 multiplayer load remain untested; the simulated-player check is not a multiplayer benchmark.
+
+## Disabled diagnostic overhead check (2026-09-13)
+
+Compared the stage-profiler commit `340addb` with the final wave-diagnostics implementation,
+with profiling and diagnostics disabled. The final scheduler had its diagnostic service
+attached, as on a live server, but with the threshold at zero. Monitored waves construct
+cell wrappers only when enabled; the worker pool's normal task loop is unchanged from
+the profiler commit. Cells retain two coordinate integers for diagnostic reporting.
+
+Three fresh JVMs per variant ran sequentially in mixed order on the Ryzen 5 9600X / NixOS,
+OpenJDK 21.0.12.1, Parallel GC, 12 workers, cell size 4, 1,024 chunks, 2,000 warmup and
+5,000 measured stages, SPIN=200. This is the synthetic scheduler benchmark without a
+Minecraft/Fabric/C2ME server; world flags and mod workloads do not apply.
+
+| Measurement | Before median | After median |
+| --- | ---: | ---: |
+| No-op allocation/stage | 1,966 B | 1,968 B |
+| No-op duration/stage | 13.1 µs | 13.2 µs |
+| Loaded duration/stage | 53.2 µs | 55.5 µs |
+
+Loaded ranges overlapped (53.2–54.9 versus 53.1–57.9 µs), but the after median was higher;
+this is not evidence of zero overhead or a speedup. Enabled diagnostics intentionally add
+cell wrappers/progress updates, plus per-task labels in detailed mode, and should be used
+for investigations. Enabled-mode overhead and dual-Xeon behavior remain unmeasured.
+Raw final results are `.vanadium/features/diagnostics/*-scheduler-*.log`. Earlier
+`*-bench-*.log` files cover a discarded worker-loop instrumentation prototype.

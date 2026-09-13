@@ -17,6 +17,8 @@ public final class TickScheduler {
     private int cellSize;
     private final Map<Stage, CellGrid> grids = new EnumMap<>(Stage.class);
     private TickProfile profile;
+    private WaveDiagnostics diagnostics;
+    private String dimension = "unknown";
 
     public TickScheduler(WorkerPool pool, int cellSize) {
         this.pool = pool;
@@ -35,6 +37,18 @@ public final class TickScheduler {
     /** Server-thread only; profiling is opt-in and does not change dispatch. */
     public void setProfile(TickProfile profile) {
         this.profile = profile;
+    }
+
+    public void setDiagnostics(WaveDiagnostics diagnostics) {
+        this.diagnostics = diagnostics;
+    }
+
+    public void setDimension(String dimension) {
+        this.dimension = dimension;
+    }
+
+    public boolean detailedDiagnostics() {
+        return diagnostics != null && diagnostics.detailed();
     }
 
     private void rebuildGrids() {
@@ -61,6 +75,11 @@ public final class TickScheduler {
         grids.get(stage).enqueue(chunkX, chunkZ, task);
     }
 
+    /** Labels are supplied only when detailed diagnostics are enabled. */
+    public void enqueue(Stage stage, int chunkX, int chunkZ, Runnable task, String label) {
+        enqueue(stage, chunkX, chunkZ, label == null ? task : new WaveDiagnostics.NamedTask(label, task));
+    }
+
     /** Runs the stage's queued work as four colored passes, then resets it. */
     public void run(Stage stage) {
         CellGrid grid = grids.get(stage);
@@ -71,7 +90,10 @@ public final class TickScheduler {
             for (int color = 0; color < COLORS; color++) {
                 List<Cell> cells = grid.cellsWithColor(color);
                 if (recording != null) recording.recordWave(stage, cells);
-                pool.runWave(cells, waitRecorder);
+                try (WaveDiagnostics.Watch watch = diagnostics != null && !cells.isEmpty()
+                        ? diagnostics.watch(stage, dimension, color, cellSize) : null) {
+                    pool.runWave(watch == null ? cells : watch.wrap(cells), waitRecorder);
+                }
             }
         } finally {
             if (recording != null) recording.recordStage(stage, System.nanoTime() - start);

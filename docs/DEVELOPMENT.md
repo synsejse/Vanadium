@@ -193,3 +193,21 @@ nonzero entity work, percentiles, wait time, and task distribution. Startup/tick
 and serial dispatch checks also passed with pinned C2ME in `.vanadium/runs/smoke-esv9urx3/`.
 Evidence is under `.vanadium/features/profile/`. This validates instrumentation, not a
 performance gain; real modpack, multiplayer, and dual-Xeon measurements remain outstanding.
+
+## Wave diagnostics validation (2026-09-13)
+
+The full build passed **108 tests**; scheduler tests were rerun after the final change.
+New deterministic tests use an injected clock and bounded latches to verify disabled mode,
+warning thresholds, global rate limiting, blocked caller/worker reports, task labels,
+negative cell coordinates, unchanged inline execution, and cleanup on completion/failure.
+
+A temporary Fabric fixture blocked two real scheduler cells until the watchdog reported
+them. The warning included the overworld, ENTITY stage, negative/zero cell coordinates,
+both type labels, and stacks for the server thread and a worker. Both tasks then finished
+without interruption. The final isolated run also passed diagnostic config bounds,
+save/reload, disabling, profile commands, and startup/tick/save/shutdown with pinned C2ME.
+Evidence is `.vanadium/features/diagnostics/server-final.log` and
+`.vanadium/runs/smoke-xlaurxa7/`. `git diff --check` passed.
+
+See `PERFORMANCE_REVIEW.md` for the disabled-mode overhead comparison. Real modpack stalls,
+multiplayer behavior, integrated-server restart, and enabled-mode overhead remain untested.

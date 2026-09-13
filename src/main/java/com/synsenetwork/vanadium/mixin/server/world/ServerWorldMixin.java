@@ -104,7 +104,8 @@ public abstract class ServerWorldMixin implements StructureWorldAccess {
             return;
         }
         Vanadium.scheduler.enqueue(Stage.ENTITY, entity.getChunkPos().x, entity.getChunkPos().z,
-                () -> consumer.accept(entity));
+                () -> consumer.accept(entity), Vanadium.scheduler.detailedDiagnostics()
+                        ? Registries.ENTITY_TYPE.getId(entity.getType()).toString() : null);
     }
 
     @Redirect(method = "addSyncedBlockEvent", at = @At(value = "INVOKE", target = "Lit/unimi/dsi/fastutil/objects/ObjectLinkedOpenHashSet;add(Ljava/lang/Object;)Z"))
