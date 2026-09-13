@@ -49,7 +49,7 @@ class WaveDiagnosticsTest {
             right.add(new WaveDiagnostics.NamedTask("minecraft:pig", blocked));
             var watch = diagnostics.watch(Stage.BLOCK_ENTITY, "test:dimension", 0, 3);
             var wave = caller.submit(() -> {
-                try (watch) { pool.runWave(watch.wrap(List.of(left, right))); }
+                try (watch) { pool.runWave(watch.wrap(List.of(left, right)), null); }
             });
             assertTrue(entered.await(5, TimeUnit.SECONDS));
             clock.set(TimeUnit.MILLISECONDS.toNanos(99));
@@ -100,7 +100,7 @@ class WaveDiagnosticsTest {
                 clock.set(TimeUnit.MILLISECONDS.toNanos(2));
                 diagnostics.poll();
                 throw new IllegalStateException("fixture");
-            });
+            }, null);
             assertThrows(IllegalStateException.class, () -> scheduler.run(Stage.ENTITY));
             assertEquals(1, reports.size());
             assertTrue(reports.getFirst().contains("cell=(-1,-1)"));

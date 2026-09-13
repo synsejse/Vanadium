@@ -47,11 +47,11 @@ public final class WorkerPoolBench {
             }
         }
         try {
-            for (int i = 0; i < WARMUP; i++) pool.runWave(tasks);
+            for (int i = 0; i < WARMUP; i++) pool.runWave(tasks, null);
             long[] ids = bean.getAllThreadIds();
             long bytesBefore = allocated(bean, ids);
             long start = System.nanoTime();
-            for (int i = 0; i < MEASURED; i++) pool.runWave(tasks);
+            for (int i = 0; i < MEASURED; i++) pool.runWave(tasks, null);
             long elapsed = System.nanoTime() - start;
             long bytes = allocated(bean, ids) - bytesBefore;
             System.out.printf(java.util.Locale.ROOT, "%d,%d,%s,%.3f,%d%n",

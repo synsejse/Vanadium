@@ -47,12 +47,9 @@ public final class WorkerPool {
      *
      * <p>Do not change the collection's contents until this method returns. Random-access
      * lists are read directly; other collections are copied to an indexed list.
+     *
+     * @param callerWait optional profiling callback for caller tail-wait time; null disables timing
      */
-    public void runWave(Collection<? extends Runnable> tasks) {
-        runWave(tasks, null);
-    }
-
-    /** Optional profiling callback receives the caller's tail-wait time after it finishes claiming work. */
     public void runWave(Collection<? extends Runnable> tasks, LongConsumer callerWait) {
         int n = tasks.size();
         if (n == 0) {

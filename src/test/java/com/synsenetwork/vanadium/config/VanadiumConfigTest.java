@@ -4,9 +4,9 @@ import static org.junit.jupiter.api.Assertions.*;
 import org.junit.jupiter.api.Test;
 
 class VanadiumConfigTest {
-    // --- resolveWorkers(workers, cores) --------------------------------------
+    // --- resolveWorkers(workers, availableProcessors) ------------------------
 
-    @Test void nonPositiveWorkersMeansAllCores() {
+    @Test void nonPositiveWorkersMeansAvailableProcessors() {
         assertEquals(72, VanadiumConfig.resolveWorkers(0, 72));
         assertEquals(8, VanadiumConfig.resolveWorkers(-1, 8));
     }
@@ -19,20 +19,20 @@ class VanadiumConfigTest {
         assertEquals(2, VanadiumConfig.resolveWorkers(1, 72));
     }
 
-    @Test void cappedAtCoreCount() {
+    @Test void cappedAtAvailableProcessors() {
         assertEquals(72, VanadiumConfig.resolveWorkers(200, 72));
     }
 
-    @Test void singleCoreMachineStillValid() {
+    @Test void singleAvailableProcessorStillValid() {
         assertEquals(2, VanadiumConfig.resolveWorkers(16, 1)); // explicit cap: floor of 2 still wins
-        assertEquals(1, VanadiumConfig.resolveWorkers(0, 1));  // auto: exactly the core count
+        assertEquals(1, VanadiumConfig.resolveWorkers(0, 1));  // auto: exactly the available processor count
     }
 
     // --- autoCellSize(parallelism) — unchanged heuristic ----------------------
 
-    @Test void smallerOnMoreCores() {
+    @Test void smallerWithMoreWorkers() {
         assertTrue(VanadiumConfig.autoCellSize(16) <= VanadiumConfig.autoCellSize(4),
-                "more cores should not give larger cells");
+                "more workers should not give larger cells");
     }
 
     @Test void clampedToRange() {

@@ -56,7 +56,7 @@ class WorkerPoolTest {
         };
         Thread caller = new Thread(() -> {
             try {
-                pool.runWave(List.of(task, task));
+                pool.runWave(List.of(task, task), null);
             } catch (Throwable t) {
                 failure.set(t);
             } finally {
@@ -115,7 +115,7 @@ class WorkerPoolTest {
             for (int wave = 0; wave < 500; wave++) {
                 int count = wave % 2 == 0 ? 2 : 64;
                 for (int i = 0; i < count; i++) tasks.add(completed::incrementAndGet);
-                pool.runWave(tasks);
+                pool.runWave(tasks, null);
                 tasks.clear();
                 expected += count;
                 assertEquals(expected, completed.get());
@@ -130,8 +130,8 @@ class WorkerPoolTest {
         AtomicInteger completed = new AtomicInteger();
         List<Runnable> tasks = List.of(completed::incrementAndGet, completed::incrementAndGet);
         try {
-            pool.runWave(new LinkedList<>(tasks));
-            pool.runWave(new LinkedHashSet<>(tasks));
+            pool.runWave(new LinkedList<>(tasks), null);
+            pool.runWave(new LinkedHashSet<>(tasks), null);
             assertEquals(4, completed.get());
         } finally {
             pool.shutdown();
@@ -146,7 +146,7 @@ class WorkerPoolTest {
             int index = i;
             tasks.add(() -> visits.incrementAndGet(index));
         }
-        pool.runWave(tasks);
+        pool.runWave(tasks, null);
         for (int i = 0; i < visits.length(); i++) assertEquals(1, visits.get(i));
         pool.shutdown();
     }
@@ -156,7 +156,7 @@ class WorkerPoolTest {
         AtomicInteger completed = new AtomicInteger();
         pool.shutdown();
         assertThrows(RejectedExecutionException.class,
-                () -> pool.runWave(List.of(completed::incrementAndGet, completed::incrementAndGet)));
+                () -> pool.runWave(List.of(completed::incrementAndGet, completed::incrementAndGet), null));
         assertEquals(2, completed.get());
     }
 
@@ -166,7 +166,7 @@ class WorkerPoolTest {
         pool.runWave(List.of(() -> {
             try { Thread.sleep(40); } catch (InterruptedException ignored) {}
             done.set(true);
-        }));
+        }), null);
         assertTrue(done.get(), "runWave returned before its task finished");
         pool.shutdown();
     }
@@ -174,13 +174,13 @@ class WorkerPoolTest {
     @Test void runWavePropagatesTaskFailure() {
         WorkerPool pool = new WorkerPool(2);
         assertThrows(RuntimeException.class,
-            () -> pool.runWave(List.of(() -> { throw new IllegalStateException("boom"); })));
+            () -> pool.runWave(List.of(() -> { throw new IllegalStateException("boom"); }), null));
         pool.shutdown();
     }
 
     @Test void emptyWaveIsANoop() {
         WorkerPool pool = new WorkerPool(2);
-        pool.runWave(List.of());
+        pool.runWave(List.of(), null);
         pool.shutdown();
     }
 
@@ -196,7 +196,7 @@ class WorkerPoolTest {
             try { gate.await(2, TimeUnit.SECONDS); }
             catch (Exception e) { throw new RuntimeException(e); }
         };
-        pool.runWave(List.of(t, t));
+        pool.runWave(List.of(t, t), null);
         assertTrue(anyOnWorker.get(), "at least one task should run on a pool worker");
         assertFalse(WorkerPool.isWorkerThread(), "main thread must not report as a worker");
         pool.shutdown();
@@ -209,7 +209,7 @@ class WorkerPoolTest {
         pool.runWave(List.of(() -> {
             ranOn.set(Thread.currentThread());
             wasWorker.set(WorkerPool.isWorkerThread());
-        }));
+        }), null);
         assertSame(Thread.currentThread(), ranOn.get(), "single-task wave must run on the caller");
         assertFalse(wasWorker.get(), "caller must not report as a worker");
         pool.shutdown();
@@ -231,7 +231,7 @@ class WorkerPoolTest {
         AtomicReference<Thread> callerRef = new AtomicReference<>();
         assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
             callerRef.set(Thread.currentThread());
-            pool.runWave(List.of(t, t));
+            pool.runWave(List.of(t, t), null);
         });
         assertTrue(ran.contains(callerRef.get()), "caller must execute a task, not just block");
         pool.shutdown();
@@ -243,7 +243,7 @@ class WorkerPoolTest {
         List<Runnable> tasks = new ArrayList<>();
         for (int i = 0; i < 50; i++) tasks.add(completed::incrementAndGet);
         tasks.add(25, () -> { throw new IllegalStateException("boom"); });
-        assertThrows(RuntimeException.class, () -> pool.runWave(tasks));
+        assertThrows(RuntimeException.class, () -> pool.runWave(tasks, null));
         assertEquals(50, completed.get(), "all non-throwing tasks must still run");
         pool.shutdown();
     }
@@ -253,7 +253,7 @@ class WorkerPoolTest {
         AtomicInteger counter = new AtomicInteger();
         List<Runnable> tasks = new ArrayList<>();
         for (int i = 0; i < 10_000; i++) tasks.add(counter::incrementAndGet);
-        pool.runWave(tasks);
+        pool.runWave(tasks, null);
         assertEquals(10_000, counter.get());
         pool.shutdown();
     }

@@ -79,7 +79,7 @@ public abstract class ServerWorldMixin implements StructureWorldAccess {
         Vanadium.scheduler.begin(Stage.SCHEDULED_TICK);
         instance.tick(time, maxTicks, (BiConsumer<BlockPos, Object>) (pos, type) ->
                 Vanadium.scheduler.enqueue(Stage.SCHEDULED_TICK, pos.getX() >> 4, pos.getZ() >> 4,
-                        () -> ticker.accept(pos, type)));
+                        () -> ticker.accept(pos, type), null));
         Vanadium.scheduler.run(Stage.SCHEDULED_TICK);
     }
 

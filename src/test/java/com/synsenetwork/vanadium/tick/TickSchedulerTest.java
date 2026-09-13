@@ -17,7 +17,7 @@ class TickSchedulerTest {
             for (int cz = 0; cz < 16; cz++) {
                 int fx = cx, fz = cz;
                 scheduler.enqueue(Stage.CHUNK, fx, fz,
-                    () -> counts.merge(fx + "," + fz, 1, Integer::sum));
+                    () -> counts.merge(fx + "," + fz, 1, Integer::sum), null);
             }
         scheduler.run(Stage.CHUNK);
         assertEquals(256, counts.size());
@@ -36,7 +36,7 @@ class TickSchedulerTest {
                 scheduler.enqueue(Stage.ENTITY, x, z, () -> {
                     try { Thread.sleep(2); } catch (InterruptedException ignored) {}
                     order.add(color);
-                });
+                }, null);
             }
         scheduler.run(Stage.ENTITY);
         for (int i = 1; i < order.size(); i++) {
@@ -51,7 +51,7 @@ class TickSchedulerTest {
         TickScheduler scheduler = new TickScheduler(pool, 8);
         int[] runs = {0};
         scheduler.begin(Stage.CHUNK);
-        scheduler.enqueue(Stage.CHUNK, 0, 0, () -> runs[0]++);
+        scheduler.enqueue(Stage.CHUNK, 0, 0, () -> runs[0]++, null);
         scheduler.run(Stage.CHUNK);
         scheduler.run(Stage.CHUNK); // nothing queued this time
         assertEquals(1, runs[0]);

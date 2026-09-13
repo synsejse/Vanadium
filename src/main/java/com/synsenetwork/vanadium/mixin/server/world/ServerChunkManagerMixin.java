@@ -53,7 +53,7 @@ public abstract class ServerChunkManagerMixin extends ChunkManager {
             return;
         }
         Vanadium.scheduler.enqueue(Stage.CHUNK, chunk.getPos().x, chunk.getPos().z,
-                () -> SpawnHelper.spawn(serverWorld, chunk, info, spawnAnimals, spawnMonsters, rareSpawn));
+                () -> SpawnHelper.spawn(serverWorld, chunk, info, spawnAnimals, spawnMonsters, rareSpawn), null);
     }
 
     @Redirect(method = "tickChunks", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/world/ServerWorld;tickChunk(Lnet/minecraft/world/chunk/WorldChunk;I)V"))
@@ -63,7 +63,7 @@ public abstract class ServerChunkManagerMixin extends ChunkManager {
             return;
         }
         Vanadium.scheduler.enqueue(Stage.CHUNK, chunk.getPos().x, chunk.getPos().z,
-                () -> serverWorld.tickChunk(chunk, randomTickSpeed));
+                () -> serverWorld.tickChunk(chunk, randomTickSpeed), null);
     }
 
 

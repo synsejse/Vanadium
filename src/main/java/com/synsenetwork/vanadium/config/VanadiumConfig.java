@@ -14,12 +14,12 @@ public class VanadiumConfig implements ConfigData {
     @Comment("Master switch: false = fully vanilla ticking (all parallelism off)")
     public boolean enabled = true;
 
-    @Comment("Worker threads for parallel ticking. <= 0 = one per CPU core, otherwise capped at this "
-            + "value (never above core count, floor 2). Takes effect on restart.")
+    @Comment("Worker threads for parallel ticking. <= 0 = available logical processors. Positive values "
+            + "are clamped between 2 and max(2, available logical processors). Takes effect on restart.")
     @RestartRequired
     public int workers = 0;
 
-    @Comment("Width/height, in chunks, of each parallel cell. 0 = auto (chosen from CPU core count). "
+    @Comment("Width/height, in chunks, of each parallel cell. 0 = auto (chosen from resolved worker count). "
             + "Smaller cells = finer parallelism but more overhead. Applies next tick.")
     @Min(0)
     public int cellSize = 0;
@@ -35,17 +35,6 @@ public class VanadiumConfig implements ConfigData {
 
     @Comment("Block entity type IDs to tick on the server thread (namespace:type). Empty list disables rules.")
     public List<String> serialBlockEntityTypes = new ArrayList<>();
-
-    private transient TypeRules entityRules = new TypeRules();
-    private transient TypeRules blockEntityRules = new TypeRules();
-
-    public boolean isSerialEntity(Identifier id) {
-        return entityRules.contains(id);
-    }
-
-    public boolean isSerialBlockEntity(Identifier id) {
-        return blockEntityRules.contains(id);
-    }
 
     @Comment("Tick chunks (weather, random ticks) in parallel")
     public boolean parallelChunkTicks = true;
@@ -75,6 +64,17 @@ public class VanadiumConfig implements ConfigData {
     @Comment("Include current task/type labels in slow-wave reports. Adds per-task overhead while diagnostics are enabled.")
     public boolean detailedTickDiagnostics = false;
 
+    private transient TypeRules entityRules = new TypeRules();
+    private transient TypeRules blockEntityRules = new TypeRules();
+
+    public boolean isSerialEntity(Identifier id) {
+        return entityRules.contains(id);
+    }
+
+    public boolean isSerialBlockEntity(Identifier id) {
+        return blockEntityRules.contains(id);
+    }
+
     /** Refresh once per tick so in-place list edits never add scans to individual ticker lookups. */
     public void refreshSerialRules() {
         entityRules.update(serialEntityTypes);
@@ -94,23 +94,23 @@ public class VanadiumConfig implements ConfigData {
         }
     }
 
-    /** Worker count from config: {@code <= 0} = one per core; otherwise capped at core count, floor 2. */
+    /** Auto uses available logical processors; explicit values clamp to 2..max(2, available processors). */
     public static int resolveWorkers() {
         return resolveWorkers(Vanadium.config.workers, Runtime.getRuntime().availableProcessors());
     }
 
-    static int resolveWorkers(int workers, int cores) {
-        return workers <= 0 ? cores : Math.clamp(workers, 2, Math.max(2, cores));
+    static int resolveWorkers(int workers, int availableProcessors) {
+        return workers <= 0 ? availableProcessors : Math.clamp(workers, 2, Math.max(2, availableProcessors));
     }
 
-    /** The cell size to use: the explicit config value, or the core-count heuristic when 0 (auto). */
+    /** The cell size to use: the explicit config value, or the worker-count heuristic when 0 (auto). */
     public static int resolveCellSize() {
         int configured = Vanadium.config.cellSize;
         return configured > 0 ? configured : autoCellSize(resolveWorkers());
     }
 
     /**
-     * Heuristic cell size from core count: aim for enough cells to feed every worker thread across
+     * Heuristic cell size from resolved worker count: aim for enough cells to feed every worker thread across
      * the four color waves over a typical ticking area. Clamped to a sane range.
      */
     static int autoCellSize(int parallelism) {

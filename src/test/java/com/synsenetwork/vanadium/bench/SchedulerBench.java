@@ -74,7 +74,7 @@ public final class SchedulerBench {
         scheduler.begin(Stage.CHUNK);
         for (int cx = -radius; cx < radius; cx++) {
             for (int cz = -radius; cz < radius; cz++) {
-                scheduler.enqueue(Stage.CHUNK, cx, cz, task);
+                scheduler.enqueue(Stage.CHUNK, cx, cz, task, null);
             }
         }
         scheduler.run(Stage.CHUNK);

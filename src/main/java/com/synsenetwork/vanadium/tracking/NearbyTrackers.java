@@ -216,7 +216,7 @@ public final class NearbyTrackers {
 
     private void enqueue(EntityTracker tracker, Runnable task) {
         Entity entity = entity(tracker);
-        Vanadium.scheduler.enqueue(Stage.TRACKING, entity.getChunkPos().x, entity.getChunkPos().z, task);
+        Vanadium.scheduler.enqueue(Stage.TRACKING, entity.getChunkPos().x, entity.getChunkPos().z, task, null);
     }
 
     private static Entity entity(EntityTracker tracker) {

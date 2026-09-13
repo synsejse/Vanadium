@@ -70,14 +70,9 @@ public final class TickScheduler {
         grids.get(stage).beginTick();
     }
 
-    /** Queues a tick task into the cell that owns (chunkX, chunkZ). */
-    public void enqueue(Stage stage, int chunkX, int chunkZ, Runnable task) {
-        grids.get(stage).enqueue(chunkX, chunkZ, task);
-    }
-
-    /** Labels are supplied only when detailed diagnostics are enabled. */
+    /** Queues a tick task into its cell. Pass null for the label unless detailed diagnostics are enabled. */
     public void enqueue(Stage stage, int chunkX, int chunkZ, Runnable task, String label) {
-        enqueue(stage, chunkX, chunkZ, label == null ? task : new WaveDiagnostics.NamedTask(label, task));
+        grids.get(stage).enqueue(chunkX, chunkZ, label == null ? task : new WaveDiagnostics.NamedTask(label, task));
     }
 
     /** Runs the stage's queued work as four colored passes, then resets it. */

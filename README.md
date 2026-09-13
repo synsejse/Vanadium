@@ -26,8 +26,8 @@ Vanadium handles parallel *ticking*; [C2ME](https://modrinth.com/mod/c2me-fabric
 | Option | Default | Effect |
 |---|---|---|
 | `enabled` | `true` | Master switch; `false` = fully vanilla ticking |
-| `workers` | `0` | Worker threads: `<= 0` = one per CPU core, otherwise capped at this value (restart) |
-| `cellSize` | `0` | Cell width/height in chunks; `0` = auto from core count |
+| `workers` | `0` | `<= 0` = available logical processors; positive values clamp to 2..max(2, available logical processors) (restart) |
+| `cellSize` | `0` | Cell width/height in chunks; `0` = auto from resolved worker count |
 | `parallelEntities` | `true` | Tick entities in parallel |
 | `parallelBlockEntities` | `true` | Tick block entities in parallel |
 | `serialEntityTypes` | `[]` | Entity type IDs that tick serially |
