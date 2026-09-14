@@ -91,6 +91,23 @@ def wait_for(process, log, marker, timeout):
     raise RuntimeError(f"Timed out waiting for {marker!r}; see {log}")
 
 
+def stop_detached_server(run):
+    """Loom's single-use Gradle daemon can launch the server outside our process group."""
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return
+    for entry in proc.iterdir():
+        if not entry.name.isdecimal():
+            continue
+        try:
+            # The fresh run directory belongs exclusively to this harness invocation.
+            if (entry / "cwd").resolve() != run or (entry / "comm").read_text().strip() != "java":
+                continue
+            os.kill(int(entry.name), signal.SIGKILL)
+        except (OSError, RuntimeError):
+            pass  # Process exited while inspecting it, or belongs to another user.
+
+
 def exercise(args):
     eula = STATE / "eula.txt"
     if not eula.exists() or "eula=true" not in eula.read_text().splitlines():
@@ -171,6 +188,7 @@ def exercise(args):
             except ProcessLookupError:
                 pass
             process.wait()
+            stop_detached_server(run)
 
 
 def positive_int(value):

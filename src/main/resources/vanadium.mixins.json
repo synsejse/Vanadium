@@ -2,10 +2,9 @@
   "required": true,
   "minVersion": "0.8",
   "package": "com.synsenetwork.vanadium.mixin",
-  "compatibilityLevel": "JAVA_21",
+  "compatibilityLevel": "JAVA_25",
   "mixins": [
     "SyncAllMixin",
-    "entity.EntityMixin",
     "entity.ItemEntityMixin",
     "entity.LivingEntityMixin",
     "entity.ai.brain.sensor.NearestLivingEntitiesSensorMixin",
@@ -45,7 +44,8 @@
     "world.chunk.light.PendingUpdateQueueMixin",
     "world.entity.EntityIndexMixin",
     "world.entity.SectionedEntityCacheMixin",
-    "world.storage.SerializingRegionBasedStorageMixin"
+    "world.storage.SerializingRegionBasedStorageMixin",
+    "world.storage.SavedDataStorageMixin"
   ],
   "client": [],
   "server": [],

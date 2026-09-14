@@ -1,7 +1,6 @@
 package com.synsenetwork.vanadium.mixin.util.collection;
 import java.util.stream.Collectors;
-
-import net.minecraft.util.collection.TypeFilterableList;
+import net.minecraft.util.ClassInstanceMultiMap;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Mutable;
@@ -16,19 +15,19 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collector;
 
-@Mixin(TypeFilterableList.class)
+@Mixin(ClassInstanceMultiMap.class)
 public abstract class TypeFilterableListMixin<T> extends AbstractCollection<T> {
     @Shadow
     @Final
     @Mutable
-    private Map<Class<?>, List<T>> elementsByType = new ConcurrentHashMap<>();
+    private Map<Class<?>, List<T>> byClass = new ConcurrentHashMap<>();
 
     @Shadow
     @Final
     @Mutable
-    private List<T> allElements = new CopyOnWriteArrayList<>();
+    private List<T> allInstances = new CopyOnWriteArrayList<>();
 
-    @ModifyArg(method = "method_15217", at = @At(value = "INVOKE", target = "Ljava/util/stream/Stream;collect(Ljava/util/stream/Collector;)Ljava/lang/Object;"))
+    @ModifyArg(method = "lambda$find$0", at = @At(value = "INVOKE", target = "Ljava/util/stream/Stream;collect(Ljava/util/stream/Collector;)Ljava/lang/Object;"))
     private <E> Collector<E, ?, List<E>> overwriteCollectToList(Collector<E, ?, List<E>> collector) {
         return Collectors.toCollection(CopyOnWriteArrayList::new);
     }

@@ -2,10 +2,6 @@ package com.synsenetwork.vanadium.mixin.server.world;
 
 import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.tracking.NearbyTrackers;
-import net.minecraft.server.network.EntityTrackerEntry;
-import net.minecraft.server.network.PlayerAssociatedNetworkHandler;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerChunkLoadingManager;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -14,17 +10,21 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.Set;
+import net.minecraft.server.level.ChunkMap;
+import net.minecraft.server.level.ServerEntity;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.network.ServerPlayerConnection;
 
-@Mixin(ServerChunkLoadingManager.EntityTracker.class)
+@Mixin(ChunkMap.TrackedEntity.class)
 public abstract class EntityTrackerMixin {
 
     @Shadow
     @Final
-    private Set<PlayerAssociatedNetworkHandler> listeners;
+    private Set<ServerPlayerConnection> seenBy;
 
     @Shadow
     @Final
-    EntityTrackerEntry entry;
+    ServerEntity serverEntity;
 
     /**
      * Under the area-map index, trackers with no watchers are not ticked, so their entry's
@@ -32,11 +32,11 @@ public abstract class EntityTrackerMixin {
      * added — while the listener set is still empty, so the forced tick sends nothing — to
      * re-baseline the entry for the new watcher's spawn packet and subsequent deltas.
      */
-    @Inject(method = "updateTrackedStatus(Lnet/minecraft/server/network/ServerPlayerEntity;)V",
+    @Inject(method = "updatePlayer(Lnet/minecraft/server/level/ServerPlayer;)V",
             at = @At(value = "INVOKE", target = "Ljava/util/Set;add(Ljava/lang/Object;)Z"))
-    private void vanadium$resyncDormantEntry(ServerPlayerEntity player, CallbackInfo ci) {
-        if (Vanadium.config.enabled && Vanadium.config.parallelTracking && this.listeners.isEmpty()) {
-            NearbyTrackers.forceResync(this.entry);
+    private void vanadium$resyncDormantEntry(ServerPlayer player, CallbackInfo ci) {
+        if (Vanadium.config.enabled && Vanadium.config.parallelTracking && this.seenBy.isEmpty()) {
+            NearbyTrackers.forceResync(this.serverEntity);
         }
     }
 }

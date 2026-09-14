@@ -1,6 +1,6 @@
 # Working on Vanadium
 
-Vanadium is a Java 21 Fabric mod targeting **Minecraft 1.21.1 with Yarn mappings**.
+Vanadium is a Java 25 Fabric mod targeting **Minecraft 26.2 with official unobfuscated names**.
 Read `README.md`, `docs/DEVELOPMENT.md`, and `docs/ARCHITECTURE.md` before changing tick paths.
 Version sources are `gradle.properties`, `build.gradle`, and `gradle/wrapper/gradle-wrapper.properties`.
 Do not upgrade Minecraft, mappings, Loom, Gradle, or runtime mods as incidental cleanup.
@@ -8,9 +8,10 @@ Do not upgrade Minecraft, mappings, Loom, Gradle, or runtime mods as incidental 
 ## Environment and commands
 
 - Enter `nix develop` (or `nix develop path:.` while new Nix files are untracked).
-  The shell supplies Java 21, Python 3, shellcheck, nixfmt, and common CLI tools.
-- Always use `./gradlew`, not a system Gradle. Java compilation uses a Java 21 toolchain.
-- `./gradlew build`: compile, validate the access widener, test, and produce remapped jars.
+  The shell supplies Java 25, Python 3, shellcheck, nixfmt, and common CLI tools.
+- Always use `./gradlew`, not a system Gradle. Java compilation uses a Java 25 toolchain.
+- `./gradlew genSources`: generate Minecraft sources for reviewing injection targets.
+- `./gradlew build`: compile, validate the access widener, test, and produce distributable jars.
 - `./gradlew test --tests 'com.synsenetwork.vanadium.tick.*'`: focused scheduler tests.
 - `./gradlew test --rerun-tasks`: actually rerun tests when checking concurrency behavior.
 - `./gradlew benchScheduler`: synthetic scheduler overhead/allocation benchmark.
@@ -21,6 +22,9 @@ Do not upgrade Minecraft, mappings, Loom, Gradle, or runtime mods as incidental 
 - `python3 scripts/dev-server.py smoke`: isolated server startup/tick/save/shutdown test.
   Requires an accepted `.vanadium/eula.txt`; see the development guide.
 - `scripts/bench-server.sh 30`: isolated server profiler workload.
+
+MixinTargetsTest checks vanilla member bindings without initializing Minecraft; live tests
+are still required to validate injection points and callback signatures.
 
 The first Gradle build needs network access for Gradle, Minecraft, and Maven artifacts.
 C2ME stays a release jar in the run directory's `mods/`; its nested mods are intentionally
@@ -64,6 +68,8 @@ All Java paths below are relative to `src/main/java/com/synsenetwork/vanadium/`.
   and packed positions are distinct; verify conversions at zero and negative boundaries.
 - Four-color separation does not protect every cross-cell interaction. Preserve explicit
   entity locks, world synchronization, and collection semantics, including fastutil views.
+- SavedDataStorage has asynchronous writes in 26.2: never synchronize saveAndJoin/close
+  across their completion wait. Keep cache/snapshot locks separate from disk IO.
 - Preserve disabled-stage fallback paths and the serial exceptions for projectiles/portals.
 - C2ME is required; Lithium and VMP are declared incompatible. Recheck compatibility
   against the pinned C2ME jar when touching cancellation or Minecraft method injections.

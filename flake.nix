@@ -1,5 +1,5 @@
 {
-  description = "Vanadium Java 21 development and headless testing";
+  description = "Vanadium Java 25 development and testing";
 
   inputs.nixpkgs.url = "https://channels.nixos.org/nixos-26.05/nixexprs.tar.xz";
 
@@ -23,7 +23,7 @@
         {
           default = pkgs.mkShellNoCC {
             packages = with pkgs; [
-              jdk21
+              jdk25
               bash
               git
               ripgrep
@@ -35,7 +35,16 @@
               shellcheck
               nixfmt
             ];
-            JAVA_HOME = "${pkgs.jdk21}";
+            JAVA_HOME = "${pkgs.jdk25}";
+            # LWJGL loads graphics APIs dynamically when starting the client.
+            shellHook = pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+              export LD_LIBRARY_PATH="${
+                pkgs.lib.makeLibraryPath [
+                  pkgs.vulkan-loader
+                  pkgs.libglvnd
+                ]
+              }''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+            '';
           };
         }
       );

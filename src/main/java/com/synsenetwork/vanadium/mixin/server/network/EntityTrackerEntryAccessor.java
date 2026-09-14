@@ -1,24 +1,24 @@
 package com.synsenetwork.vanadium.mixin.server.network;
 
-import net.minecraft.entity.Entity;
-import net.minecraft.server.network.EntityTrackerEntry;
+import net.minecraft.server.level.ServerEntity;
+import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;
 
-@Mixin(EntityTrackerEntry.class)
+@Mixin(ServerEntity.class)
 public interface EntityTrackerEntryAccessor {
     @Accessor("entity")
     Entity vanadium$entity();
 
-    @Accessor("trackingTick")
+    @Accessor("tickCount")
     int vanadium$trackingTick();
 
-    @Accessor("trackingTick")
+    @Accessor("tickCount")
     void vanadium$setTrackingTick(int trackingTick);
 
-    @Accessor("tickInterval")
+    @Accessor("updateInterval")
     int vanadium$tickInterval();
 
-    @Accessor("updatesWithoutVehicle")
+    @Accessor("teleportDelay")
     void vanadium$setUpdatesWithoutVehicle(int updatesWithoutVehicle);
 }

@@ -3,9 +3,8 @@ package com.synsenetwork.vanadium.config;
 import me.shedaniel.autoconfig.ConfigData;
 import me.shedaniel.autoconfig.annotation.Config;
 import me.shedaniel.cloth.clothconfig.shadowed.blue.endless.jankson.Comment;
+import net.minecraft.resources.Identifier;
 import com.synsenetwork.vanadium.Vanadium;
-import net.minecraft.util.Identifier;
-
 import java.util.ArrayList;
 import java.util.List;
 

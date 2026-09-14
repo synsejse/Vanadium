@@ -1,12 +1,12 @@
 package com.synsenetwork.vanadium.tracking;
 
-import net.minecraft.util.math.ChunkPos;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Random;
+import net.minecraft.world.level.ChunkPos;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -71,7 +71,7 @@ class AreaMapTest {
             for (int dx = -2; dx <= 3; dx++) {
                 for (int dz = -3; dz <= 2; dz++) {
                     boolean expected = dx >= 0 && dx <= 2 && dz >= -2 && dz <= 0;
-                    assertEquals(expected, map.objectsAt(ChunkPos.toLong(x + dx, -x + dz)).contains(object));
+                    assertEquals(expected, map.objectsAt(ChunkPos.pack(x + dx, -x + dz)).contains(object));
                 }
             }
         }
@@ -83,13 +83,13 @@ class AreaMapTest {
         expected.forEach((object, bounds) -> {
             for (int x = bounds.x - bounds.radius; x <= bounds.x + bounds.radius; x++) {
                 for (int z = bounds.z - bounds.radius; z <= bounds.z + bounds.radius; z++) {
-                    coverage.computeIfAbsent(ChunkPos.toLong(x, z), key -> new IdentityHashMap<>()).put(object, true);
+                    coverage.computeIfAbsent(ChunkPos.pack(x, z), key -> new IdentityHashMap<>()).put(object, true);
                 }
             }
         });
         for (int x = min; x <= max; x++) {
             for (int z = min; z <= max; z++) {
-                long key = ChunkPos.toLong(x, z);
+                long key = ChunkPos.pack(x, z);
                 var actual = map.objectsAt(key);
                 var wanted = coverage.get(key);
                 assertEquals(wanted == null ? 0 : wanted.size(), actual.size(), "coverage at " + x + "," + z);

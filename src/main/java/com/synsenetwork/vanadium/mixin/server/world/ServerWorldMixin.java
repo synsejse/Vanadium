@@ -6,22 +6,23 @@ import com.mojang.datafixers.DataFixer;
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet;
 import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.tick.Stage;
-import net.minecraft.entity.projectile.ProjectileEntity;
 import com.synsenetwork.vanadium.chunk.ParallelChunkManager;
-import net.minecraft.entity.Entity;
-import net.minecraft.registry.Registries;
-import net.minecraft.entity.mob.MobEntity;
-import net.minecraft.server.WorldGenerationProgressListener;
-import net.minecraft.server.world.BlockEvent;
-import net.minecraft.server.world.ServerChunkManager;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.structure.StructureTemplateManager;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.server.level.ServerChunkCache;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.*;
-import net.minecraft.world.tick.WorldTickScheduler;
-import net.minecraft.world.chunk.ChunkStatusChangeListener;
-import net.minecraft.world.gen.chunk.ChunkGenerator;
-import net.minecraft.world.level.storage.LevelStorage;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.projectile.Projectile;
+import net.minecraft.world.level.BlockEventData;
+import net.minecraft.world.level.WorldGenLevel;
+import net.minecraft.world.level.chunk.ChunkGenerator;
+import net.minecraft.world.level.entity.ChunkStatusUpdateListener;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
+import net.minecraft.world.level.storage.SavedDataStorage;
+import net.minecraft.world.level.storage.LevelStorageSource;
+import net.minecraft.world.ticks.LevelTicks;
 import org.objectweb.asm.Opcodes;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
@@ -39,30 +40,30 @@ import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
-@Mixin(ServerWorld.class)
-public abstract class ServerWorldMixin implements StructureWorldAccess {
+@Mixin(ServerLevel.class)
+public abstract class ServerWorldMixin implements WorldGenLevel {
 
     @Unique
-    ConcurrentLinkedDeque<BlockEvent> syncedBlockEventCLinkedQueue = new ConcurrentLinkedDeque<BlockEvent>();
+    ConcurrentLinkedDeque<BlockEventData> syncedBlockEventCLinkedQueue = new ConcurrentLinkedDeque<BlockEventData>();
 
     @Shadow
     @Final
     @Mutable
-    Set<MobEntity> loadedMobs = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    Set<Mob> navigatingMobs = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     @Shadow
     @Final
     @Mutable
-    private ObjectLinkedOpenHashSet<BlockEvent> syncedBlockEventQueue = null;
+    private ObjectLinkedOpenHashSet<BlockEventData> blockEvents = null;
 
-    @Redirect(method = "<init>", at = @At(value = "NEW", target = "(Lnet/minecraft/server/world/ServerWorld;Lnet/minecraft/world/level/storage/LevelStorage$Session;Lcom/mojang/datafixers/DataFixer;Lnet/minecraft/structure/StructureTemplateManager;Ljava/util/concurrent/Executor;Lnet/minecraft/world/gen/chunk/ChunkGenerator;IIZLnet/minecraft/server/WorldGenerationProgressListener;Lnet/minecraft/world/chunk/ChunkStatusChangeListener;Ljava/util/function/Supplier;)Lnet/minecraft/server/world/ServerChunkManager;"))
-    private ServerChunkManager overwriteServerChunkManager(ServerWorld world, LevelStorage.Session session, DataFixer dataFixer, StructureTemplateManager structureTemplateManager, Executor workerExecutor, ChunkGenerator chunkGenerator, int viewDistance, int simulationDistance, boolean dsync, WorldGenerationProgressListener worldGenerationProgressListener, ChunkStatusChangeListener chunkStatusChangeListener, Supplier<PersistentStateManager> persistentStateManagerFactory) {
-        return new ParallelChunkManager(world, session, dataFixer, structureTemplateManager, workerExecutor, chunkGenerator, viewDistance, simulationDistance, dsync, worldGenerationProgressListener, chunkStatusChangeListener, persistentStateManagerFactory);
+    @Redirect(method = "<init>", at = @At(value = "NEW", target = "(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/level/storage/LevelStorageSource$LevelStorageAccess;Lcom/mojang/datafixers/DataFixer;Lnet/minecraft/world/level/levelgen/structure/templatesystem/StructureTemplateManager;Ljava/util/concurrent/Executor;Lnet/minecraft/world/level/chunk/ChunkGenerator;IIZLnet/minecraft/world/level/entity/ChunkStatusUpdateListener;Ljava/util/function/Supplier;)Lnet/minecraft/server/level/ServerChunkCache;"))
+    private ServerChunkCache overwriteServerChunkManager(ServerLevel world, LevelStorageSource.LevelStorageAccess session, DataFixer dataFixer, StructureTemplateManager structureTemplateManager, Executor workerExecutor, ChunkGenerator chunkGenerator, int viewDistance, int simulationDistance, boolean dsync, ChunkStatusUpdateListener chunkStatusChangeListener, Supplier<SavedDataStorage> persistentStateManagerFactory) {
+        return new ParallelChunkManager(world, session, dataFixer, structureTemplateManager, workerExecutor, chunkGenerator, viewDistance, simulationDistance, dsync, chunkStatusChangeListener, persistentStateManagerFactory);
     }
 
     /**
      * Runs each scheduler's due ticks as a parallel wave. The ticker handed to
-     * {@link net.minecraft.world.tick.WorldTickScheduler#tick} enqueues into cells instead of
+     * {@link net.minecraft.world.ticks.LevelTicks#runCollectedTicks} enqueues into cells instead of
      * executing, and the wave runs only after tick() returns — the scheduler's monitor
      * (ACC_SYNCHRONIZED via SyncAllMixin) is released by then, so workers scheduling follow-up
      * ticks (fluid spread does every step) can't deadlock against the barrier. Per-chunk order is
@@ -70,8 +71,8 @@ public abstract class ServerWorldMixin implements StructureWorldAccess {
      * nondeterministic, matching the rest of the cell model.
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    @Redirect(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/tick/WorldTickScheduler;tick(JILjava/util/function/BiConsumer;)V"))
-    private void overwriteScheduledTicks(WorldTickScheduler instance, long time, int maxTicks, BiConsumer ticker) {
+    @Redirect(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/ticks/LevelTicks;tick(JILjava/util/function/BiConsumer;)V"))
+    private void overwriteScheduledTicks(LevelTicks instance, long time, int maxTicks, BiConsumer ticker) {
         if (!Vanadium.config.enabled || !Vanadium.config.parallelScheduledTicks) {
             instance.tick(time, maxTicks, ticker);
             return;
@@ -83,58 +84,53 @@ public abstract class ServerWorldMixin implements StructureWorldAccess {
         Vanadium.scheduler.run(Stage.SCHEDULED_TICK);
     }
 
-    @Inject(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/profiler/Profiler;swap(Ljava/lang/String;)V", ordinal = 5))
-    private void postChunkTick(BooleanSupplier shouldKeepTicking, CallbackInfo ci) {
-        Vanadium.scheduler.run(Stage.CHUNK);
-    }
-
-    @Inject(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/profiler/Profiler;push(Ljava/lang/String;)V", ordinal = 2))
+    @Inject(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/entity/EntityTickList;forEach(Ljava/util/function/Consumer;)V"))
     private void preEntityTick(BooleanSupplier shouldKeepTicking, CallbackInfo ci) {
         Vanadium.scheduler.begin(Stage.ENTITY);
     }
 
     @SuppressWarnings("unchecked")
-    @Redirect(method = "method_31420", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/world/ServerWorld;tickEntity(Ljava/util/function/Consumer;Lnet/minecraft/entity/Entity;)V"))
-    private void overwriteEntityTicking(ServerWorld instance, Consumer consumer, Entity entity) {
+    @Redirect(method = "lambda$tick$0", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/level/ServerLevel;guardEntityTick(Ljava/util/function/Consumer;Lnet/minecraft/world/entity/Entity;)V"))
+    private void overwriteEntityTicking(ServerLevel instance, Consumer consumer, Entity entity) {
         if (!Vanadium.config.enabled || !Vanadium.config.parallelEntities
-                || (entity.portalManager != null && entity.portalManager.isInPortal())
-                || entity instanceof ProjectileEntity
-                || Vanadium.config.isSerialEntity(Registries.ENTITY_TYPE.getId(entity.getType()))) {
+                || (entity.portalProcess != null && entity.portalProcess.isInsidePortalThisTick())
+                || entity instanceof Projectile
+                || Vanadium.config.isSerialEntity(BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()))) {
             consumer.accept(entity);
             return;
         }
-        Vanadium.scheduler.enqueue(Stage.ENTITY, entity.getChunkPos().x, entity.getChunkPos().z,
+        Vanadium.scheduler.enqueue(Stage.ENTITY, entity.chunkPosition().x(), entity.chunkPosition().z(),
                 () -> consumer.accept(entity), Vanadium.scheduler.detailedDiagnostics()
-                        ? Registries.ENTITY_TYPE.getId(entity.getType()).toString() : null);
+                        ? BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString() : null);
     }
 
-    @Redirect(method = "addSyncedBlockEvent", at = @At(value = "INVOKE", target = "Lit/unimi/dsi/fastutil/objects/ObjectLinkedOpenHashSet;add(Ljava/lang/Object;)Z"))
-    private boolean overwriteQueueAdd(ObjectLinkedOpenHashSet<BlockEvent> objectLinkedOpenHashSet, Object object) {
-        return syncedBlockEventCLinkedQueue.add((BlockEvent) object);
+    @Redirect(method = "blockEvent", at = @At(value = "INVOKE", target = "Lit/unimi/dsi/fastutil/objects/ObjectLinkedOpenHashSet;add(Ljava/lang/Object;)Z"))
+    private boolean overwriteQueueAdd(ObjectLinkedOpenHashSet<BlockEventData> objectLinkedOpenHashSet, Object object) {
+        return syncedBlockEventCLinkedQueue.add((BlockEventData) object);
     }
 
-    @Redirect(method = "clearUpdatesInArea", at = @At(value = "INVOKE", target = "Lit/unimi/dsi/fastutil/objects/ObjectLinkedOpenHashSet;removeIf(Ljava/util/function/Predicate;)Z"))
-    private boolean overwriteQueueRemoveIf(ObjectLinkedOpenHashSet<BlockEvent> objectLinkedOpenHashSet, Predicate<BlockEvent> filter) {
+    @Redirect(method = "clearBlockEvents", at = @At(value = "INVOKE", target = "Lit/unimi/dsi/fastutil/objects/ObjectLinkedOpenHashSet;removeIf(Ljava/util/function/Predicate;)Z"))
+    private boolean overwriteQueueRemoveIf(ObjectLinkedOpenHashSet<BlockEventData> objectLinkedOpenHashSet, Predicate<BlockEventData> filter) {
         return syncedBlockEventCLinkedQueue.removeIf(filter);
     }
 
-    @Redirect(method = "processSyncedBlockEvents", at = @At(value = "INVOKE", target = "Lit/unimi/dsi/fastutil/objects/ObjectLinkedOpenHashSet;isEmpty()Z"))
-    private boolean overwriteEmptyCheck(ObjectLinkedOpenHashSet<BlockEvent> objectLinkedOpenHashSet) {
+    @Redirect(method = "runBlockEvents", at = @At(value = "INVOKE", target = "Lit/unimi/dsi/fastutil/objects/ObjectLinkedOpenHashSet;isEmpty()Z"))
+    private boolean overwriteEmptyCheck(ObjectLinkedOpenHashSet<BlockEventData> objectLinkedOpenHashSet) {
         return syncedBlockEventCLinkedQueue.isEmpty();
     }
 
-    @Redirect(method = "processSyncedBlockEvents", at = @At(value = "INVOKE", target = "Lit/unimi/dsi/fastutil/objects/ObjectLinkedOpenHashSet;removeFirst()Ljava/lang/Object;"))
-    private Object overwriteQueueRemoveFirst(ObjectLinkedOpenHashSet<BlockEvent> objectLinkedOpenHashSet) {
+    @Redirect(method = "runBlockEvents", at = @At(value = "INVOKE", target = "Lit/unimi/dsi/fastutil/objects/ObjectLinkedOpenHashSet;removeFirst()Ljava/lang/Object;"))
+    private Object overwriteQueueRemoveFirst(ObjectLinkedOpenHashSet<BlockEventData> objectLinkedOpenHashSet) {
         return syncedBlockEventCLinkedQueue.removeFirst();
     }
 
-    @Redirect(method = "processSyncedBlockEvents", at = @At(value = "INVOKE", target = "Lit/unimi/dsi/fastutil/objects/ObjectLinkedOpenHashSet;addAll(Ljava/util/Collection;)Z"))
-    private boolean overwriteQueueAddAll(ObjectLinkedOpenHashSet<BlockEvent> instance, Collection<? extends BlockEvent> c) {
+    @Redirect(method = "runBlockEvents", at = @At(value = "INVOKE", target = "Lit/unimi/dsi/fastutil/objects/ObjectLinkedOpenHashSet;addAll(Ljava/util/Collection;)Z"))
+    private boolean overwriteQueueAddAll(ObjectLinkedOpenHashSet<BlockEventData> instance, Collection<? extends BlockEventData> c) {
         return syncedBlockEventCLinkedQueue.addAll(c);
     }
 
-    @Redirect(method = "updateListeners", at = @At(value = "FIELD", target = "Lnet/minecraft/server/world/ServerWorld;duringListenerUpdate:Z", opcode = Opcodes.PUTFIELD))
-    private void skipSendBlockUpdatedCheck(ServerWorld instance, boolean value) {
+    @Redirect(method = "sendBlockUpdated", at = @At(value = "FIELD", target = "Lnet/minecraft/server/level/ServerLevel;isUpdatingNavigations:Z", opcode = Opcodes.PUTFIELD))
+    private void skipSendBlockUpdatedCheck(ServerLevel instance, boolean value) {
 
     }
 }

@@ -2,14 +2,14 @@ package com.synsenetwork.vanadium.commands;
 
 import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.tick.TickProfile;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.command.ServerCommandSource;
-import net.minecraft.text.Text;
 
 /** One bounded profile at a time, started/stopped and sampled exclusively on the server thread. */
 public final class TickProfiler {
     private static TickProfile active;
-    private static ServerCommandSource source;
+    private static CommandSourceStack source;
     private static long deadline;
     private static long tickStart;
     private static String configuration;
@@ -17,7 +17,7 @@ public final class TickProfiler {
 
     private TickProfiler() {}
 
-    public static boolean start(ServerCommandSource commandSource, int seconds) {
+    public static boolean start(CommandSourceStack commandSource, int seconds) {
         if (active != null) return false;
         active = new TickProfile();
         source = commandSource;
@@ -46,12 +46,12 @@ public final class TickProfiler {
         if (active == null) return false;
         Vanadium.scheduler.setProfile(null);
         lastReport = "Vanadium profile — " + configuration + "\n" + active.report();
-        ServerCommandSource recipient = source;
+        CommandSourceStack recipient = source;
         active = null;
         source = null;
         tickStart = 0;
         Vanadium.LOGGER.info(lastReport);
-        recipient.sendFeedback(() -> Text.literal(lastReport), false);
+        recipient.sendSuccess(() -> Component.literal(lastReport), false);
         return true;
     }
 

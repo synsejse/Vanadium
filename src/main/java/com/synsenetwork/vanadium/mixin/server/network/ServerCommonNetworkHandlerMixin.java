@@ -3,12 +3,12 @@ package com.synsenetwork.vanadium.mixin.server.network;
 import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.tick.WorkerPool;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerCommonNetworkHandler;
+import net.minecraft.server.network.ServerCommonPacketListenerImpl;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 
-@Mixin(ServerCommonNetworkHandler.class)
+@Mixin(ServerCommonPacketListenerImpl.class)
 public abstract class ServerCommonNetworkHandlerMixin {
 
     /**
@@ -19,12 +19,12 @@ public abstract class ServerCommonNetworkHandlerMixin {
      * sends are always inside the flush window: treat workers as on-thread here and they
      * batch into the same end-of-tick flush as main-thread sends.
      */
-    @Redirect(method = "send(Lnet/minecraft/network/packet/Packet;Lnet/minecraft/network/PacketCallbacks;)V",
-            at = @At(value = "INVOKE", target = "Lnet/minecraft/server/MinecraftServer;isOnThread()Z"))
+    @Redirect(method = "send(Lnet/minecraft/network/protocol/Packet;Lio/netty/channel/ChannelFutureListener;)V",
+            at = @At(value = "INVOKE", target = "Lnet/minecraft/server/MinecraftServer;isSameThread()Z"))
     private boolean vanadium$workersAreInFlushWindow(MinecraftServer server) {
         if (Vanadium.config.enabled && Vanadium.config.consolidateFlushes && WorkerPool.isWorkerThread()) {
             return true;
         }
-        return server.isOnThread();
+        return server.isSameThread();
     }
 }

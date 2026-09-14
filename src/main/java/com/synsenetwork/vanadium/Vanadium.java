@@ -15,7 +15,7 @@ import com.synsenetwork.vanadium.tick.TickScheduler;
 import com.synsenetwork.vanadium.tick.WorkerPool;
 import com.synsenetwork.vanadium.tick.WaveDiagnostics;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.world.ServerWorld;
+import net.minecraft.server.level.ServerLevel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -44,7 +44,7 @@ public class Vanadium implements ModInitializer {
                 VanadiumCommand.register(dispatcher));
         ServerLifecycleEvents.SERVER_STARTING.register(Vanadium::onServerStarting);
         ServerTickEvents.START_SERVER_TICK.register(Vanadium::onTickStart);
-        ServerTickEvents.START_WORLD_TICK.register(Vanadium::onWorldTickStart);
+        ServerTickEvents.START_LEVEL_TICK.register(Vanadium::onWorldTickStart);
         ServerTickEvents.END_SERVER_TICK.register(Vanadium::onTickEnd);
         ServerLifecycleEvents.SERVER_STOPPED.register(Vanadium::onServerStopped);
 
@@ -62,9 +62,9 @@ public class Vanadium implements ModInitializer {
         diagnostics.configure(config.slowWaveMillis, config.detailedTickDiagnostics);
     }
 
-    private static void onWorldTickStart(ServerWorld world) {
+    private static void onWorldTickStart(ServerLevel world) {
         if (diagnostics.enabled()) {
-            scheduler.setDimension(world.getRegistryKey().getValue().toString());
+            scheduler.setDimension(world.dimension().identifier().toString());
         }
     }
 

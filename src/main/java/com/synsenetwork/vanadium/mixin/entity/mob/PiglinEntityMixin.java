@@ -1,26 +1,26 @@
 package com.synsenetwork.vanadium.mixin.entity.mob;
 
+import net.minecraft.server.level.ServerLevel;
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
-import net.minecraft.entity.ItemEntity;
-import net.minecraft.entity.mob.PiglinEntity;
-import net.minecraft.server.world.ServerWorld;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 
 import java.util.concurrent.locks.ReentrantLock;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.monster.piglin.Piglin;
 
-@Mixin(PiglinEntity.class)
+@Mixin(Piglin.class)
 public class PiglinEntityMixin {
     @Unique
     private static final ReentrantLock lock = new ReentrantLock();
 
-    @WrapMethod(method = "loot")
-    private void loot(ItemEntity itemEntity, Operation<Void> original) {
+    @WrapMethod(method = "pickUpItem(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/entity/item/ItemEntity;)V")
+    private void loot(ServerLevel level, ItemEntity itemEntity, Operation<Void> original) {
         lock.lock();
         try {
-            if (!itemEntity.isRemoved() && itemEntity.getEntityWorld() != null)
-                original.call(itemEntity);
+            if (!itemEntity.isRemoved() && itemEntity.level() != null)
+                original.call(level, itemEntity);
         } finally {
             lock.unlock();
         }

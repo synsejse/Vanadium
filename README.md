@@ -10,7 +10,7 @@ Vanadium handles parallel *ticking*; [C2ME](https://modrinth.com/mod/c2me-fabric
 
 ## Requirements
 
-- Minecraft 1.21.1, Fabric Loader, Java 21+
+- Minecraft 26.2, Fabric Loader 0.19.3+, Java 25+
 - [Fabric API](https://modrinth.com/mod/fabric-api)
 - [Cloth Config](https://modrinth.com/mod/cloth-config)
 - [C2ME](https://modrinth.com/mod/c2me-fabric) — **required**
@@ -91,7 +91,7 @@ investigating; inline serial fallbacks outside scheduler waves are not monitored
 ## Development
 
 ```sh
-nix develop               # pinned Java 21 + development tools (optional)
+nix develop               # pinned Java 25 + development tools (optional)
 ./gradlew build            # jar + tests
 ./gradlew test             # unit tests
 ./gradlew runServer        # dev server

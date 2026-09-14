@@ -4,9 +4,8 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Reference2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Reference2LongOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet;
-import net.minecraft.util.math.ChunkPos;
-
 import java.util.Set;
+import net.minecraft.world.level.ChunkPos;
 
 /**
  * Reverse range index: each object is painted onto every chunk of a square of its own radius
@@ -40,7 +39,7 @@ public final class AreaMap<T> {
             throw new IllegalStateException("already added: " + object);
         }
         radii.put(object, radius);
-        centers.put(object, ChunkPos.toLong(chunkX, chunkZ));
+        centers.put(object, ChunkPos.pack(chunkX, chunkZ));
         for (int x = chunkX - radius; x <= chunkX + radius; x++) {
             for (int z = chunkZ - radius; z <= chunkZ + radius; z++) {
                 paint(x, z, object);
@@ -54,8 +53,8 @@ public final class AreaMap<T> {
         }
         int radius = radii.removeInt(object);
         long center = centers.removeLong(object);
-        int chunkX = ChunkPos.getPackedX(center);
-        int chunkZ = ChunkPos.getPackedZ(center);
+        int chunkX = ChunkPos.getX(center);
+        int chunkZ = ChunkPos.getZ(center);
         for (int x = chunkX - radius; x <= chunkX + radius; x++) {
             for (int z = chunkZ - radius; z <= chunkZ + radius; z++) {
                 erase(x, z, object);
@@ -66,10 +65,10 @@ public final class AreaMap<T> {
     /** Moves/resizes an object's square, touching only cells in the symmetric difference. */
     public void update(T object, int chunkX, int chunkZ, int radius) {
         int oldRadius = radii.replace(object, radius);
-        long center = ChunkPos.toLong(chunkX, chunkZ);
+        long center = ChunkPos.pack(chunkX, chunkZ);
         long oldCenter = centers.put(object, center);
-        int oldX = ChunkPos.getPackedX(oldCenter);
-        int oldZ = ChunkPos.getPackedZ(oldCenter);
+        int oldX = ChunkPos.getX(oldCenter);
+        int oldZ = ChunkPos.getZ(oldCenter);
         if (oldX == chunkX && oldZ == chunkZ && oldRadius == radius) {
             return;
         }
@@ -81,10 +80,10 @@ public final class AreaMap<T> {
     /** Updates the four non-overlapping strips outside the excluded square. Centers are packed chunks. */
     private void updateOutside(T object, long center, int radius, long excludedCenter, int excludedRadius,
                                boolean add) {
-        int x = ChunkPos.getPackedX(center);
-        int z = ChunkPos.getPackedZ(center);
-        int excludedX = ChunkPos.getPackedX(excludedCenter);
-        int excludedZ = ChunkPos.getPackedZ(excludedCenter);
+        int x = ChunkPos.getX(center);
+        int z = ChunkPos.getZ(center);
+        int excludedX = ChunkPos.getX(excludedCenter);
+        int excludedZ = ChunkPos.getZ(excludedCenter);
         int minX = x - radius, maxX = x + radius;
         int minZ = z - radius, maxZ = z + radius;
         int overlapMinX = Math.max(minX, excludedX - excludedRadius);
@@ -118,11 +117,11 @@ public final class AreaMap<T> {
     }
 
     private void paint(int x, int z, T object) {
-        map.computeIfAbsent(ChunkPos.toLong(x, z), k -> new ReferenceOpenHashSet<>()).add(object);
+        map.computeIfAbsent(ChunkPos.pack(x, z), k -> new ReferenceOpenHashSet<>()).add(object);
     }
 
     private void erase(int x, int z, T object) {
-        long key = ChunkPos.toLong(x, z);
+        long key = ChunkPos.pack(x, z);
         ReferenceOpenHashSet<T> set = map.get(key);
         if (set == null || !set.remove(object)) {
             throw new IllegalStateException("not painted at " + x + "," + z + ": " + object);

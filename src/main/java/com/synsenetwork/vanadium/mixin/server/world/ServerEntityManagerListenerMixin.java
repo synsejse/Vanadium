@@ -3,11 +3,11 @@ package com.synsenetwork.vanadium.mixin.server.world;
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.synsenetwork.vanadium.concurrent.StripedLocks;
-import net.minecraft.entity.Entity;
-import net.minecraft.server.world.ServerEntityManager;
-import net.minecraft.util.math.ChunkSectionPos;
-import net.minecraft.world.entity.EntityLike;
-import net.minecraft.world.entity.EntityTrackingSection;
+import net.minecraft.core.SectionPos;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.entity.EntityAccess;
+import net.minecraft.world.level.entity.EntitySection;
+import net.minecraft.world.level.entity.PersistentEntitySectionManager;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -15,13 +15,13 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 
-@Mixin(ServerEntityManager.Listener.class)
-public abstract class ServerEntityManagerListenerMixin<T extends EntityLike> implements AutoCloseable {
+@Mixin(PersistentEntitySectionManager.Callback.class)
+public abstract class ServerEntityManagerListenerMixin<T extends EntityAccess> implements AutoCloseable {
     @Shadow
-    private EntityTrackingSection<T> section;
+    private EntitySection<T> currentSection;
 
     @Shadow
-    private long sectionPos;
+    private long currentSectionKey;
 
     @Shadow
     @Final
@@ -37,26 +37,26 @@ public abstract class ServerEntityManagerListenerMixin<T extends EntityLike> imp
     @Unique
     private static final StripedLocks SECTION_LOCKS = new StripedLocks(64);
 
-    @Redirect(method = "updateEntityPosition", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/EntityTrackingSection;remove(Lnet/minecraft/world/entity/EntityLike;)Z"))
-    private boolean updateEntityPosition(EntityTrackingSection<T> instance, T entity) {
-        this.section.remove(entity);
+    @Redirect(method = "onMove", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/entity/EntitySection;remove(Lnet/minecraft/world/level/entity/EntityAccess;)Z"))
+    private boolean updateEntityPosition(EntitySection<T> instance, T entity) {
+        this.currentSection.remove(entity);
         return true;
     }
 
-    @Redirect(method = "remove", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/EntityTrackingSection;remove(Lnet/minecraft/world/entity/EntityLike;)Z"))
-    private boolean remove(EntityTrackingSection<T> instance, T entity) {
-        this.section.remove(entity);
+    @Redirect(method = "onRemove", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/entity/EntitySection;remove(Lnet/minecraft/world/level/entity/EntityAccess;)Z"))
+    private boolean remove(EntitySection<T> instance, T entity) {
+        this.currentSection.remove(entity);
         return true;
     }
 
-    @WrapMethod(method = "updateEntityPosition")
+    @WrapMethod(method = "onMove")
     private void updateEntityPosition(Operation<Void> original) {
-        long newSectionPos = ChunkSectionPos.toLong(this.entity.getBlockPos());
-        SECTION_LOCKS.runLocked(this.sectionPos, newSectionPos, original::call);
+        long newSectionPos = SectionPos.asLong(this.entity.blockPosition());
+        SECTION_LOCKS.runLocked(this.currentSectionKey, newSectionPos, original::call);
     }
 
-    @WrapMethod(method = "remove")
+    @WrapMethod(method = "onRemove")
     private void remove(Entity.RemovalReason reason, Operation<Void> original) {
-        SECTION_LOCKS.runLocked(this.sectionPos, () -> original.call(reason));
+        SECTION_LOCKS.runLocked(this.currentSectionKey, () -> original.call(reason));
     }
 }

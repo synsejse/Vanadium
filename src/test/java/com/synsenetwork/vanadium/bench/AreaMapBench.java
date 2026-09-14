@@ -2,10 +2,9 @@ package com.synsenetwork.vanadium.bench;
 
 import com.sun.management.ThreadMXBean;
 import com.synsenetwork.vanadium.tracking.AreaMap;
-import net.minecraft.util.math.ChunkPos;
-
 import java.lang.management.ManagementFactory;
 import java.util.Locale;
+import net.minecraft.world.level.ChunkPos;
 
 /** Synthetic index maintenance benchmark; no Minecraft server or performance assertions. */
 public final class AreaMapBench {
@@ -38,7 +37,7 @@ public final class AreaMapBench {
                 for (int i = 0; i < MEASURED; i++) update(map, mover, i, radius, dx, dz, nextRadius);
                 long elapsed = System.nanoTime() - start;
                 bytes = bean.getThreadAllocatedBytes(Thread.currentThread().threadId()) - bytes;
-                sink += map.objectsAt(ChunkPos.toLong(0, 0)).size();
+                sink += map.objectsAt(ChunkPos.pack(0, 0)).size();
                 System.out.printf(Locale.ROOT, "%d,%s,%.1f,%d%n", radius, workload,
                         (double) elapsed / MEASURED, bytes / MEASURED);
             }

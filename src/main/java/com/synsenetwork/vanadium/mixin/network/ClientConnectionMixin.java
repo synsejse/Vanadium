@@ -7,9 +7,9 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.EventLoop;
 import io.netty.util.concurrent.AbstractEventExecutor;
-import net.minecraft.network.ClientConnection;
-import net.minecraft.network.PacketCallbacks;
-import net.minecraft.network.packet.Packet;
+import net.minecraft.network.Connection;
+import io.netty.channel.ChannelFutureListener;
+import net.minecraft.network.protocol.Packet;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -34,7 +34,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
  * whole wave. The wait is dropped and the post-condition recreated with a volatile flag
  * folded into every internal isOpen() check.
  */
-@Mixin(ClientConnection.class)
+@Mixin(Connection.class)
 public abstract class ClientConnectionMixin {
 
     @Shadow
@@ -52,10 +52,10 @@ public abstract class ClientConnectionMixin {
         return instance;
     }
 
-    @WrapOperation(method = "sendImmediately", at = @At(value = "INVOKE",
+    @WrapOperation(method = "sendPacket", at = @At(value = "INVOKE",
             target = "Lio/netty/channel/EventLoop;execute(Ljava/lang/Runnable;)V", remap = false))
     private void vanadium$lazyExecuteNoFlushSends(EventLoop instance, Runnable runnable, Operation<Void> original,
-                                                  Packet<?> packet, @Nullable PacketCallbacks callbacks, boolean flush) {
+                                                  Packet<?> packet, @Nullable ChannelFutureListener callbacks, boolean flush) {
         if (!flush && Vanadium.config.enabled && Vanadium.config.consolidateFlushes
                 && instance instanceof AbstractEventExecutor executor) {
             executor.lazyExecute(runnable);
@@ -64,7 +64,7 @@ public abstract class ClientConnectionMixin {
         }
     }
 
-    @Redirect(method = "disconnect(Lnet/minecraft/network/DisconnectionInfo;)V", at = @At(value = "INVOKE",
+    @Redirect(method = "disconnect(Lnet/minecraft/network/DisconnectionDetails;)V", at = @At(value = "INVOKE",
             target = "Lio/netty/channel/ChannelFuture;awaitUninterruptibly()Lio/netty/channel/ChannelFuture;", remap = false))
     private ChannelFuture vanadium$dontBlockOnClose(ChannelFuture instance) {
         this.vanadium$closing = true;

@@ -1,8 +1,8 @@
 package com.synsenetwork.vanadium.config;
 
-import net.minecraft.util.Identifier;
 import org.junit.jupiter.api.Test;
 import java.util.List;
+import net.minecraft.resources.Identifier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -10,13 +10,13 @@ class TypeRulesTest {
     @Test void exactIdsAreDeduplicated() {
         var rules = TypeRules.parse(List.of("minecraft:pig", "example:machine", "minecraft:pig"));
         assertEquals(2, rules.size());
-        assertTrue(rules.contains(Identifier.of("example:machine")));
-        assertFalse(rules.contains(Identifier.of("example:other")));
+        assertTrue(rules.contains(Identifier.parse("example:machine")));
+        assertFalse(rules.contains(Identifier.parse("example:other")));
     }
 
     @Test void emptyRulesClearTheCache() {
         TypeRules rules = new TypeRules();
-        Identifier pig = Identifier.of("minecraft:pig");
+        Identifier pig = Identifier.parse("minecraft:pig");
         rules.update(List.of("minecraft:pig"));
         assertTrue(rules.contains(pig));
         rules.update(List.of());
@@ -39,7 +39,7 @@ class TypeRulesTest {
 
     @Test void resetAndReloadedTextInvalidateCompiledRules() {
         var config = new VanadiumConfig();
-        var pig = Identifier.of("minecraft:pig");
+        var pig = Identifier.parse("minecraft:pig");
         config.serialEntityTypes.add("minecraft:pig");
         config.refreshSerialRules();
         assertTrue(config.isSerialEntity(pig));

@@ -12,53 +12,54 @@ import com.synsenetwork.vanadium.config.VanadiumConfig;
 import me.shedaniel.autoconfig.AutoConfig;
 import me.shedaniel.autoconfig.ConfigHolder;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.server.command.ServerCommandSource;
-import net.minecraft.text.MutableText;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
+import net.minecraft.ChatFormatting;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.server.permissions.Permissions;
 
 import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.List;
 
-import static net.minecraft.server.command.CommandManager.argument;
-import static net.minecraft.server.command.CommandManager.literal;
+import static net.minecraft.commands.Commands.argument;
+import static net.minecraft.commands.Commands.literal;
 
 /** Registers /vanadium — status plus toggle/set/save/reload/defaults generated from {@link ConfigOptions}. */
 public final class VanadiumCommand {
     private VanadiumCommand() {
     }
 
-    public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
+    public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(literal("vanadium")
                 .executes(VanadiumCommand::status)
                 .then(literal("status").executes(VanadiumCommand::status))
                 .then(toggle())
                 .then(set())
-                .then(literal("profile").requires(src -> src.hasPermissionLevel(2))
+                .then(literal("profile").requires(src -> src.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER))
                         .executes(ctx -> profile(ctx, 30))
                         .then(argument("seconds", IntegerArgumentType.integer(1, 300))
                                 .executes(ctx -> profile(ctx, IntegerArgumentType.getInteger(ctx, "seconds"))))
                         .then(literal("stop").executes(ctx -> {
                             if (TickProfiler.stop()) return 1;
-                            ctx.getSource().sendError(Text.literal("Vanadium: no profile is running"));
+                            ctx.getSource().sendFailure(Component.literal("Vanadium: no profile is running"));
                             return 0;
                         }))
                         .then(literal("report").executes(ctx -> {
-                            ctx.getSource().sendFeedback(() -> Text.literal(TickProfiler.lastReport()), false);
+                            ctx.getSource().sendSuccess(() -> Component.literal(TickProfiler.lastReport()), false);
                             return 1;
                         })))
-                .then(literal("save").requires(src -> src.hasPermissionLevel(2)).executes(VanadiumCommand::save))
-                .then(literal("reload").requires(src -> src.hasPermissionLevel(2)).executes(VanadiumCommand::reload))
-                .then(literal("defaults").requires(src -> src.hasPermissionLevel(2)).executes(VanadiumCommand::defaults))
-                .then(literal("benchmark").requires(src -> src.hasPermissionLevel(2)).executes(VanadiumCommand::benchmark)));
+                .then(literal("save").requires(src -> src.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER)).executes(VanadiumCommand::save))
+                .then(literal("reload").requires(src -> src.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER)).executes(VanadiumCommand::reload))
+                .then(literal("defaults").requires(src -> src.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER)).executes(VanadiumCommand::defaults))
+                .then(literal("benchmark").requires(src -> src.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER)).executes(VanadiumCommand::benchmark)));
     }
 
     // --- subtrees generated from the registry ---------------------------------
 
-    private static LiteralArgumentBuilder<ServerCommandSource> toggle() {
-        LiteralArgumentBuilder<ServerCommandSource> toggle =
-                literal("toggle").requires(src -> src.hasPermissionLevel(2));
+    private static LiteralArgumentBuilder<CommandSourceStack> toggle() {
+        LiteralArgumentBuilder<CommandSourceStack> toggle =
+                literal("toggle").requires(src -> src.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER));
         for (Field field : ConfigOptions.fields()) {
             if (field.getType() == boolean.class) {
                 toggle.then(literal(field.getName()).executes(ctx -> {
@@ -72,9 +73,9 @@ public final class VanadiumCommand {
         return toggle;
     }
 
-    private static LiteralArgumentBuilder<ServerCommandSource> set() {
-        LiteralArgumentBuilder<ServerCommandSource> set =
-                literal("set").requires(src -> src.hasPermissionLevel(2));
+    private static LiteralArgumentBuilder<CommandSourceStack> set() {
+        LiteralArgumentBuilder<CommandSourceStack> set =
+                literal("set").requires(src -> src.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER));
         for (Field field : ConfigOptions.fields()) {
             String name = field.getName();
             if (field.getType() == boolean.class) {
@@ -102,7 +103,7 @@ public final class VanadiumCommand {
                                         : Arrays.stream(value.split(",", -1)).map(String::trim).toList();
                                 ConfigOptions.setList(field, Vanadium.config, ids);
                             } catch (IllegalArgumentException e) {
-                                ctx.getSource().sendError(Text.literal(e.getMessage()));
+                                ctx.getSource().sendFailure(Component.literal(e.getMessage()));
                                 return 0;
                             }
                             feedback(ctx, name + " is now " + value + restartHint(field));
@@ -117,47 +118,47 @@ public final class VanadiumCommand {
 
     // --- executors -------------------------------------------------------------
 
-    private static int status(CommandContext<ServerCommandSource> ctx) {
+    private static int status(CommandContext<CommandSourceStack> ctx) {
         VanadiumConfig config = Vanadium.config;
-        MutableText message = Text.literal("Vanadium " + version() + " — ")
+        MutableComponent message = Component.literal("Vanadium " + version() + " — ")
                 .append(onOff(config.enabled, "enabled", "disabled"));
 
         int resolvedWorkers = VanadiumConfig.resolveWorkers();
         int activeWorkers = Vanadium.scheduler.workerCount();
-        MutableText workers = Text.literal("\n  workers: " + activeWorkers + " active (config "
+        MutableComponent workers = Component.literal("\n  workers: " + activeWorkers + " active (config "
                 + config.workers + " → " + resolvedWorkers + ")");
         if (resolvedWorkers != activeWorkers) {
-            workers.append(Text.literal(" restart pending").formatted(Formatting.YELLOW));
+            workers.append(Component.literal(" restart pending").withStyle(ChatFormatting.YELLOW));
         }
         message.append(workers);
 
-        message.append(Text.literal("\n  cellSize: " + config.cellSize
+        message.append(Component.literal("\n  cellSize: " + config.cellSize
                 + (config.cellSize == 0 ? " (auto → " + VanadiumConfig.resolveCellSize() + ")" : "")));
 
         for (Field field : ConfigOptions.fields()) {
             if (field.getType() == boolean.class && !field.getName().equals("enabled")) {
-                message.append(Text.literal("\n  " + field.getName() + ": "))
+                message.append(Component.literal("\n  " + field.getName() + ": "))
                         .append(onOff(ConfigOptions.getBool(field, config), "on", "off"));
             } else if (field.getType() == List.class) {
                 List<String> rules = ConfigOptions.getList(field, config);
-                message.append(Text.literal("\n  " + field.getName() + ": " + (rules.isEmpty() ? "none" : String.join(", ", rules))));
+                message.append(Component.literal("\n  " + field.getName() + ": " + (rules.isEmpty() ? "none" : String.join(", ", rules))));
             } else if (field.getType() == int.class && !field.getName().equals("workers")
                     && !field.getName().equals("cellSize")) {
-                message.append(Text.literal("\n  " + field.getName() + ": " + ConfigOptions.getInt(field, config)));
+                message.append(Component.literal("\n  " + field.getName() + ": " + ConfigOptions.getInt(field, config)));
             }
         }
 
-        ctx.getSource().sendFeedback(() -> message, false);
+        ctx.getSource().sendSuccess(() -> message, false);
         return 1;
     }
 
-    private static int save(CommandContext<ServerCommandSource> ctx) {
+    private static int save(CommandContext<CommandSourceStack> ctx) {
         AutoConfig.getConfigHolder(VanadiumConfig.class).save();
         feedback(ctx, "config saved to disk");
         return 1;
     }
 
-    private static int reload(CommandContext<ServerCommandSource> ctx) {
+    private static int reload(CommandContext<CommandSourceStack> ctx) {
         ConfigHolder<VanadiumConfig> holder = AutoConfig.getConfigHolder(VanadiumConfig.class);
         boolean ok = holder.load();
         Vanadium.config = holder.getConfig(); // load() builds a fresh instance; consumers read the static
@@ -165,29 +166,29 @@ public final class VanadiumCommand {
             feedback(ctx, "config reloaded from disk");
             return 1;
         }
-        ctx.getSource().sendError(Text.literal(
+        ctx.getSource().sendFailure(Component.literal(
                 "Vanadium config reload failed — check the file and server log; /vanadium status shows active values"));
         return 0;
     }
 
-    private static int defaults(CommandContext<ServerCommandSource> ctx) {
+    private static int defaults(CommandContext<CommandSourceStack> ctx) {
         ConfigOptions.resetToDefaults(Vanadium.config);
         feedback(ctx, "all options reset to defaults (in memory — /vanadium save to persist)");
         return 1;
     }
 
-    private static int benchmark(CommandContext<ServerCommandSource> ctx) {
+    private static int benchmark(CommandContext<CommandSourceStack> ctx) {
         if (!TickBenchmark.start(ctx.getSource().getServer(), ctx.getSource())) {
-            ctx.getSource().sendError(Text.literal("Vanadium: a benchmark (or /tick sprint) is already running"));
+            ctx.getSource().sendFailure(Component.literal("Vanadium: a benchmark (or /tick sprint) is already running"));
             return 0;
         }
         feedback(ctx, "benchmark started — TPS unlocked for the next 30s");
         return 1;
     }
 
-    private static int profile(CommandContext<ServerCommandSource> ctx, int seconds) {
+    private static int profile(CommandContext<CommandSourceStack> ctx, int seconds) {
         if (!TickProfiler.start(ctx.getSource(), seconds)) {
-            ctx.getSource().sendError(Text.literal("Vanadium: a profile is already running"));
+            ctx.getSource().sendFailure(Component.literal("Vanadium: a profile is already running"));
             return 0;
         }
         feedback(ctx, "profiling for " + seconds + "s at the current tick rate; /vanadium profile report shows the last result");
@@ -196,17 +197,17 @@ public final class VanadiumCommand {
 
     // --- helpers -----------------------------------------------------------------
 
-    private static void feedback(CommandContext<ServerCommandSource> ctx, String text) {
-        MutableText message = Text.literal("Vanadium: " + text);
-        ctx.getSource().sendFeedback(() -> message, true);
+    private static void feedback(CommandContext<CommandSourceStack> ctx, String text) {
+        MutableComponent message = Component.literal("Vanadium: " + text);
+        ctx.getSource().sendSuccess(() -> message, true);
     }
 
     private static String restartHint(Field field) {
         return ConfigOptions.isLive(field) ? "" : " (takes effect on restart)";
     }
 
-    private static MutableText onOff(boolean value, String on, String off) {
-        return Text.literal(value ? on : off).formatted(value ? Formatting.GREEN : Formatting.RED);
+    private static MutableComponent onOff(boolean value, String on, String off) {
+        return Component.literal(value ? on : off).withStyle(value ? ChatFormatting.GREEN : ChatFormatting.RED);
     }
 
     private static String version() {

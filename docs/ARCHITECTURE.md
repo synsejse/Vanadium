@@ -27,13 +27,16 @@ The actual stage timing comes from Minecraft mixin injection points, not the enu
 | Work | Main integration points |
 | --- | --- |
 | Scheduled block/fluid ticks | `ServerWorldMixin.overwriteScheduledTicks` collects then drains each vanilla scheduler |
-| Natural spawning and random/weather chunk ticks | `ServerChunkManagerMixin` queues work; `ServerWorldMixin.postChunkTick` drains it |
+| Natural spawning and random/weather chunk ticks | `ServerChunkManagerMixin` drains spawning before random ticks, then random ticks before custom spawning/broadcasts |
 | Entity tracking | `ServerChunkLoadingManagerMixin` wraps tracking dispatch and its barrier |
-| Entities | `ServerWorldMixin` queues; `WorldMixin` drains before block entities |
+| Entities | `ServerWorldMixin` queues; `WorldMixin` drains before block-entity bookkeeping |
 | Block entities | `WorldMixin` queues supported tick invokers and drains at the end |
 
 Projectiles and entities currently in portals retain serial entity ticking. Stage flags
 and `enabled` select fallback paths, but mixins and structural synchronization remain installed.
+Block-entity registrations enter a concurrent queue and are merged into the active list on the
+server thread after the ENTITY barrier. The BLOCK_ENTITY barrier runs before the ticking flag clears.
+
 Exact-ID serial rules also route selected entity and block-entity tickers through the inline
 server-thread path, before the corresponding wave. Rule lists are validated before command
 updates and after config loading. At each tick start, changed lists are compiled into ID sets;
@@ -74,6 +77,11 @@ the existing ten-second cache clear remains in place.
 `ParallelChunkManager` identifies Minecraft Main workers by comparing their owning pool
 with `Util.getMainWorkerExecutor()`; chunk requests from those workers return to the server thread.
 
+In 26.2, `TicketStorage` owns the tickets formerly held by the simulation tracker and is
+synchronized through `SyncAllMixin`. `SavedDataStorageMixin` protects cache operations and
+save snapshot creation, while asynchronous disk writes and save completion waits remain outside
+that monitor. `ServerChunkCache` also has a concurrent set for pending chunk broadcasts.
+
 Item merging retains one global reentrant lock. Its method wrapper releases the lock in
 `finally`, including when vanilla code or another injection throws.
 
@@ -98,7 +106,8 @@ These are source-inspection leads, not a completed concurrency audit:
   current caller; test coordinate-boundary behavior before using nonzero radii elsewhere.
 - Pool and lock-evictor lifecycle should be checked across integrated-server stop/restart.
   The initializer creates the worker pool without registering a shutdown callback.
-- `fabric.mod.json` advertises `1.21.x`, while the build and injections target 1.21.1.
-  Treat other patch versions as unverified until explicitly tested.
+- The 1.21.1 source audit in `TICK_COVERAGE.md` is historical. The port changes stage
+  boundaries, but scheduled-tick bookkeeping, passenger serial rules and other remaining
+  findings still need their own correctness work and live regression scenarios.
 
 See [development and validation](DEVELOPMENT.md) for commands and the live-test matrix.

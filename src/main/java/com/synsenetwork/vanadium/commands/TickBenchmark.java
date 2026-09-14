@@ -1,9 +1,9 @@
 package com.synsenetwork.vanadium.commands;
 
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.command.ServerCommandSource;
-import net.minecraft.text.MutableText;
-import net.minecraft.text.Text;
 
 /**
  * A 30-second unlocked-TPS benchmark driven by vanilla's tick-sprint machinery: while sprinting the
@@ -18,7 +18,7 @@ public final class TickBenchmark {
     private static final long DURATION_NANOS = 30L * 1_000_000_000L;
     private static final long WINDOW_NANOS = 1_000_000_000L;
 
-    private static ServerCommandSource source;
+    private static CommandSourceStack source;
     private static boolean active;
     private static long startNanos;
     private static long windowStartNanos;
@@ -30,8 +30,8 @@ public final class TickBenchmark {
     }
 
     /** Starts the benchmark; false if one is already running or the server is already sprinting. */
-    public static boolean start(MinecraftServer server, ServerCommandSource commandSource) {
-        if (active || server.getTickManager().isSprinting()) {
+    public static boolean start(MinecraftServer server, CommandSourceStack commandSource) {
+        if (active || server.tickRateManager().isSprinting()) {
             return false;
         }
         active = true;
@@ -41,7 +41,7 @@ public final class TickBenchmark {
         totalTicks = 0;
         windowTicks = 0;
         peakWindowTicks = 0;
-        server.getTickManager().startSprint(Integer.MAX_VALUE);
+        server.tickRateManager().requestGameToSprint(Integer.MAX_VALUE);
         return true;
     }
 
@@ -64,21 +64,21 @@ public final class TickBenchmark {
             windowTicks = 0;
         }
         // Finish on time, or early if something else ended the sprint (e.g. /tick sprint stop).
-        if (now - startNanos >= DURATION_NANOS || !server.getTickManager().isSprinting()) {
+        if (now - startNanos >= DURATION_NANOS || !server.tickRateManager().isSprinting()) {
             finish(server, now);
         }
     }
 
     private static void finish(MinecraftServer server, long now) {
-        server.getTickManager().stopSprinting(); // while still active, so the vanilla report stays muted
+        server.tickRateManager().stopSprinting(); // while still active, so the vanilla report stays muted
         active = false;
         double seconds = (now - startNanos) / 1.0e9;
         double average = totalTicks / seconds;
         int peak = Math.max(peakWindowTicks, windowTicks);
-        MutableText message = Text.literal(String.format(
+        MutableComponent message = Component.literal(String.format(
                 "Vanadium: benchmark — %,d ticks in %.1fs, avg %.1f TPS, peak %,d TPS (best 1s window)",
                 totalTicks, seconds, average, peak));
-        source.sendFeedback(() -> message, true);
+        source.sendSuccess(() -> message, true);
         source = null;
     }
 }

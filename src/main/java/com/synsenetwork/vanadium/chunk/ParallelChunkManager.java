@@ -3,21 +3,19 @@ package com.synsenetwork.vanadium.chunk;
 import com.mojang.datafixers.DataFixer;
 import com.synsenetwork.vanadium.Vanadium;
 import it.unimi.dsi.fastutil.HashCommon;
-import net.minecraft.server.WorldGenerationProgressListener;
-import net.minecraft.server.world.ServerChunkManager;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.structure.StructureTemplateManager;
-import net.minecraft.util.Util;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.world.PersistentStateManager;
-import net.minecraft.world.World;
-import net.minecraft.world.chunk.Chunk;
-import net.minecraft.world.chunk.ChunkStatus;
-import net.minecraft.world.chunk.ChunkStatusChangeListener;
-import net.minecraft.world.gen.chunk.ChunkGenerator;
-import net.minecraft.world.level.storage.LevelStorage;
-
 import javax.annotation.Nullable;
+import net.minecraft.util.Util;
+import net.minecraft.server.level.ServerChunkCache;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.ChunkGenerator;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
+import net.minecraft.world.level.entity.ChunkStatusUpdateListener;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
+import net.minecraft.world.level.storage.SavedDataStorage;
+import net.minecraft.world.level.storage.LevelStorageSource;
 import java.lang.ref.WeakReference;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -27,50 +25,50 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 /**
- * A {@link ServerChunkManager} that serves chunk lookups from a thread-safe cache so worker threads
+ * A {@link ServerChunkCache} that serves chunk lookups from a thread-safe cache so worker threads
  * can read chunks in parallel. Cache entries are weak references (vanilla chunk storage remains the
  * real owner); a daemon thread clears the cache periodically so it never grows stale or unbounded.
  * Concurrent loads of the same chunk are serialised through a {@link ChunkLockTable}.
  */
-public class ParallelChunkManager extends ServerChunkManager {
+public class ParallelChunkManager extends ServerChunkCache {
 
     private static final long CACHE_TTL_MS = TimeUnit.SECONDS.toMillis(10);
 
-    private final World world;
-    private final ConcurrentHashMap<CacheKey, WeakReference<Chunk>> chunkCache = new ConcurrentHashMap<>();
+    private final Level world;
+    private final ConcurrentHashMap<CacheKey, WeakReference<ChunkAccess>> chunkCache = new ConcurrentHashMap<>();
     private final ChunkLockTable loadingLocks = new ChunkLockTable();
 
-    public ParallelChunkManager(ServerWorld world, LevelStorage.Session session, DataFixer dataFixer,
+    public ParallelChunkManager(ServerLevel world, LevelStorageSource.LevelStorageAccess session, DataFixer dataFixer,
                                 StructureTemplateManager structureManager, Executor workerExecutor,
                                 ChunkGenerator chunkGenerator, int viewDistance, int simulationDistance,
-                                boolean dsync, WorldGenerationProgressListener worldGenerationProgressListener,
-                                ChunkStatusChangeListener chunkStatusChangeListener,
-                                Supplier<PersistentStateManager> persistentStateManagerFactory) {
+                                boolean dsync,
+                                ChunkStatusUpdateListener chunkStatusChangeListener,
+                                Supplier<SavedDataStorage> persistentStateManagerFactory) {
         super(world, session, dataFixer, structureManager, workerExecutor, chunkGenerator, viewDistance,
-                simulationDistance, dsync, worldGenerationProgressListener, chunkStatusChangeListener,
+                simulationDistance, dsync, chunkStatusChangeListener,
                 persistentStateManagerFactory);
         this.world = world;
 
         Thread cacheCleaner = new Thread(this::cacheCleanupLoop,
-                "Vanadium-ChunkCache-Cleaner-" + world.getRegistryKey().getValue().getPath());
+                "Vanadium-ChunkCache-Cleaner-" + world.dimension().identifier().getPath());
         cacheCleaner.setDaemon(true);
         cacheCleaner.start();
     }
 
     @Override
     @Nullable
-    public Chunk getChunk(int chunkX, int chunkZ, ChunkStatus requiredStatus, boolean load) {
+    public ChunkAccess getChunk(int chunkX, int chunkZ, ChunkStatus requiredStatus, boolean load) {
         // A server "Main" worker thread must not load chunks off the main thread; bounce it back.
         if (isMinecraftMainWorker(Thread.currentThread())) {
             return CompletableFuture.supplyAsync(
-                    () -> getChunk(chunkX, chunkZ, requiredStatus, load), this.mainThreadExecutor).join();
+                    () -> getChunk(chunkX, chunkZ, requiredStatus, load), this.mainThreadProcessor).join();
         }
         if (!Vanadium.config.enabled || !Vanadium.config.chunkCache) {
             return super.getChunk(chunkX, chunkZ, requiredStatus, load);
         }
 
-        long pos = ChunkPos.toLong(chunkX, chunkZ);
-        Chunk cached = lookup(pos, requiredStatus);
+        long pos = ChunkPos.pack(chunkX, chunkZ);
+        ChunkAccess cached = lookup(pos, requiredStatus);
         if (cached != null) {
             return cached;
         }
@@ -92,12 +90,12 @@ public class ParallelChunkManager extends ServerChunkManager {
 
     /** Called under the load lock so the next acquirer can see the published chunk. */
     @Nullable
-    private Chunk loadAndCache(int chunkX, int chunkZ, long pos, ChunkStatus status, boolean load) {
-        Chunk cached = lookup(pos, status);
+    private ChunkAccess loadAndCache(int chunkX, int chunkZ, long pos, ChunkStatus status, boolean load) {
+        ChunkAccess cached = lookup(pos, status);
         if (cached != null) {
             return cached;
         }
-        Chunk chunk = super.getChunk(chunkX, chunkZ, status, load);
+        ChunkAccess chunk = super.getChunk(chunkX, chunkZ, status, load);
         if (chunk != null) {
             chunkCache.put(new CacheKey(pos, status.getIndex()), new WeakReference<>(chunk));
         }
@@ -106,12 +104,12 @@ public class ParallelChunkManager extends ServerChunkManager {
 
     private static boolean isMinecraftMainWorker(Thread thread) {
         return thread instanceof ForkJoinWorkerThread worker
-                && worker.getPool() == Util.getMainWorkerExecutor();
+                && worker.getPool() == Util.backgroundExecutor().service();
     }
 
     @Nullable
-    private Chunk lookup(long chunkPos, ChunkStatus status) {
-        WeakReference<Chunk> ref = chunkCache.get(new CacheKey(chunkPos, status.getIndex()));
+    private ChunkAccess lookup(long chunkPos, ChunkStatus status) {
+        WeakReference<ChunkAccess> ref = chunkCache.get(new CacheKey(chunkPos, status.getIndex()));
         return ref != null ? ref.get() : null;
     }
 

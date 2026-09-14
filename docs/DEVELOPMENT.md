@@ -2,7 +2,8 @@
 
 ## Toolchain
 
-The build targets Minecraft **1.21.1**, Yarn **1.21.1+build.3**, and Java **21**.
+The build targets Minecraft **26.2** and Java **25**, using official unobfuscated names.
+There is no Yarn dependency or jar remapping step.
 Use the checked-in Gradle wrapper; its version and download checksum are in
 `gradle/wrapper/gradle-wrapper.properties`. Loom and library versions remain in
 `build.gradle` and `gradle.properties`.
@@ -11,18 +12,26 @@ Use the checked-in Gradle wrapper; its version and download checksum are in
 nix develop
 java -version
 ./gradlew build
+./gradlew genSources
 ```
 
 The flake pins Nixpkgs through `flake.lock` and sets `JAVA_HOME`. It supplies the full
 JDK (including `jcmd`, `jstack`, and `jfr`), Python 3 for the server harness, shellcheck,
 nixfmt, Git, ripgrep, curl, jq, and archive tools. It defines shells for x86_64/aarch64
 Linux and macOS; validation recorded below is specific to the local machine.
-The shell is for compilation and headless server work. A graphical Minecraft client
-on NixOS additionally needs a working graphics/audio/native-library environment.
+The shell supports compilation and headless server work and exposes the Vulkan and
+OpenGL/EGL loaders on Linux for the graphical client (`./gradlew runClient`). The client
+still needs a working display session and host graphics drivers, plus its graphics/audio dependencies.
+After changing the flake, re-enter `nix develop` to refresh the library environment.
+
+On 2026-09-14, a standalone LWJGL check using the development client's classpath
+loaded OpenGL and created a hidden GLFW context: OpenGL 4.6, Mesa 26.2.2, Radeon
+RX 9060 XT. This validates native library loading and context creation, not a full
+Minecraft client session. The check is retained in `.vanadium/client-check/`.
 
 Enable `nix-command` and `flakes` in your Nix installation if necessary. Optional direnv
 integration uses the checked-in `.envrc`: with direnv/nix-direnv installed and your shell
-hook configured, run `direnv allow`. Without Nix, install Java 21 and Python 3 and use
+hook configured, run `direnv allow`. Without Nix, install Java 25 and Python 3 and use
 the same Gradle/Python commands.
 
 Nix only sees tracked files in a Git flake. When introducing new Nix files, add them to
@@ -46,14 +55,15 @@ nix flake check
 git diff --check
 ```
 
-Distributable remapped jars and source jars land in `build/libs/`. HTML test reports
+Distributable jars and source jars land in `build/libs/`. HTML test reports
 are in `build/reports/tests/test/index.html`, with XML in `build/test-results/test/`.
 `clean` deletes `build/`; ordinary development does not need a clean build every time.
-JUnit tests cover cells, barriers, workers, lock tables, collection wrappers, tracking-area coverage, and config.
+JUnit tests cover cells, barriers, workers, lock tables, collection wrappers, tracking-area coverage, config,
+and the vanilla fields/methods/superclasses targeted by mixins.
 They do not start Fabric or apply Minecraft mixins.
 
 `nix flake check` evaluates the shell and runs development-file checks; the Java tests
-must be run separately. CI builds/tests on Java 21 and retains jars and test reports.
+must be run separately. CI builds/tests on Java 25 and retains jars and test reports.
 
 If an IDE and command-line build contend for Loom's shared cache, let the other import
 finish. For isolated jobs, set `GRADLE_USER_HOME="$PWD/.vanadium/gradle-home"` before
@@ -128,6 +138,49 @@ and diagonal moves, teleports, and radius changes at radii 2, 8, and 16. It uses
 stationary coverage, warms each case for 250 ms, and measures 50,000 updates. Compare several
 fresh JVMs; index timings exclude players, packets, and scheduler work.
 See [profiling](../scripts/PROFILING.md) for Flight Recorder commands.
+
+## Minecraft 26.2 port validation (2026-09-14)
+
+The port uses Java 25.0.4.1, Loom 1.17.12, Gradle 9.6.0, Fabric Loader 0.19.3,
+Fabric API 0.160.0+26.2, Cloth Config 26.2.155, Mod Menu 20.0.2, and pinned
+C2ME 0.4.2-alpha.0.52. `genSources` completed against the unobfuscated game.
+The distributable version is `2.0.0+26.2`; earlier game releases are rejected
+by the mod metadata.
+
+- `./gradlew build --rerun-tasks` passed **165 tests**, including 57 vanilla
+  mixin binding checks, plus access-widener validation and jar generation.
+- `nix flake check` passed on x86_64 Linux. Other architectures were not executed.
+- The isolated live check passed configuration toggles, bounds, serial-rule
+  save/reload, profiler start/stop/report, diagnostic settings, and startup/save/shutdown.
+  A capture with zombies, a hopper and water recorded nonzero work in all five stages.
+- A temporary Fabric fixture blocked real caller/worker tasks until the watchdog
+  reported their stage, dimension, cells and labels, then released both successfully.
+- `scripts/bench-server.sh 5` passed a 200-zombie workload, profiling 100 ticks and
+  saving/shutting down successfully in `.vanadium/runs/bench-foapcqvh/`. This was
+  validation at the normal tick cap, not a before/after performance comparison.
+- Linux cleanup of a JVM detached from Gradle's process group passed an isolated
+  readiness-gated process check. Cleanup only targets Java processes whose working
+  directory is this invocation's fresh run directory.
+- Evidence is retained in `.vanadium/port-26.2/` and
+  `.vanadium/runs/smoke-a5nm6wjz/`. No existing `run/` world was used.
+
+The new chunk pipeline drains spawning/thunder before random block ticks and finishes
+random ticks before custom spawning, broadcasts and tracking. Block-entity registration
+uses a concurrent queue drained on the server thread. The old blanket saved-data lock
+deadlocked the new asynchronous writer during startup; the replacement protects cache
+access and save snapshots without holding a monitor across disk IO or completion waits.
+The removed bubble-column query and old spawn-region count workaround have no matching
+26.2 path and were removed. Command bodies retain their inline layout, with the new
+gamemaster permission API replacing integer permission checks.
+
+These checks do not establish a performance improvement or modpack safety. Real players,
+integrated-server restart, modded machines, portals and long-running worlds still need
+validation. The historical tick audit's remaining scheduled-tick bookkeeping, passenger
+serial-rule and shared-state findings have not all been resolved by this port.
+
+## Historical validation on Minecraft 1.21.1
+
+The following entries describe the previous Java 21/Yarn build, not validation of the 26.2 port.
 
 ## Setup validation (2026-09-12)
 

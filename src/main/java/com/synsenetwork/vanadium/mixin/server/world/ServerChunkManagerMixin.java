@@ -4,82 +4,116 @@ import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.tick.Stage;
-
-import net.minecraft.server.world.ServerChunkManager;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.util.profiler.Profiler;
-import net.minecraft.world.SpawnHelper;
-import net.minecraft.world.chunk.Chunk;
-import net.minecraft.world.chunk.ChunkManager;
-import net.minecraft.world.chunk.ChunkStatus;
-import net.minecraft.world.chunk.WorldChunk;
+import net.minecraft.server.level.ChunkHolder;
+import net.minecraft.server.level.ServerChunkCache;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.profiling.ProfilerFiller;
+import net.minecraft.world.entity.MobCategory;
+import net.minecraft.world.level.NaturalSpawner;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.ChunkSource;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 import org.objectweb.asm.Opcodes;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Mutable;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import java.util.Collections;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
-@Mixin(ServerChunkManager.class)
-public abstract class ServerChunkManagerMixin extends ChunkManager {
+@Mixin(ServerChunkCache.class)
+public abstract class ServerChunkManagerMixin extends ChunkSource {
 
     @Shadow
     @Final
-    public ServerChunkManager.MainThreadExecutor mainThreadExecutor;
+    public ServerChunkCache.MainThreadExecutor mainThreadProcessor;
 
     @Shadow
     @Final
-    ServerWorld world;
+    ServerLevel level;
 
-    @Inject(method = "tickChunks", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/Util;shuffle(Ljava/util/List;Lnet/minecraft/util/math/random/Random;)V"))
-    private void preChunkTick(CallbackInfo ci) {
+    @Shadow
+    @Final
+    @Mutable
+    private Set<ChunkHolder> chunkHoldersToBroadcast =
+            Collections.newSetFromMap(new ConcurrentHashMap<>());
+
+    @Inject(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;J)V", at = @At("HEAD"))
+    private void preChunkTick(ProfilerFiller profiler, long timeDiff, CallbackInfo ci) {
         Vanadium.scheduler.begin(Stage.CHUNK);
     }
 
-    /**
-     * Runs per-chunk natural mob spawning as part of the CHUNK wave. Spawning is enqueued before
-     * tickChunk for the same chunk, so within each cell the vanilla per-chunk order (spawn, then
-     * tick) is preserved. The shared spawn aggregator ({@link SpawnHelper.Info}) is made
-     * thread-safe via SyncAllMixin.
-     */
-    @Redirect(method = "tickChunks", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/SpawnHelper;spawn(Lnet/minecraft/server/world/ServerWorld;Lnet/minecraft/world/chunk/WorldChunk;Lnet/minecraft/world/SpawnHelper$Info;ZZZ)V"))
-    private void overwriteSpawn(ServerWorld serverWorld, WorldChunk chunk, SpawnHelper.Info info,
-                                boolean spawnAnimals, boolean spawnMonsters, boolean rareSpawn) {
-        if (!Vanadium.config.enabled || !Vanadium.config.parallelSpawning) {
-            SpawnHelper.spawn(serverWorld, chunk, info, spawnAnimals, spawnMonsters, rareSpawn);
-            return;
-        }
-        Vanadium.scheduler.enqueue(Stage.CHUNK, chunk.getPos().x, chunk.getPos().z,
-                () -> SpawnHelper.spawn(serverWorld, chunk, info, spawnAnimals, spawnMonsters, rareSpawn), null);
+    @Inject(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;J)V", at = @At(value = "INVOKE",
+            target = "Lnet/minecraft/server/level/ChunkMap;forEachBlockTickingChunk(Ljava/util/function/Consumer;)V"))
+    private void finishSpawning(ProfilerFiller profiler, long timeDiff, CallbackInfo ci) {
+        Vanadium.scheduler.run(Stage.CHUNK);
     }
 
-    @Redirect(method = "tickChunks", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/world/ServerWorld;tickChunk(Lnet/minecraft/world/chunk/WorldChunk;I)V"))
-    private void overwriteTickChunk(ServerWorld serverWorld, WorldChunk chunk, int randomTickSpeed) {
+    @Inject(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;J)V", at = @At(value = "INVOKE",
+            target = "Lnet/minecraft/server/level/ChunkMap;forEachBlockTickingChunk(Ljava/util/function/Consumer;)V", shift = At.Shift.AFTER))
+    private void finishRandomTicks(ProfilerFiller profiler, long timeDiff, CallbackInfo ci) {
+        Vanadium.scheduler.run(Stage.CHUNK);
+    }
+
+    /** The spawning phase completes before 26.2's separate block-ticking phase begins. */
+    @Redirect(method = "tickSpawningChunk", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/NaturalSpawner;spawnForChunk(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/level/chunk/LevelChunk;Lnet/minecraft/world/level/NaturalSpawner$SpawnState;Ljava/util/List;)V"))
+    private void overwriteSpawn(ServerLevel serverWorld, LevelChunk chunk, NaturalSpawner.SpawnState info,
+                                List<MobCategory> categories) {
+        if (!Vanadium.config.enabled || !Vanadium.config.parallelSpawning) {
+            // Thunder for this chunk must finish before its inline spawn attempt.
+            if (Vanadium.config.enabled && Vanadium.config.parallelChunkTicks) {
+                Vanadium.scheduler.run(Stage.CHUNK);
+            }
+            NaturalSpawner.spawnForChunk(serverWorld, chunk, info, categories);
+            return;
+        }
+        Vanadium.scheduler.enqueue(Stage.CHUNK, chunk.getPos().x(), chunk.getPos().z(),
+                () -> NaturalSpawner.spawnForChunk(serverWorld, chunk, info, categories), null);
+    }
+
+    @Redirect(method = "tickSpawningChunk", at = @At(value = "INVOKE",
+            target = "Lnet/minecraft/server/level/ServerLevel;tickThunder(Lnet/minecraft/world/level/chunk/LevelChunk;)V"))
+    private void tickThunder(ServerLevel serverWorld, LevelChunk chunk) {
+        if (!Vanadium.config.enabled || !Vanadium.config.parallelChunkTicks) {
+            serverWorld.tickThunder(chunk);
+            return;
+        }
+        Vanadium.scheduler.enqueue(Stage.CHUNK, chunk.getPos().x(), chunk.getPos().z(),
+                () -> serverWorld.tickThunder(chunk), null);
+    }
+
+    @Redirect(method = "lambda$tickChunks$0", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/level/ServerLevel;tickChunk(Lnet/minecraft/world/level/chunk/LevelChunk;I)V"))
+    private void overwriteTickChunk(ServerLevel serverWorld, LevelChunk chunk, int randomTickSpeed) {
         if (!Vanadium.config.enabled || !Vanadium.config.parallelChunkTicks) {
             serverWorld.tickChunk(chunk, randomTickSpeed);
             return;
         }
-        Vanadium.scheduler.enqueue(Stage.CHUNK, chunk.getPos().x, chunk.getPos().z,
+        Vanadium.scheduler.enqueue(Stage.CHUNK, chunk.getPos().x(), chunk.getPos().z(),
                 () -> serverWorld.tickChunk(chunk, randomTickSpeed), null);
     }
 
 
-    @Redirect(method = {"getChunk(IILnet/minecraft/world/chunk/ChunkStatus;Z)Lnet/minecraft/world/chunk/Chunk;", "getWorldChunk"}, at = @At(value = "FIELD", target = "Lnet/minecraft/server/world/ServerChunkManager;serverThread:Ljava/lang/Thread;", opcode = Opcodes.GETFIELD))
-    private Thread overwriteServerThread(ServerChunkManager mgr) {
+    @Redirect(method = {"getChunk(IILnet/minecraft/world/level/chunk/status/ChunkStatus;Z)Lnet/minecraft/world/level/chunk/ChunkAccess;", "getChunkNow"}, at = @At(value = "FIELD", target = "Lnet/minecraft/server/level/ServerChunkCache;mainThread:Ljava/lang/Thread;", opcode = Opcodes.GETFIELD))
+    private Thread overwriteServerThread(ServerChunkCache mgr) {
         return Thread.currentThread();
     }
 
-    @Redirect(method = "getChunk(IILnet/minecraft/world/chunk/ChunkStatus;Z)Lnet/minecraft/world/chunk/Chunk;", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/profiler/Profiler;visit(Ljava/lang/String;)V"))
-    private void overwriteProfilerVisit(Profiler instance, String s) {
+    @Redirect(method = "getChunk(IILnet/minecraft/world/level/chunk/status/ChunkStatus;Z)Lnet/minecraft/world/level/chunk/ChunkAccess;", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/profiling/ProfilerFiller;incrementCounter(Ljava/lang/String;)V"))
+    private void overwriteProfilerVisit(ProfilerFiller instance, String s) {
         if (Vanadium.config.parallelChunkLoads) return;
-        instance.visit("getChunkCacheMiss");
+        instance.incrementCounter("getChunkCacheMiss");
     }
 
-    @WrapMethod(method = "putInCache")
-    private synchronized void syncPutInCache(long pos, Chunk chunk, ChunkStatus status, Operation<Void> original) {
+    @WrapMethod(method = "storeInCache")
+    private synchronized void syncPutInCache(long pos, ChunkAccess chunk, ChunkStatus status, Operation<Void> original) {
         original.call(pos, chunk, status);
     }
 

@@ -1,10 +1,9 @@
 package com.synsenetwork.vanadium.config;
 
-import net.minecraft.util.Identifier;
-
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import net.minecraft.resources.Identifier;
 
 /** Exact registry IDs, compiled only when the configured list changes. Server-thread confined. */
 public final class TypeRules {
