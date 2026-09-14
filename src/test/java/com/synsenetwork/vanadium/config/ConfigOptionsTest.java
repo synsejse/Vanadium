@@ -1,12 +1,12 @@
 package com.synsenetwork.vanadium.config;
 
-import static org.junit.jupiter.api.Assertions.*;
-
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 class ConfigOptionsTest {
     @Test void fieldsAreEveryPublicInstanceField() {

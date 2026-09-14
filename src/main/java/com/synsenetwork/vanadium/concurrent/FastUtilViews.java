@@ -1,5 +1,21 @@
 package com.synsenetwork.vanadium.concurrent;
 
+import it.unimi.dsi.fastutil.bytes.ByteCollection;
+import it.unimi.dsi.fastutil.bytes.ByteIterator;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.IntCollection;
+import it.unimi.dsi.fastutil.ints.IntIterator;
+import it.unimi.dsi.fastutil.ints.IntSet;
+import it.unimi.dsi.fastutil.longs.Long2ByteMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.LongCollection;
+import it.unimi.dsi.fastutil.longs.LongIterator;
+import it.unimi.dsi.fastutil.longs.LongListIterator;
+import it.unimi.dsi.fastutil.longs.LongSet;
+import it.unimi.dsi.fastutil.objects.ObjectCollection;
+import it.unimi.dsi.fastutil.objects.ObjectIterator;
+import it.unimi.dsi.fastutil.objects.ObjectSet;
+import it.unimi.dsi.fastutil.shorts.ShortIterator;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.ListIterator;
@@ -7,20 +23,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-
-import it.unimi.dsi.fastutil.longs.*;
-import it.unimi.dsi.fastutil.shorts.ShortIterator;
 import org.apache.commons.lang3.ArrayUtils;
-
-import it.unimi.dsi.fastutil.bytes.ByteCollection;
-import it.unimi.dsi.fastutil.bytes.ByteIterator;
-import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
-import it.unimi.dsi.fastutil.ints.IntCollection;
-import it.unimi.dsi.fastutil.ints.IntIterator;
-import it.unimi.dsi.fastutil.ints.IntSet;
-import it.unimi.dsi.fastutil.objects.ObjectCollection;
-import it.unimi.dsi.fastutil.objects.ObjectIterator;
-import it.unimi.dsi.fastutil.objects.ObjectSet;
 import org.jetbrains.annotations.NotNull;
 
 public class FastUtilViews {
@@ -148,15 +151,15 @@ public class FastUtilViews {
 
     }
 
-    public static class ConvertingObjectSetFast<E,T> implements it.unimi.dsi.fastutil.longs.Long2ObjectMap.FastEntrySet<T> {
+    public static class ConvertingObjectSetFast<E,T> implements Long2ObjectMap.FastEntrySet<T> {
 
         Set<E> backing;
-        Function<E, it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry<T>> forward;
-        Function<it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry<T>, E> back;
+        Function<E, Long2ObjectMap.Entry<T>> forward;
+        Function<Long2ObjectMap.Entry<T>, E> back;
 
         public ConvertingObjectSetFast(Set<E> backing,
-                                       Function<E, it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry<T>> forward,
-                                       Function<it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry<T>, E> back) {
+                                       Function<E, Long2ObjectMap.Entry<T>> forward,
+                                       Function<Long2ObjectMap.Entry<T>, E> back) {
             this.backing = backing;
             this.forward = forward;
             this.back = back;
@@ -176,7 +179,7 @@ public class FastUtilViews {
         @Override
         public boolean contains(Object o) {
             try {
-                return backing.contains(back.apply((it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry<T>)o));
+                return backing.contains(back.apply((Long2ObjectMap.Entry<T>)o));
             } catch (ClassCastException cce) {
                 return false;
             }
@@ -196,7 +199,7 @@ public class FastUtilViews {
         @Override
         public boolean remove(Object o) {
             try {
-                return backing.remove(back.apply((it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry<T>)o));
+                return backing.remove(back.apply((Long2ObjectMap.Entry<T>)o));
             } catch (ClassCastException cce) {
                 return false;
             }
@@ -207,7 +210,7 @@ public class FastUtilViews {
         public boolean containsAll(Collection<?> c) {
             try {
                 return backing.containsAll(c.stream()
-                        .map(i -> back.apply((it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry<T>) i))
+                        .map(i -> back.apply((Long2ObjectMap.Entry<T>) i))
                         .collect(Collectors.toSet()));
             } catch (ClassCastException cce) {
                 return false;
@@ -220,7 +223,7 @@ public class FastUtilViews {
         public boolean removeAll(Collection<?> c) {
             try {
                 return backing.removeAll(c.stream().map(i -> back
-                                .apply((it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry<T>) i))
+                                .apply((Long2ObjectMap.Entry<T>) i))
                         .collect(Collectors.toSet()));
             } catch (ClassCastException cce) {
                 return false;
@@ -232,7 +235,7 @@ public class FastUtilViews {
         public boolean retainAll(Collection<?> c) {
             try {
                 return backing.retainAll(c.stream()
-                        .map(i -> back.apply((it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry<T>) i))
+                        .map(i -> back.apply((Long2ObjectMap.Entry<T>) i))
                         .collect(Collectors.toSet()));
             } catch (ClassCastException cce) {
                 return false;
@@ -246,7 +249,7 @@ public class FastUtilViews {
         }
 
         @Override
-        public @NotNull ObjectIterator<it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry<T>> iterator() {
+        public @NotNull ObjectIterator<Long2ObjectMap.Entry<T>> iterator() {
             final Iterator<E> backs = backing.iterator();
             return new ObjectIterator<>() {
 
@@ -256,7 +259,7 @@ public class FastUtilViews {
                 }
 
                 @Override
-                public it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry<T> next() {
+                public Long2ObjectMap.Entry<T> next() {
                     return forward.apply(backs.next());
                 }
 
@@ -268,17 +271,17 @@ public class FastUtilViews {
         }
 
         @Override
-        public boolean add(it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry<T> e) {
+        public boolean add(Long2ObjectMap.Entry<T> e) {
             return backing.add(back.apply(e));
         }
 
         @Override
-        public boolean addAll(Collection<? extends it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry<T>> c) {
+        public boolean addAll(Collection<? extends Long2ObjectMap.Entry<T>> c) {
             return backing.addAll(c.stream().map(back).toList());
         }
 
         @Override
-        public ObjectIterator<it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry<T>> fastIterator() {
+        public ObjectIterator<Long2ObjectMap.Entry<T>> fastIterator() {
             return iterator();
         }
 
@@ -409,7 +412,7 @@ public class FastUtilViews {
         return new ConvertingObjectSet<>(map.entrySet(), FastUtilViews::longEntryForwards, FastUtilViews::longEntryBackwards);
     }
 
-    public static <T> it.unimi.dsi.fastutil.longs.Long2ObjectMap.FastEntrySet<T> entrySetLongWrapFast(Map<Long, T> map) {
+    public static <T> Long2ObjectMap.FastEntrySet<T> entrySetLongWrapFast(Map<Long, T> map) {
         return new ConvertingObjectSetFast<>(map.entrySet(), FastUtilViews::longEntryForwards, FastUtilViews::longEntryBackwards);
     }
 

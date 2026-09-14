@@ -6,7 +6,7 @@ thread gathers work and waits at explicit barriers.
 
 ## Scheduling
 
-`Vanadium.onInitialize()` creates one `WorkerPool` and `TickScheduler`. Each stage has
+Each server startup creates its own `WorkerPool` and `TickScheduler`. Each stage has
 a reusable `CellGrid`. Chunks map to cells using floor division; parity of the cell's
 X/Z coordinates chooses one of four colors. A stage runs colors 0 through 3 in order.
 Cells of one color may run concurrently; tasks inside a cell run in insertion order.
@@ -26,11 +26,11 @@ The actual stage timing comes from Minecraft mixin injection points, not the enu
 
 | Work | Main integration points |
 | --- | --- |
-| Scheduled block/fluid ticks | `ServerWorldMixin.overwriteScheduledTicks` collects then drains each vanilla scheduler |
-| Natural spawning and random/weather chunk ticks | `ServerChunkManagerMixin` drains spawning before random ticks, then random ticks before custom spawning/broadcasts |
-| Entity tracking | `ServerChunkLoadingManagerMixin` wraps tracking dispatch and its barrier |
-| Entities | `ServerWorldMixin` queues; `WorldMixin` drains before block-entity bookkeeping |
-| Block entities | `WorldMixin` queues supported tick invokers and drains at the end |
+| Scheduled block/fluid ticks | `ServerLevelMixin.dispatchScheduledTicks` collects then drains each vanilla scheduler |
+| Natural spawning and random/weather chunk ticks | `ServerChunkCacheMixin` drains spawning before random ticks, then random ticks before custom spawning/broadcasts |
+| Entity tracking | `ChunkMapMixin` wraps tracking dispatch and its barrier |
+| Entities | `ServerLevelMixin` queues; `LevelMixin` drains before block-entity bookkeeping |
+| Block entities | `LevelMixin` queues supported tick invokers and drains at the end |
 
 Projectiles and entities currently in portals retain serial entity ticking. Stage flags
 and `enabled` select fallback paths, but mixins and structural synchronization remain installed.
@@ -73,9 +73,16 @@ Loads use `ChunkLockTable` or a global monitor, depending on configuration. The 
 reserves entries atomically before acquiring locks, then evicts unreserved entries periodically.
 Both load paths recheck and publish through `loadAndCache` while holding their load lock;
 null results are not inserted. Keys remain immutable records allocated per lookup, and
-the existing ten-second cache clear remains in place.
+the existing ten-second cache clear remains in place. One maintenance executor per chunk
+manager handles cache clearing and thirty-second lock eviction. `ChunkLockTable` owns no
+threads. Closing the chunk manager finishes vanilla saving, then closes maintenance and
+clears cached references, including when vanilla close throws.
 `ParallelChunkManager` identifies Minecraft Main workers by comparing their owning pool
-with `Util.getMainWorkerExecutor()`; chunk requests from those workers return to the server thread.
+with `Util.backgroundExecutor().service()`; chunk requests from those workers return to the server thread.
+
+Server shutdown closes the watchdog and worker pool after the final wave and clears
+the scheduler, profiler, and benchmark command references. Starting another integrated
+server creates fresh scheduling state and resolves the configured worker count again.
 
 In 26.2, `TicketStorage` owns the tickets formerly held by the simulation tracker and is
 synchronized through `SyncAllMixin`. `SavedDataStorageMixin` protects cache operations and
@@ -104,8 +111,8 @@ These are source-inspection leads, not a completed concurrency audit:
 
 - `ChunkLockTable` adds packed offsets to packed positions. Radius-zero loads are the
   current caller; test coordinate-boundary behavior before using nonzero radii elsewhere.
-- Pool and lock-evictor lifecycle should be checked across integrated-server stop/restart.
-  The initializer creates the worker pool without registering a shutdown callback.
+- Full integrated-server join/leave cycles still need interactive coverage. Lifecycle
+  callback reinitialization and dedicated-server resource shutdown have automated coverage.
 - The 1.21.1 source audit in `TICK_COVERAGE.md` is historical. The port changes stage
   boundaries, but scheduled-tick bookkeeping, passenger serial rules and other remaining
   findings still need their own correctness work and live regression scenarios.

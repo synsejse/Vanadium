@@ -1,14 +1,18 @@
 package com.synsenetwork.vanadium.concurrent;
 
-import it.unimi.dsi.fastutil.longs.*;
-import org.jetbrains.annotations.NotNull;
-
+import it.unimi.dsi.fastutil.longs.AbstractLongSortedSet;
+import it.unimi.dsi.fastutil.longs.LongBidirectionalIterator;
+import it.unimi.dsi.fastutil.longs.LongCollection;
+import it.unimi.dsi.fastutil.longs.LongComparator;
+import it.unimi.dsi.fastutil.longs.LongSortedSet;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.NavigableSet;
 import java.util.NoSuchElementException;
+import java.util.SortedSet;
 import java.util.concurrent.ConcurrentSkipListSet;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * Thread-safe {@link LongSortedSet} backed by a {@code ConcurrentSkipListSet}, used to replace
@@ -219,7 +223,7 @@ public class ConcurrentLongSortedSet extends AbstractLongSortedSet {
     }
 
     /**
-     * Returns {@code null} per the {@link java.util.SortedSet} contract, indicating natural
+     * Returns {@code null} per the {@link SortedSet} contract, indicating natural
      * (ascending) ordering — which is what {@link ConcurrentSkipListSet} uses.
      */
     @Override

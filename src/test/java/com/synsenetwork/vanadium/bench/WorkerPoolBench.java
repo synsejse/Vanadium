@@ -2,10 +2,10 @@ package com.synsenetwork.vanadium.bench;
 
 import com.sun.management.ThreadMXBean;
 import com.synsenetwork.vanadium.tick.WorkerPool;
-
 import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /** Synthetic dispatch benchmark; run via ./gradlew benchWorkerPool. No timing assertions. */
 public final class WorkerPoolBench {
@@ -54,11 +54,11 @@ public final class WorkerPoolBench {
             for (int i = 0; i < MEASURED; i++) pool.runWave(tasks, null);
             long elapsed = System.nanoTime() - start;
             long bytes = allocated(bean, ids) - bytesBefore;
-            System.out.printf(java.util.Locale.ROOT, "%d,%d,%s,%.3f,%d%n",
+            System.out.printf(Locale.ROOT, "%d,%d,%s,%.3f,%d%n",
                     workers, count, workload, elapsed / 1000.0 / MEASURED, bytes / MEASURED);
             for (BurnTask task : burns) sink += task.value;
         } finally {
-            pool.shutdown();
+            pool.close();
         }
     }
 

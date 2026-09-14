@@ -1,7 +1,5 @@
 package com.synsenetwork.vanadium.tick;
 
-import org.junit.jupiter.api.Test;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -9,6 +7,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -80,7 +79,7 @@ class WaveDiagnosticsTest {
             release.countDown();
             caller.shutdownNow();
             assertTrue(caller.awaitTermination(5, TimeUnit.SECONDS));
-            pool.shutdown();
+            pool.close();
         }
     }
 
@@ -108,7 +107,7 @@ class WaveDiagnosticsTest {
             diagnostics.poll();
             assertEquals(1, reports.size());
         } finally {
-            pool.shutdown();
+            pool.close();
         }
     }
 }

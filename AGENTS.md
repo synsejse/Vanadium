@@ -34,7 +34,7 @@ not flattened into Gradle's development classpath. Fabric API and Cloth Config a
 
 All Java paths below are relative to `src/main/java/com/synsenetwork/vanadium/`.
 
-- `Vanadium.java`: config, shared scheduler/pool initialization, command registration.
+- `Vanadium.java`: config, server lifecycle ownership of the shared scheduler/pool, command registration.
 - `tick/`: cell coordinates, four-color grid, stage scheduler, caller-participating worker pool.
 - `chunk/`: chunk manager/cache and per-position loading locks.
 - `concurrent/`: fastutil-compatible concurrent wrappers and striped entity locks.
@@ -52,6 +52,8 @@ All Java paths below are relative to `src/main/java/com/synsenetwork/vanadium/`.
 
 - Worlds are processed sequentially through one shared scheduler. Enqueue/reset operations
   belong to the server thread; workers read/run cells only within a wave.
+- Create a fresh scheduler/pool per server lifecycle and close the pool after the final wave.
+  Chunk managers own their maintenance executors; `ChunkLockTable` owns no background threads.
 - Same-color cells run concurrently; all tasks in a cell run serially in insertion order.
   Maintain a full completion barrier between colors and stages.
 - The calling server thread participates in `WorkerPool.runWave`, and one-task waves run

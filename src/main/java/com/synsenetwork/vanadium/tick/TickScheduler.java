@@ -1,8 +1,8 @@
 package com.synsenetwork.vanadium.tick;
 
 import java.util.EnumMap;
-import java.util.Map;
 import java.util.List;
+import java.util.Map;
 import java.util.function.LongConsumer;
 
 /**

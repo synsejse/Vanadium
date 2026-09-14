@@ -2,7 +2,6 @@ package com.synsenetwork.vanadium.tick;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
-
 import java.util.ArrayList;
 import java.util.List;
 

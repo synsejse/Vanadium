@@ -139,6 +139,37 @@ stationary coverage, warms each case for 250 ms, and measures 50,000 updates. Co
 fresh JVMs; index timings exclude players, packets, and scheduler work.
 See [profiling](../scripts/PROFILING.md) for Flight Recorder commands.
 
+## Cleanup and lifecycle validation (2026-09-14)
+
+Mixin and accessor names now follow their Minecraft targets. Source-level qualified
+types use imports, wildcard package imports are expanded, and unused shadows,
+interfaces, superclass constructors, and raw tick callback types were removed.
+`SynchronisePlugin` uses one mixin-name comparison and logs directly.
+
+Each server lifecycle now creates and closes its own worker pool, scheduler, and
+watchdog. Shutdown releases the profiler and benchmark command references. Each
+chunk manager owns one maintenance executor for cache clearing and lock eviction;
+`ChunkLockTable` no longer creates a thread. Maintenance closes with the manager,
+including when vanilla close throws.
+
+- `./gradlew build` passed **166 tests**, including the vanilla mixin binding checks
+  and a gated regression proving pool close waits for a worker without interrupting it.
+- A disposable Fabric fixture exercised three stop/start callback cycles in one JVM,
+  checked fresh scheduler identity and changed worker counts, discarded queued tasks,
+  and verified that old workers, watchdogs, profiles, and benchmarks were released.
+- The isolated server passed configuration commands, save/reload, profiling with
+  nonzero tasks in all five stages, and actual server save/shutdown. The final stop
+  left no Vanadium worker, watchdog, or chunk-maintenance threads alive.
+- The smoke harness now recognizes the `/ERROR]` console format, so errors logged
+  during shutdown fail validation even if the game process exits successfully.
+- `nix flake check` passed on x86_64 Linux; `git diff --check` passed.
+
+Evidence is retained in `.vanadium/cleanup-26.2/` and
+`.vanadium/runs/smoke-5tzimr8z/`. Callback reinitialization is not a full interactive
+singleplayer world-close/reopen test; that scenario and real modpack behavior remain
+untested. This cleanup makes no new throughput claim. The scheduled-tick bookkeeping
+and passenger serial-rule findings remain separate follow-up work.
+
 ## Minecraft 26.2 port validation (2026-09-14)
 
 The port uses Java 25.0.4.1, Loom 1.17.12, Gradle 9.6.0, Fabric Loader 0.19.3,

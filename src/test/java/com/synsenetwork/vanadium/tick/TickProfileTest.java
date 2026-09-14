@@ -1,18 +1,18 @@
 package com.synsenetwork.vanadium.tick;
 
-import org.junit.jupiter.api.Test;
-
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.LongStream;
+import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class TickProfileTest {
     @Test void percentilesUseNearestRank() {
-        assertEquals(50, TickProfile.Samples.percentile(java.util.stream.LongStream.rangeClosed(1, 100).toArray(), 50));
-        assertEquals(95, TickProfile.Samples.percentile(java.util.stream.LongStream.rangeClosed(1, 100).toArray(), 95));
-        assertEquals(99, TickProfile.Samples.percentile(java.util.stream.LongStream.rangeClosed(1, 100).toArray(), 99));
+        assertEquals(50, TickProfile.Samples.percentile(LongStream.rangeClosed(1, 100).toArray(), 50));
+        assertEquals(95, TickProfile.Samples.percentile(LongStream.rangeClosed(1, 100).toArray(), 95));
+        assertEquals(99, TickProfile.Samples.percentile(LongStream.rangeClosed(1, 100).toArray(), 99));
         assertEquals(7, TickProfile.Samples.percentile(new long[]{7}, 99));
     }
 
@@ -38,7 +38,7 @@ class TickProfileTest {
             assertEquals(4, calls.get());
             assertEquals(report, profile.report());
         } finally {
-            pool.shutdown();
+            pool.close();
         }
     }
 
@@ -62,7 +62,7 @@ class TickProfileTest {
             }));
             assertTrue(waited.get() >= 0);
         } finally {
-            pool.shutdown();
+            pool.close();
         }
     }
 }

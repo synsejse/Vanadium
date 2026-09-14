@@ -3,10 +3,9 @@ package com.synsenetwork.vanadium.concurrent;
 import it.unimi.dsi.fastutil.shorts.ShortCollection;
 import it.unimi.dsi.fastutil.shorts.ShortIterator;
 import it.unimi.dsi.fastutil.shorts.ShortSet;
-import org.jetbrains.annotations.NotNull;
-
 import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * Thread-safe {@link ShortSet} backed by a {@code ConcurrentHashMap.KeySetView}, used to replace

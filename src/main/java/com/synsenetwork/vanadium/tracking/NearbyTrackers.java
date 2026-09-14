@@ -1,8 +1,8 @@
 package com.synsenetwork.vanadium.tracking;
 
 import com.synsenetwork.vanadium.Vanadium;
-import com.synsenetwork.vanadium.mixin.server.network.EntityTrackerEntryAccessor;
-import com.synsenetwork.vanadium.mixin.server.world.EntityTrackerAccessor;
+import com.synsenetwork.vanadium.mixin.server.network.ServerEntityAccessor;
+import com.synsenetwork.vanadium.mixin.server.world.TrackedEntityAccessor;
 import com.synsenetwork.vanadium.tick.Stage;
 import it.unimi.dsi.fastutil.objects.Reference2LongLinkedOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Reference2LongOpenHashMap;
@@ -225,8 +225,8 @@ public final class NearbyTrackers {
         return access(tracker).vanadium$entry();
     }
 
-    private static EntityTrackerAccessor access(TrackedEntity tracker) {
-        return (EntityTrackerAccessor) (Object) tracker;
+    private static TrackedEntityAccessor access(TrackedEntity tracker) {
+        return (TrackedEntityAccessor) (Object) tracker;
     }
 
     private static int radius(TrackedEntity tracker) {
@@ -240,7 +240,7 @@ public final class NearbyTrackers {
      * is sent) to re-baseline the entry for the new watcher.
      */
     public static void forceResync(ServerEntity entry) {
-        EntityTrackerEntryAccessor access = (EntityTrackerEntryAccessor) entry;
+        ServerEntityAccessor access = (ServerEntityAccessor) entry;
         access.vanadium$setTrackingTick(Mth.roundToward(access.vanadium$trackingTick(), access.vanadium$tickInterval()));
         access.vanadium$setUpdatesWithoutVehicle(1 << 16);
         access.vanadium$entity().needsSync = true;

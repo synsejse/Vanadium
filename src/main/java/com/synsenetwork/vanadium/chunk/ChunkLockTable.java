@@ -3,9 +3,6 @@ package com.synsenetwork.vanadium.chunk;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -13,7 +10,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * A table of per-chunk reentrant locks keyed by packed chunk position. A caller can lock a square of
  * chunks (sorted into a global order so concurrent callers can never deadlock) while loading them.
  *
- * <p>Locks are reference-counted, and a daemon thread evicts any lock with no holders or waiters, so
+ * <p>Locks are reference-counted, and the owning chunk manager evicts idle locks periodically, so
  * the table stays bounded no matter how much of the world is explored. The reservation count is
  * incremented atomically with the lock's presence in the map, so the evictor can never drop a lock
  * that another thread is about to acquire; {@link #unlock} releases the held lock before dropping its
@@ -21,19 +18,7 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public final class ChunkLockTable {
 
-    private static final long EVICT_INTERVAL_SECONDS = 30;
-
     private final Map<Long, CountedLock> locks = new ConcurrentHashMap<>();
-    private final ScheduledExecutorService evictor = Executors.newSingleThreadScheduledExecutor(runnable -> {
-        Thread thread = new Thread(runnable, "Vanadium-ChunkLock-Evictor");
-        thread.setDaemon(true);
-        return thread;
-    });
-
-    public ChunkLockTable() {
-        evictor.scheduleWithFixedDelay(this::evictIdle,
-                EVICT_INTERVAL_SECONDS, EVICT_INTERVAL_SECONDS, TimeUnit.SECONDS);
-    }
 
     /** An opaque handle to the locks acquired by one {@link #lock} call; pass it back to {@link #unlock}. */
     public static final class Held {
@@ -106,7 +91,7 @@ public final class ChunkLockTable {
         return locks.size();
     }
 
-    /** Packs a chunk offset exactly as Minecraft's {@code ChunkPos.toLong}, to match historical keys. */
+    /** Packs a chunk offset exactly as Minecraft's {@code ChunkPos.pack}, to match historical keys. */
     private static long packOffset(int dx, int dz) {
         return (dx & 0xFFFFFFFFL) | ((dz & 0xFFFFFFFFL) << 32);
     }

@@ -1,11 +1,12 @@
 package com.synsenetwork.vanadium.tick;
 
-import static org.junit.jupiter.api.Assertions.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 class TickSchedulerTest {
     @Test void runsEveryEnqueuedTaskExactlyOnce() {
@@ -22,7 +23,7 @@ class TickSchedulerTest {
         scheduler.run(Stage.CHUNK);
         assertEquals(256, counts.size());
         assertTrue(counts.values().stream().allMatch(v -> v == 1));
-        pool.shutdown();
+        pool.close();
     }
 
     @Test void colorsRunInOrderSeparatedByBarriers() {
@@ -43,7 +44,7 @@ class TickSchedulerTest {
             assertTrue(order.get(i) >= order.get(i - 1),
                 "colors not separated by a barrier: " + order);
         }
-        pool.shutdown();
+        pool.close();
     }
 
     @Test void runClearsStageSoNextTickStartsFresh() {
@@ -55,6 +56,6 @@ class TickSchedulerTest {
         scheduler.run(Stage.CHUNK);
         scheduler.run(Stage.CHUNK); // nothing queued this time
         assertEquals(1, runs[0]);
-        pool.shutdown();
+        pool.close();
     }
 }

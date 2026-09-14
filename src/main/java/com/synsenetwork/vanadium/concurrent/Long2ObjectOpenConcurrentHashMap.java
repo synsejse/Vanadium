@@ -1,17 +1,17 @@
 package com.synsenetwork.vanadium.concurrent;
 
-import java.io.Serial;
-
 import it.unimi.dsi.fastutil.longs.Long2ObjectFunction;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.objects.ObjectCollection;
 import it.unimi.dsi.fastutil.objects.ObjectSet;
-import org.jetbrains.annotations.NotNull;
-
+import java.io.Serial;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.function.LongFunction;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * Thread-safe {@link Long2ObjectOpenHashMap} backed by a {@code ConcurrentHashMap}, used to
@@ -151,12 +151,12 @@ public class Long2ObjectOpenConcurrentHashMap<V> extends Long2ObjectOpenHashMap<
     }
 
     @Override
-    public V merge(final long k, final V v, final java.util.function.BiFunction<? super V, ? super V, ? extends V> remappingFunction) {
+    public V merge(final long k, final V v, final BiFunction<? super V, ? super V, ? extends V> remappingFunction) {
         return backing.merge(k, v, remappingFunction);
     }
 
     @Override
-    public V merge(Long k, final @NotNull V v, final java.util.function.@NotNull BiFunction<? super V, ? super V, ? extends V> remappingFunction) {
+    public V merge(Long k, final @NotNull V v, final @NotNull BiFunction<? super V, ? super V, ? extends V> remappingFunction) {
         return backing.merge(k, v, remappingFunction);
     }
 
@@ -176,21 +176,21 @@ public class Long2ObjectOpenConcurrentHashMap<V> extends Long2ObjectOpenHashMap<
     }
 
     @Override
-    public V computeIfPresent(final long k, final java.util.function.BiFunction<? super Long, ? super V, ? extends V> remappingFunction) {
+    public V computeIfPresent(final long k, final BiFunction<? super Long, ? super V, ? extends V> remappingFunction) {
         return backing.computeIfPresent(k, remappingFunction);
     }
 
     @Override
-    public V computeIfPresent(final Long k, final java.util.function.@NotNull BiFunction<? super Long, ? super V, ? extends V> remappingFunction) {
+    public V computeIfPresent(final Long k, final @NotNull BiFunction<? super Long, ? super V, ? extends V> remappingFunction) {
         return backing.computeIfPresent(k, remappingFunction);
     }
 
     @Override
-    public V computeIfAbsent(final long k, final java.util.function.LongFunction<? extends V> mappingFunction) {
+    public V computeIfAbsent(final long k, final LongFunction<? extends V> mappingFunction) {
         return backing.computeIfAbsent(k, mappingFunction::apply);
     }
 
-    public V computeIfAbsent(final Long k, final java.util.function.LongFunction<? extends V> mappingFunction) {
+    public V computeIfAbsent(final Long k, final LongFunction<? extends V> mappingFunction) {
         return backing.computeIfAbsent(k, mappingFunction::apply);
     }
 
@@ -211,12 +211,12 @@ public class Long2ObjectOpenConcurrentHashMap<V> extends Long2ObjectOpenHashMap<
     }
 
     @Override
-    public V compute(final long k, final java.util.function.BiFunction<? super Long, ? super V, ? extends V> remappingFunction) {
+    public V compute(final long k, final BiFunction<? super Long, ? super V, ? extends V> remappingFunction) {
         return backing.compute(k, remappingFunction);
     }
 
     @Override
-    public V compute(final Long k, final java.util.function.@NotNull BiFunction<? super Long, ? super V, ? extends V> remappingFunction) {
+    public V compute(final Long k, final @NotNull BiFunction<? super Long, ? super V, ? extends V> remappingFunction) {
         return backing.compute(k, remappingFunction);
     }
 

@@ -1,6 +1,5 @@
 package com.synsenetwork.vanadium.tick;
 
-import static org.junit.jupiter.api.Assertions.*;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -18,7 +17,55 @@ import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 class WorkerPoolTest {
+    @Test void closeWaitsForWorkersWithoutInterruptingThem() throws Exception {
+        WorkerPool pool = new WorkerPool(1);
+        CountDownLatch workerStarted = new CountDownLatch(1);
+        CountDownLatch releaseWorker = new CountDownLatch(1);
+        CountDownLatch closing = new CountDownLatch(1);
+        CountDownLatch closed = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Runnable task = () -> {
+            if (WorkerPool.isWorkerThread()) {
+                workerStarted.countDown();
+                await(releaseWorker);
+            } else {
+                await(workerStarted);
+            }
+        };
+        Thread caller = new Thread(() -> {
+            try {
+                pool.runWave(List.of(task, task), null);
+            } catch (Throwable t) {
+                failure.set(t);
+            }
+        });
+        Thread closer = new Thread(() -> {
+            closing.countDown();
+            pool.close();
+            closed.countDown();
+        });
+        try {
+            caller.start();
+            assertTrue(workerStarted.await(5, TimeUnit.SECONDS));
+            closer.start();
+            assertTrue(closing.await(5, TimeUnit.SECONDS));
+            assertFalse(closed.await(100, TimeUnit.MILLISECONDS), "close returned with a worker still active");
+            releaseWorker.countDown();
+            assertTrue(closed.await(5, TimeUnit.SECONDS));
+            caller.join(5000);
+            assertFalse(caller.isAlive());
+            assertNull(failure.get(), "closing the pool interrupted an active worker");
+        } finally {
+            releaseWorker.countDown();
+            caller.join(5000);
+            closer.join(5000);
+            pool.close();
+        }
+    }
+
     @Test void interruptedCallerStillWaitsForWorkers() throws Exception {
         checkInterruptedBarrier(false, false);
     }
@@ -93,7 +140,7 @@ class WorkerPoolTest {
         } finally {
             releaseWorker.countDown();
             caller.join(5000);
-            pool.shutdown();
+            pool.close();
         }
     }
 
@@ -121,7 +168,7 @@ class WorkerPoolTest {
                 assertEquals(expected, completed.get());
             }
         } finally {
-            pool.shutdown();
+            pool.close();
         }
     }
 
@@ -134,7 +181,7 @@ class WorkerPoolTest {
             pool.runWave(new LinkedHashSet<>(tasks), null);
             assertEquals(4, completed.get());
         } finally {
-            pool.shutdown();
+            pool.close();
         }
     }
 
@@ -148,13 +195,13 @@ class WorkerPoolTest {
         }
         pool.runWave(tasks, null);
         for (int i = 0; i < visits.length(); i++) assertEquals(1, visits.get(i));
-        pool.shutdown();
+        pool.close();
     }
 
     @Test void submissionFailureFinishesWaveBeforePropagating() {
         WorkerPool pool = new WorkerPool(1);
         AtomicInteger completed = new AtomicInteger();
-        pool.shutdown();
+        pool.close();
         assertThrows(RejectedExecutionException.class,
                 () -> pool.runWave(List.of(completed::incrementAndGet, completed::incrementAndGet), null));
         assertEquals(2, completed.get());
@@ -168,20 +215,20 @@ class WorkerPoolTest {
             done.set(true);
         }), null);
         assertTrue(done.get(), "runWave returned before its task finished");
-        pool.shutdown();
+        pool.close();
     }
 
     @Test void runWavePropagatesTaskFailure() {
         WorkerPool pool = new WorkerPool(2);
         assertThrows(RuntimeException.class,
             () -> pool.runWave(List.of(() -> { throw new IllegalStateException("boom"); }), null));
-        pool.shutdown();
+        pool.close();
     }
 
     @Test void emptyWaveIsANoop() {
         WorkerPool pool = new WorkerPool(2);
         pool.runWave(List.of(), null);
-        pool.shutdown();
+        pool.close();
     }
 
     // Contract change: a multi-task wave still runs at least one task on a pool worker, and the
@@ -199,7 +246,7 @@ class WorkerPoolTest {
         pool.runWave(List.of(t, t), null);
         assertTrue(anyOnWorker.get(), "at least one task should run on a pool worker");
         assertFalse(WorkerPool.isWorkerThread(), "main thread must not report as a worker");
-        pool.shutdown();
+        pool.close();
     }
 
     @Test void singleTaskRunsOnCaller() {
@@ -212,7 +259,7 @@ class WorkerPoolTest {
         }), null);
         assertSame(Thread.currentThread(), ranOn.get(), "single-task wave must run on the caller");
         assertFalse(wasWorker.get(), "caller must not report as a worker");
-        pool.shutdown();
+        pool.close();
     }
 
     // Deterministic: with one worker, the wave can only complete if the caller runs the 2nd task.
@@ -234,7 +281,7 @@ class WorkerPoolTest {
             pool.runWave(List.of(t, t), null);
         });
         assertTrue(ran.contains(callerRef.get()), "caller must execute a task, not just block");
-        pool.shutdown();
+        pool.close();
     }
 
     @Test void errorPropagatesAndOthersComplete() {
@@ -245,7 +292,7 @@ class WorkerPoolTest {
         tasks.add(25, () -> { throw new IllegalStateException("boom"); });
         assertThrows(RuntimeException.class, () -> pool.runWave(tasks, null));
         assertEquals(50, completed.get(), "all non-throwing tasks must still run");
-        pool.shutdown();
+        pool.close();
     }
 
     @Test void highContentionAllRun() {
@@ -255,6 +302,6 @@ class WorkerPoolTest {
         for (int i = 0; i < 10_000; i++) tasks.add(counter::incrementAndGet);
         pool.runWave(tasks, null);
         assertEquals(10_000, counter.get());
-        pool.shutdown();
+        pool.close();
     }
 }

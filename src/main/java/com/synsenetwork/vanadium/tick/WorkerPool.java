@@ -1,7 +1,5 @@
 package com.synsenetwork.vanadium.tick;
 
-import org.jetbrains.annotations.NotNull;
-
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -13,6 +11,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongConsumer;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * A fixed pool of worker threads that runs a batch of tasks and waits for all of them.
@@ -26,7 +25,7 @@ import java.util.function.LongConsumer;
  * the calling thread executes it. If tick-path locking ever becomes conditional on thread identity,
  * revert to a submit-and-block barrier.
  */
-public final class WorkerPool {
+public final class WorkerPool implements AutoCloseable {
     private final ExecutorService executor;
     private final int workerCount;
 
@@ -130,8 +129,10 @@ public final class WorkerPool {
         }
     }
 
-    public void shutdown() {
-        executor.shutdownNow();
+    /** Called after the last wave; finish late helpers and release the pool's threads. */
+    @Override
+    public void close() {
+        executor.close();
     }
 
     /** True when called from a thread owned by a WorkerPool. */

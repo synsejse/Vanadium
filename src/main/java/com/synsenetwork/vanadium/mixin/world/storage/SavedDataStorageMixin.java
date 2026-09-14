@@ -2,12 +2,11 @@ package com.synsenetwork.vanadium.mixin.world.storage;
 
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import java.util.concurrent.CompletableFuture;
 import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.level.saveddata.SavedDataType;
 import net.minecraft.world.level.storage.SavedDataStorage;
 import org.spongepowered.asm.mixin.Mixin;
-
-import java.util.concurrent.CompletableFuture;
 
 /** Protect the cache and save snapshots without holding a monitor while waiting for disk IO. */
 @Mixin(SavedDataStorage.class)

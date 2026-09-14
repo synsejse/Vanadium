@@ -170,7 +170,7 @@ def exercise(args):
             contents = log.read_text(errors="replace")
             if "Vanadium Initialized" not in contents or "Saving chunks" not in contents:
                 raise RuntimeError(f"Missing initialization/save evidence; see {log}")
-            if " ERROR]" in contents or "Exception in server tick loop" in contents:
+            if " ERROR]" in contents or "/ERROR]" in contents or "Exception in server tick loop" in contents:
                 raise RuntimeError(f"Server logged errors; see {log}")
             print(f"{args.mode} passed. Logs, world and profiles retained in {run}")
         finally:

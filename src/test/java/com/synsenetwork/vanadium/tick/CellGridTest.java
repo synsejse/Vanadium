@@ -1,7 +1,8 @@
 package com.synsenetwork.vanadium.tick;
 
-import static org.junit.jupiter.api.Assertions.*;
 import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 class CellGridTest {
     private static final Runnable NOOP = () -> { };

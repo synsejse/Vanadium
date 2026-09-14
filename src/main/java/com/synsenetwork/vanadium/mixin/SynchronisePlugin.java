@@ -1,5 +1,7 @@
 package com.synsenetwork.vanadium.mixin;
 
+import java.util.List;
+import java.util.Set;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.objectweb.asm.Opcodes;
@@ -8,16 +10,12 @@ import org.objectweb.asm.tree.MethodNode;
 import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;
 import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
 
-import java.util.List;
-import java.util.Set;
-
 /** Stamps ACC_SYNCHRONIZED on every instance method of the SYNC_ALL targets (non-thread-safe vanilla
  *  helpers Vanadium touches from worker threads). */
 public class SynchronisePlugin implements IMixinConfigPlugin {
-    private static final Logger syncLogger = LogManager.getLogger();
+    private static final Logger LOGGER = LogManager.getLogger();
 
-    private static final Set<String> SYNC_ALL = Set.of(
-            "com.synsenetwork.vanadium.mixin.SyncAllMixin");
+    private static final String SYNC_ALL = "com.synsenetwork.vanadium.mixin.SyncAllMixin";
 
     @Override
     public void onLoad(String mixinPackage) {
@@ -48,19 +46,16 @@ public class SynchronisePlugin implements IMixinConfigPlugin {
 
     @Override
     public void postApply(String targetClassName, ClassNode targetClass, String mixinClassName, IMixinInfo mixinInfo) {
-        if (!SYNC_ALL.contains(mixinClassName)) {
+        if (!SYNC_ALL.equals(mixinClassName)) {
             return;
         }
-        int negFilter = Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC | Opcodes.ACC_NATIVE | Opcodes.ACC_ABSTRACT | Opcodes.ACC_BRIDGE;
+        int excludedMethodFlags = Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC | Opcodes.ACC_NATIVE | Opcodes.ACC_ABSTRACT | Opcodes.ACC_BRIDGE;
         for (MethodNode method : targetClass.methods) {
-            if ((method.access & negFilter) == 0 && !method.name.equals("<init>")) {
+            if ((method.access & excludedMethodFlags) == 0 && !method.name.equals("<init>")) {
                 method.access |= Opcodes.ACC_SYNCHRONIZED;
-                logSyncBit(method.name, targetClassName);
+                LOGGER.info("Setting synchronize bit for {} in {}.", method.name, targetClassName);
             }
         }
     }
 
-    private void logSyncBit(String methodName, String targetClassName) {
-        syncLogger.info("Setting synchronize bit for {} in {}.", methodName, targetClassName);
-    }
 }

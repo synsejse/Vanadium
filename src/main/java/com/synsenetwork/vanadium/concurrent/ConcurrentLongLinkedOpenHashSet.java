@@ -1,11 +1,5 @@
 package com.synsenetwork.vanadium.concurrent;
 
-import java.io.Serial;
-
-import java.util.Collection;
-import java.util.Iterator;
-import java.util.concurrent.ConcurrentSkipListSet;
-
 import it.unimi.dsi.fastutil.longs.LongArrays;
 import it.unimi.dsi.fastutil.longs.LongCollection;
 import it.unimi.dsi.fastutil.longs.LongComparator;
@@ -14,6 +8,11 @@ import it.unimi.dsi.fastutil.longs.LongIterators;
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongListIterator;
 import it.unimi.dsi.fastutil.longs.LongSortedSet;
+import java.io.Serial;
+import java.util.Collection;
+import java.util.Iterator;
+import java.util.SortedSet;
+import java.util.concurrent.ConcurrentSkipListSet;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -123,7 +122,7 @@ public class ConcurrentLongLinkedOpenHashSet extends LongLinkedOpenHashSet {
     }
 
     /**
-     * Returns {@code null} per the {@link java.util.SortedSet} contract, indicating natural
+     * Returns {@code null} per the {@link SortedSet} contract, indicating natural
      * (ascending) ordering — which is what {@link ConcurrentSkipListSet} uses.
      */
     @Override

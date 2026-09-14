@@ -4,7 +4,6 @@ import com.sun.management.ThreadMXBean;
 import com.synsenetwork.vanadium.tick.Stage;
 import com.synsenetwork.vanadium.tick.TickScheduler;
 import com.synsenetwork.vanadium.tick.WorkerPool;
-
 import java.lang.management.ManagementFactory;
 import java.util.concurrent.atomic.LongAdder;
 
@@ -59,7 +58,7 @@ public final class SchedulerBench {
         System.out.printf("  noop   time/tick  = %.1f us%n", noopNs / 1000.0 / measured);
         System.out.printf("  loaded time/tick  = %.1f us  (sink=%d)%n",
                 loadedNs / 1000.0 / measured, SINK.sum());
-        pool.shutdown();
+        pool.close();
     }
 
     private static void burn() {

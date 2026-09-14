@@ -1,8 +1,8 @@
 package com.synsenetwork.vanadium.tick;
 
-import java.util.Locale;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -89,7 +89,7 @@ public final class WaveDiagnostics implements AutoCloseable {
     public void close() {
         Watch watch = current;
         if (watch != null) watch.close();
-        if (executor != null) executor.shutdownNow();
+        if (executor != null) executor.close();
         polling = null;
         executor = null;
         thresholdNanos = 0;

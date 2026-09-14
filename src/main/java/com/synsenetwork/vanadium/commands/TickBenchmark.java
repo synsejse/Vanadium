@@ -45,9 +45,15 @@ public final class TickBenchmark {
         return true;
     }
 
-    /** True while a benchmark runs — ServerTickManagerMixin uses this to mute vanilla's sprint report. */
+    /** True while a benchmark runs — ServerTickRateManagerMixin uses this to mute vanilla's sprint report. */
     public static boolean isActive() {
         return active;
+    }
+
+    /** Drop the command source so an interrupted benchmark cannot retain a stopped server. */
+    public static void onServerStopped() {
+        active = false;
+        source = null;
     }
 
     /** Registered on ServerTickEvents.END_SERVER_TICK. */

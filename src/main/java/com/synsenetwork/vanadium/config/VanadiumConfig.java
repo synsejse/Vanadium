@@ -1,12 +1,12 @@
 package com.synsenetwork.vanadium.config;
 
+import com.synsenetwork.vanadium.Vanadium;
+import java.util.ArrayList;
+import java.util.List;
 import me.shedaniel.autoconfig.ConfigData;
 import me.shedaniel.autoconfig.annotation.Config;
 import me.shedaniel.cloth.clothconfig.shadowed.blue.endless.jankson.Comment;
 import net.minecraft.resources.Identifier;
-import com.synsenetwork.vanadium.Vanadium;
-import java.util.ArrayList;
-import java.util.List;
 
 @Config(name = "vanadium")
 public class VanadiumConfig implements ConfigData {

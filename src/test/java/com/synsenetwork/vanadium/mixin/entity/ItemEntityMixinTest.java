@@ -1,11 +1,10 @@
 package com.synsenetwork.vanadium.mixin.entity;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
-import org.junit.jupiter.api.Test;
-
 import java.lang.reflect.InvocationTargetException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 

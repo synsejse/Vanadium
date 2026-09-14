@@ -1,7 +1,6 @@
 package com.synsenetwork.vanadium.compat;
 
 import com.bawnorton.mixinsquared.api.MixinCanceller;
-
 import java.util.List;
 import java.util.Set;
 

@@ -1,7 +1,8 @@
 package com.synsenetwork.vanadium.config;
 
-import static org.junit.jupiter.api.Assertions.*;
 import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 class VanadiumConfigTest {
     // --- resolveWorkers(workers, availableProcessors) ------------------------

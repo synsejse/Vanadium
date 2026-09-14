@@ -1,12 +1,12 @@
 package com.synsenetwork.vanadium.concurrent;
 
-import org.junit.jupiter.api.Test;
-
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -244,7 +244,7 @@ class ConcurrentWrappersTest {
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         CountDownLatch ready = new CountDownLatch(threads);
         CountDownLatch go = new CountDownLatch(1);
-        var results = new java.util.concurrent.ConcurrentLinkedQueue<String>();
+        var results = new ConcurrentLinkedQueue<String>();
         for (int t = 0; t < threads; t++) {
             pool.submit(() -> {
                 ready.countDown();

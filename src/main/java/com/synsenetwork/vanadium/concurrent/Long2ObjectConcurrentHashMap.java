@@ -5,12 +5,11 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.objects.ObjectCollection;
 import it.unimi.dsi.fastutil.objects.ObjectSet;
-import org.jetbrains.annotations.NotNull;
-
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiFunction;
 import java.util.function.LongFunction;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * Thread-safe {@link Long2ObjectMap} backed by a {@code ConcurrentHashMap}, used to replace

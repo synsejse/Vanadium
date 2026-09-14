@@ -1,7 +1,6 @@
 package com.synsenetwork.vanadium.concurrent;
 
 import it.unimi.dsi.fastutil.HashCommon;
-
 import java.util.concurrent.locks.ReentrantLock;
 
 /**

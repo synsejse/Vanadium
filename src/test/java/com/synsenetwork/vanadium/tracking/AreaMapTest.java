@@ -1,12 +1,11 @@
 package com.synsenetwork.vanadium.tracking;
 
-import org.junit.jupiter.api.Test;
-
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Random;
 import net.minecraft.world.level.ChunkPos;
+import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 

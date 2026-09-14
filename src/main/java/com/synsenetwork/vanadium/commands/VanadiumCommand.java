@@ -9,6 +9,9 @@ import com.mojang.brigadier.context.CommandContext;
 import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.config.ConfigOptions;
 import com.synsenetwork.vanadium.config.VanadiumConfig;
+import java.lang.reflect.Field;
+import java.util.Arrays;
+import java.util.List;
 import me.shedaniel.autoconfig.AutoConfig;
 import me.shedaniel.autoconfig.ConfigHolder;
 import net.fabricmc.loader.api.FabricLoader;
@@ -17,10 +20,6 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.permissions.Permissions;
-
-import java.lang.reflect.Field;
-import java.util.Arrays;
-import java.util.List;
 
 import static net.minecraft.commands.Commands.argument;
 import static net.minecraft.commands.Commands.literal;
