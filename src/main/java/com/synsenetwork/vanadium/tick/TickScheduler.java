@@ -1,7 +1,7 @@
 package com.synsenetwork.vanadium.tick;
 
-import java.util.EnumMap;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.LongConsumer;
@@ -110,19 +110,7 @@ public final class TickScheduler {
                     if (recording == null) {
                         pool.runWave(tasks, waitRecorder);
                     } else {
-                        long[] durations = new long[tasks.size()];
-                        List<Runnable> measured = new ArrayList<>(tasks.size());
-                        for (int i = 0; i < tasks.size(); i++) {
-                            int index = i;
-                            Runnable task = tasks.get(i);
-                            measured.add(() -> {
-                                long cellStart = System.nanoTime();
-                                try { task.run(); }
-                                finally { durations[index] = System.nanoTime() - cellStart; }
-                            });
-                        }
-                        try { pool.runWave(measured, waitRecorder); }
-                        finally { recording.recordCells(stage, durations); }
+                        runProfiledWave(stage, tasks, recording, waitRecorder);
                     }
                 }
             }
@@ -135,5 +123,28 @@ public final class TickScheduler {
             }
         }
         grid.endTick();
+    }
+
+    private void runProfiledWave(Stage stage, List<? extends Runnable> tasks,
+                                 TickProfile recording, LongConsumer waitRecorder) {
+        long[] durations = new long[tasks.size()];
+        List<Runnable> measured = new ArrayList<>(tasks.size());
+        for (int i = 0; i < tasks.size(); i++) {
+            int index = i;
+            Runnable task = tasks.get(i);
+            measured.add(() -> {
+                long cellStart = System.nanoTime();
+                try {
+                    task.run();
+                } finally {
+                    durations[index] = System.nanoTime() - cellStart;
+                }
+            });
+        }
+        try {
+            pool.runWave(measured, waitRecorder);
+        } finally {
+            recording.recordCells(stage, durations);
+        }
     }
 }

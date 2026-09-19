@@ -11,6 +11,9 @@ import net.minecraft.world.level.NaturalSpawner;
 
 /** Count stable entity batches independently, then combine state before any spawn callback can run. */
 public final class SpawnPreparation {
+    private static final int MIN_PARALLEL_ENTITIES = 1024;
+    private static final int TARGET_ENTITIES_PER_JOB = 256;
+
     private SpawnPreparation() {}
 
     public static NaturalSpawner.SpawnState count(int chunkCount, Iterable<Entity> entities,
@@ -21,16 +24,17 @@ public final class SpawnPreparation {
         }
         List<Entity> snapshot;
         if (entities instanceof Collection<Entity> collection) {
-            if (collection.size() < 1024) return NaturalSpawner.createState(chunkCount, entities, chunks, localCaps);
+            if (collection.size() < MIN_PARALLEL_ENTITIES) return NaturalSpawner.createState(chunkCount, entities, chunks, localCaps);
             snapshot = new ArrayList<>(collection);
         } else {
             // Preserve support for unsized, possibly single-pass iterables from other implementations.
             snapshot = new ArrayList<>();
             entities.forEach(snapshot::add);
         }
-        if (snapshot.size() < 1024) return NaturalSpawner.createState(chunkCount, snapshot, chunks, localCaps);
+        if (snapshot.size() < MIN_PARALLEL_ENTITIES) return NaturalSpawner.createState(chunkCount, snapshot, chunks, localCaps);
 
-        int jobs = Math.min(Vanadium.scheduler.workerCount() + 1, (snapshot.size() + 255) / 256);
+        int jobs = Math.min(Vanadium.scheduler.workerCount() + 1,
+                (snapshot.size() + TARGET_ENTITIES_PER_JOB - 1) / TARGET_ENTITIES_PER_JOB);
         int batchSize = (snapshot.size() + jobs - 1) / jobs;
         List<Runnable> tasks = new ArrayList<>(jobs);
         NaturalSpawner.SpawnState[] partial = new NaturalSpawner.SpawnState[jobs];

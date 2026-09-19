@@ -16,6 +16,8 @@ import net.minecraft.world.level.pathfinder.Path;
 
 /** Conservative candidate index. Dirty navigations remain candidates until a safe tick-boundary refresh. */
 public final class NavigationIndex extends AbstractSet<Mob> {
+    private static final int MIN_QUERIES_FOR_REFRESH = 2;
+    private static final int MAX_INDEXED_PATH_NODES = 256;
     private static final ClassValue<Boolean> VANILLA_PREDICATE = new ClassValue<>() {
         @Override protected Boolean computeValue(Class<?> type) {
             try {
@@ -28,8 +30,8 @@ public final class NavigationIndex extends AbstractSet<Mob> {
     private final Set<Mob> unbounded = new ReferenceOpenHashSet<>();
     private final AreaMap<Mob> areas = new AreaMap<>();
     private long generation;
-    private long previousGeneration = -1;
-    private int queries;
+    private long generationAtPreviousRefresh = -1;
+    private int queriesSinceRefresh;
 
     public static void invalidate(Entity entity) {
         if (entity instanceof Mob mob && entity.level() instanceof ServerLevel level) {
@@ -79,7 +81,7 @@ public final class NavigationIndex extends AbstractSet<Mob> {
     }
 
     public synchronized List<Mob> candidates(BlockPos pos) {
-        if (queries < 2) queries++;
+        if (queriesSinceRefresh < MIN_QUERIES_FOR_REFRESH) queriesSinceRefresh++;
         Set<Mob> nearby = areas.objectsAt(ChunkPos.pack(pos));
         if (dirty.isEmpty() && unbounded.isEmpty()) return new ArrayList<>(nearby);
         // A full snapshot is cheaper than merging candidate sets that already cover the population.
@@ -95,14 +97,14 @@ public final class NavigationIndex extends AbstractSet<Mob> {
         List<Mob> changed;
         long version;
         synchronized (this) {
-            boolean changedAgain = previousGeneration != generation;
-            previousGeneration = generation;
-            int recentQueries = queries;
-            queries = 0;
+            boolean changedAgain = generationAtPreviousRefresh != generation;
+            generationAtPreviousRefresh = generation;
+            int recentQueries = queriesSinceRefresh;
+            queriesSinceRefresh = 0;
             if (dirty.isEmpty()) return;
             // Rebuilding most paths costs more than one full scan. Keep their conservative
             // fallback until edits become frequent or the pending paths stop changing.
-            if (changedAgain && recentQueries < 2 && dirty.size() > members.size() / 2) return;
+            if (changedAgain && recentQueries < MIN_QUERIES_FOR_REFRESH && dirty.size() > members.size() / 2) return;
             changed = new ArrayList<>(dirty);
             version = generation;
         }
@@ -138,7 +140,7 @@ public final class NavigationIndex extends AbstractSet<Mob> {
         double z = (end.z + mob.getZ()) / 2.0;
         int remaining = path.getNodeCount() - path.getNextNodeIndex();
         // Limit index memory for very long modded paths; the exact vanilla predicate still runs.
-        if (remaining > 256 || !Double.isFinite(x) || !Double.isFinite(z)) return Bounds.UNBOUNDED;
+        if (remaining > MAX_INDEXED_PATH_NODES || !Double.isFinite(x) || !Double.isFinite(z)) return Bounds.UNBOUNDED;
         return new Bounds((int) Math.floor(x / 16.0), (int) Math.floor(z / 16.0), (remaining + 31) / 16);
     }
 
