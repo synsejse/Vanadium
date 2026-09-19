@@ -43,7 +43,7 @@ All Java paths below are relative to `src/main/java/com/synsenetwork/vanadium/`.
 - Remaining `mixin/` packages: synchronization and concurrent collection replacements.
 - `mixin/SynchronisePlugin.java`: ASM synchronization applied to `SyncAllMixin` targets.
 - `compat/C2ME.java`: MixinSquared cancellation of two C2ME thread-detection mixins.
-- `config/`, `commands/`: field-derived options, TOML config, live changes, tick benchmark.
+- `config/`, `commands/`: TOML config, status, live reload, tick benchmark.
 - `src/main/resources/vanadium.mixins.json`: required mixin registration.
 - `src/main/resources/vanadium.accesswidener`: access required by mixins.
 - `src/test/java/`: JUnit 5 unit tests and standalone scheduler benchmark.

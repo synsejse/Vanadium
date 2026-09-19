@@ -12,7 +12,9 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.objects.ObjectCollection;
 import it.unimi.dsi.fastutil.objects.ObjectLists;
 import java.util.List;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.BooleanSupplier;
 import net.minecraft.server.level.ChunkGenerationTask;
 import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.DistanceManager;
@@ -20,6 +22,7 @@ import net.minecraft.server.level.PlayerMap;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.ChunkPos;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Mutable;
@@ -49,6 +52,28 @@ public abstract class ChunkMapMixin {
     @Final
     @Mutable
     final LongSet toDrop = new ConcurrentLongLinkedOpenHashSet();
+
+    @Shadow
+    @Final
+    private LongSet chunksToEagerlySave;
+
+    @Unique
+    private final ConcurrentLinkedQueue<ChunkPos> vanadium$dirtyChunks = new ConcurrentLinkedQueue<>();
+
+    @Inject(method = "setChunkUnsaved", at = @At("HEAD"), cancellable = true)
+    private void queueDirtyChunk(ChunkPos pos, CallbackInfo ci) {
+        vanadium$dirtyChunks.add(pos);
+        ci.cancel();
+    }
+
+    /** Only the server thread touches vanilla's ordered save set; workers never wait for saving. */
+    @Inject(method = {"tick(Ljava/util/function/BooleanSupplier;)V", "saveChunksEagerly"}, at = @At("HEAD"))
+    private void collectDirtyChunks(BooleanSupplier haveTime, CallbackInfo ci) {
+        ChunkPos pos;
+        while ((pos = vanadium$dirtyChunks.poll()) != null) {
+            chunksToEagerlySave.add(pos.pack());
+        }
+    }
 
     @Shadow
     @Final

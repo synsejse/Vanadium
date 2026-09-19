@@ -109,6 +109,7 @@ public class ParallelChunkManager extends ServerChunkCache {
         return chunk;
     }
 
+    @SuppressWarnings("resource") // Minecraft owns this shared executor; we only compare its identity.
     private static boolean isMinecraftMainWorker(Thread thread) {
         return thread instanceof ForkJoinWorkerThread worker
                 && worker.getPool() == Util.backgroundExecutor().service();

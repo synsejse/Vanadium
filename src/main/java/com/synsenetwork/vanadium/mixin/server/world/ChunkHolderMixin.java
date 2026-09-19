@@ -1,36 +1,35 @@
 package com.synsenetwork.vanadium.mixin.server.world;
 
-import com.synsenetwork.vanadium.concurrent.ConcurrentShortHashSet;
-import it.unimi.dsi.fastutil.shorts.ShortSet;
+import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ChunkHolder;
-import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.LevelHeightAccessor;
-import net.minecraft.world.level.lighting.LevelLightEngine;
-import org.objectweb.asm.Opcodes;
-import org.spongepowered.asm.mixin.Final;
+import net.minecraft.world.level.LightLayer;
+import net.minecraft.world.level.chunk.LevelChunk;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Mutable;
-import org.spongepowered.asm.mixin.Shadow;
-import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.Redirect;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(ChunkHolder.class)
 public abstract class ChunkHolderMixin {
 
-    @Mutable
-    @Shadow
-    @Final
-    private ShortSet[] changedBlocksPerSection;
-
-    @Inject(method = "<init>", at = @At(value = "FIELD", target = "Lnet/minecraft/server/level/ChunkHolder;changedBlocksPerSection:[Lit/unimi/dsi/fastutil/shorts/ShortSet;", opcode = Opcodes.PUTFIELD, shift = At.Shift.AFTER))
-    private void overwriteShortSet(ChunkPos pos, int level, LevelHeightAccessor world, LevelLightEngine lightingProvider, ChunkHolder.LevelChangeListener levelUpdateListener, ChunkHolder.PlayerProvider playersWatchingChunkProvider, CallbackInfo ci) {
-        this.changedBlocksPerSection = new ConcurrentShortHashSet[world.getSectionsCount()];
+    // Keep vanilla's local and stored set references identical. The holder monitor protects
+    // section-set creation, additions, and clearing together, including the broadcast flags.
+    @WrapMethod(method = "blockChanged")
+    private synchronized boolean blockChanged(BlockPos pos, Operation<Boolean> original) {
+        return original.call(pos);
     }
 
-    @Redirect(method = "blockChanged", at = @At(value = "FIELD", target = "Lnet/minecraft/server/level/ChunkHolder;changedBlocksPerSection:[Lit/unimi/dsi/fastutil/shorts/ShortSet;", args = "array=set"))
-    private void setBlockUpdatesBySection(ShortSet[] array, int index, ShortSet value) {
-        array[index] = new ConcurrentShortHashSet();
+    @WrapMethod(method = "sectionLightChanged")
+    private synchronized boolean sectionLightChanged(LightLayer layer, int sectionY, Operation<Boolean> original) {
+        return original.call(layer, sectionY);
+    }
+
+    @WrapMethod(method = "hasChangesToBroadcast")
+    private synchronized boolean hasChangesToBroadcast(Operation<Boolean> original) {
+        return original.call();
+    }
+
+    @WrapMethod(method = "broadcastChanges")
+    private synchronized void broadcastChanges(LevelChunk chunk, Operation<Void> original) {
+        original.call(chunk);
     }
 }

@@ -136,6 +136,7 @@ public class Long2ObjectOpenConcurrentHashMap<V> extends Long2ObjectOpenHashMap<
     }
 
     @Override
+    @SuppressWarnings("SuspiciousMethodCalls") // The fastutil contract accepts Object; keep the removal atomic.
     public boolean remove(final long k, final Object v) {
         return backing.remove(k, v);
     }

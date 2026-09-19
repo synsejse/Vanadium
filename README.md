@@ -21,7 +21,8 @@ Vanadium handles parallel *ticking*; [C2ME](https://modrinth.com/mod/c2me-fabric
 
 ## Configuration
 
-`config/vanadium.toml` — every option is also live-editable in game via `/vanadium` (except `workers`, which needs a restart).
+Edit `config/vanadium.toml`, then run `/vanadium reload` to apply changes live.
+`workers` requires a server restart. Commands do not modify or save configuration values.
 
 | Option | Default | Effect |
 |---|---|---|
@@ -44,11 +45,14 @@ Vanadium handles parallel *ticking*; [C2ME](https://modrinth.com/mod/c2me-fabric
 
 ## Commands
 
-Serial rules match exact registry IDs, for example
-`/vanadium set serialEntityTypes minecraft:villager, example:custom_mob` and
-`/vanadium set serialBlockEntityTypes minecraft:hopper, example:machine`.
-Use `none` to clear a rule, and `/vanadium save` to persist it. In TOML, use string arrays:
-`serialEntityTypes = ["minecraft:villager", "example:custom_mob"]`.
+Serial rules match exact registry IDs. Set them as TOML string arrays:
+
+```toml
+serialEntityTypes = ["minecraft:villager", "example:custom_mob"]
+serialBlockEntityTypes = ["minecraft:hopper", "example:machine"]
+```
+
+Use `[]` to clear a rule, then run `/vanadium reload`.
 Unknown but well-formed IDs are allowed and have no effect until that type is present.
 Matching tickers run on the server thread before the stage's queued parallel work;
 projectiles, portals, and existing fallback paths retain their serial treatment.
@@ -58,11 +62,7 @@ scheduled ticks, or tracking. Validate the actual modpack before deployment.
 | Command | Permission | Effect |
 |---|---|---|
 | `/vanadium` or `/vanadium status` | everyone | Version, enabled state, workers (with restart-pending detection), cell size, all stage flags |
-| `/vanadium toggle <flag>` | op (2) | Flip any boolean option |
-| `/vanadium set <option> <value>` | op (2) | Set any option (type-checked) |
-| `/vanadium save` | op (2) | Persist current values to `vanadium.toml` |
 | `/vanadium reload` | op (2) | Re-read `vanadium.toml` and apply live |
-| `/vanadium defaults` | op (2) | Reset all options in memory (`save` to persist) |
 | `/vanadium benchmark` | op (2) | Unlock TPS for 30s (via vanilla tick-sprint) and report ticks run, average and peak TPS |
 | `/vanadium profile [seconds]` | op (2) | Capture tick/stage timings at the current tick rate; default 30s, range 1–300s |
 | `/vanadium profile stop` | op (2) | Finish the current capture early |
@@ -75,8 +75,8 @@ time between ticks. Worlds are aggregated, and cell counts count executions rath
 unique locations. Keep configuration and workload fixed when comparing captures. Profiling
 adds measurement overhead and does not unlock TPS. Reports are also written to the server log.
 
-For a stall investigation, use `/vanadium set slowWaveMillis 1000` and optionally
-`/vanadium set detailedTickDiagnostics true`. A separate watchdog reports the stage,
+For a stall investigation, set `slowWaveMillis = 1000` and optionally
+`detailedTickDiagnostics = true` in TOML, then run `/vanadium reload`. A separate watchdog reports the stage,
 dimension, color, cell size, elapsed time, and active caller/worker stacks while the wave
 is still running. Cell coordinates are **cell units**, not chunks or blocks. Reports are
 limited to one per 30 seconds, with up to eight participant stacks and twelve frames each.
@@ -85,7 +85,7 @@ Polling occurs every 100ms, so this is a diagnostic threshold, not a deadline.
 Detailed mode labels queued entity and block-entity ticks with registry type IDs; other
 tasks show their runnable class. It adds wrappers and per-task progress updates. Basic
 mode tracks progress once per cell; disabled mode starts no watchdog thread. Diagnostics
-never cancel, retry, or interrupt tick work. Turn them off with `slowWaveMillis 0` after
+never cancel, retry, or interrupt tick work. Set `slowWaveMillis = 0` and reload after
 investigating; inline serial fallbacks outside scheduler waves are not monitored.
 
 ## Development

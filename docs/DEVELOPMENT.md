@@ -51,6 +51,7 @@ Initial builds still download Minecraft, Gradle, and Maven dependencies.
 ./gradlew benchScheduler
 ./gradlew benchWorkerPool
 ./gradlew benchAreaMap
+python3 scripts/check-block-updates.py
 nix flake check
 git diff --check
 ```
@@ -61,6 +62,14 @@ are in `build/reports/tests/test/index.html`, with XML in `build/test-results/te
 JUnit tests cover cells, barriers, workers, lock tables, collection wrappers, tracking-area coverage, config,
 and the vanilla fields/methods/superclasses targeted by mixins.
 They do not start Fabric or apply Minecraft mixins.
+
+`scripts/check-block-updates.py` packages a separate test mod under `build/test-mods/`,
+then runs it with pinned C2ME in a fresh server directory using the same EULA and cleanup
+rules as the smoke harness. It exercises creative and survival block breaking, captures
+single-block and section update packets across successive broadcasts, and checks concurrent
+dirty-chunk notifications before startup/tick/save/shutdown completes. It does not launch
+a graphical client or reproduce client prediction, rendering, or an integrated-server session.
+The test mod is excluded from the distributable mod jar.
 
 `nix flake check` evaluates the shell and runs development-file checks; the Java tests
 must be run separately. CI builds/tests on Java 25 and retains jars and test reports.
@@ -295,3 +304,29 @@ Evidence is `.vanadium/features/diagnostics/server-final.log` and
 
 See `PERFORMANCE_REVIEW.md` for the disabled-mode overhead comparison. Real modpack stalls,
 multiplayer behavior, integrated-server restart, and enabled-mode overhead remain untested.
+
+### Configuration command simplification
+
+Configuration changes now come from editing `config/vanadium.toml` and running
+`/vanadium reload`. The `toggle`, `set`, `defaults`, and `save` subcommands were removed.
+Both status forms, profiling, and benchmarking remain available; no F3 integration was added.
+
+Validation: `./gradlew build` passed with 161 tests. An isolated server with pinned C2ME
+rejected all four removed subcommands, preserved the file on those rejected commands,
+reloaded a changed enabled flag, cell size, and serial entity list, then restored the original
+configuration. Both status forms, profile start/stop/report, and startup/tick/save/shutdown
+passed. Evidence: `.vanadium/f3/commands-smoke.log` and `.vanadium/runs/smoke-zkm_3buv/`.
+
+### Block updates and dirty-chunk notifications (26.2)
+
+The old block-update array redirect lost the first changed position in a section because
+26.2 adds it through a local set reference. The live regression check reproduced the missing
+creative block-update packet with the old mixin. Concurrent calls to `setChunkUnsaved` also
+lost dirty entries before the queue fix; the reported random-tick crash came from the same
+unsynchronized save set.
+
+With the fixes, `scripts/check-block-updates.py` passed creative and survival breaking,
+single/multiple updates and subsequent broadcasts, and retention of 16,384 distinct dirty
+notifications from four concurrent producers. The isolated C2ME server also passed ticking,
+save, and shutdown. Evidence: `.vanadium/block-fixes/` and `.vanadium/runs/smoke-nkbm0ge9/`.
+Interactive client prediction and the original integrated-server world were not retested.

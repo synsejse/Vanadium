@@ -20,7 +20,7 @@ public abstract class DolphinMixin {
     private void loot(ServerLevel level, ItemEntity itemEntity, Operation<Void> original) {
         lock.lock();
         try {
-            if (!itemEntity.isRemoved() && itemEntity.level() != null)
+            if (!itemEntity.isRemoved())
                 original.call(level, itemEntity);
         } finally {
             lock.unlock();

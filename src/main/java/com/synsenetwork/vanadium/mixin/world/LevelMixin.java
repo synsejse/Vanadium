@@ -64,6 +64,8 @@ public abstract class LevelMixin {
 
     @Redirect(method = "tickBlockEntities", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/block/entity/TickingBlockEntity;tick()V"))
     private void dispatchBlockEntityTick(TickingBlockEntity ticker) {
+        // Mixin merges this method into Level, so this can be a ServerLevel at runtime.
+        //noinspection ConstantValue
         if (!((Object) this instanceof ServerLevel)
                 || !Vanadium.config.enabled || !Vanadium.config.parallelBlockEntities
                 || !(ticker instanceof LevelChunk.RebindableTickingBlockEntityWrapper wrapped)

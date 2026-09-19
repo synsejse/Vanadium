@@ -116,6 +116,7 @@ public class ConcurrentLongLinkedOpenHashSet extends LongLinkedOpenHashSet {
     }
 
     @Override
+    @SuppressWarnings("MethodDoesntCallSuperMethod") // Copy the backing set, not unused superclass storage.
     public LongLinkedOpenHashSet clone() {
         // Snapshot copy via the weakly-consistent backing iterator (intentionally not super.clone()).
         return new ConcurrentLongLinkedOpenHashSet(backing.iterator());

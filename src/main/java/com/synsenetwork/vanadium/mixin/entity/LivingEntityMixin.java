@@ -22,6 +22,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 public abstract class LivingEntityMixin extends Entity {
 
     @Shadow
+    @SuppressWarnings("OptionalUsedAsFieldOrParameterType") // Must match the vanilla field's type.
     private Optional<BlockPos> lastClimbablePos;
 
     @Shadow

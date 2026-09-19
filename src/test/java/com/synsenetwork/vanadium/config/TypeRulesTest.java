@@ -27,24 +27,20 @@ class TypeRulesTest {
         assertFalse(rules.contains(pig));
     }
 
-    @Test void malformedRulesAreRejectedWithoutChangingConfig() throws Exception {
-        var config = new VanadiumConfig();
-        var field = VanadiumConfig.class.getField("serialEntityTypes");
-        ConfigOptions.setList(field, config, List.of("minecraft:pig"));
+    @Test void malformedRulesAreRejected() {
         for (String invalid : new String[]{"pig", "minecraft:*", "Minecraft:pig", "minecraft:pig,", ":pig", "minecraft:"}) {
-            assertThrows(IllegalArgumentException.class, () -> ConfigOptions.setList(field, config, List.of(invalid)));
-            assertEquals(List.of("minecraft:pig"), config.serialEntityTypes);
+            assertThrows(IllegalArgumentException.class, () -> TypeRules.parse(List.of(invalid)));
         }
     }
 
-    @Test void resetAndReloadedTextInvalidateCompiledRules() {
+    @Test void listChangesInvalidateCompiledRules() {
         var config = new VanadiumConfig();
         var pig = Identifier.parse("minecraft:pig");
         config.serialEntityTypes.add("minecraft:pig");
         config.refreshSerialRules();
         assertTrue(config.isSerialEntity(pig));
         assertFalse(config.isSerialBlockEntity(pig));
-        ConfigOptions.resetToDefaults(config);
+        config.serialEntityTypes.clear();
         config.refreshSerialRules();
         assertFalse(config.isSerialEntity(pig));
         config.serialBlockEntityTypes.add("minecraft:pig");

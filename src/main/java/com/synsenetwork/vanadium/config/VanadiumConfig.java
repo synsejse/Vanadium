@@ -15,12 +15,10 @@ public class VanadiumConfig implements ConfigData {
 
     @Comment("Worker threads for parallel ticking. <= 0 = available logical processors. Positive values "
             + "are clamped between 2 and max(2, available logical processors). Takes effect on restart.")
-    @RestartRequired
     public int workers = 0;
 
     @Comment("Width/height, in chunks, of each parallel cell. 0 = auto (chosen from resolved worker count). "
             + "Smaller cells = finer parallelism but more overhead. Applies next tick.")
-    @Min(0)
     public int cellSize = 0;
 
     @Comment("Tick entities in parallel")
@@ -57,7 +55,6 @@ public class VanadiumConfig implements ConfigData {
     public boolean parallelChunkLoads = true;
 
     @Comment("Warn about waves exceeding this many milliseconds. 0 disables diagnostics; live next tick.")
-    @Min(0)
     public int slowWaveMillis = 0;
 
     @Comment("Include current task/type labels in slow-wave reports. Adds per-task overhead while diagnostics are enabled.")

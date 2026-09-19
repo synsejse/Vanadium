@@ -66,6 +66,20 @@ test {
     useJUnitPlatform()
 }
 
+tasks.register('blockUpdateChecksJar', Jar) {
+    group = 'verification'
+    description = 'Packages the live block-update and dirty-chunk regression checks'
+    dependsOn 'testClasses'
+    archiveFileName = 'block-update-checks.jar'
+    destinationDirectory = layout.buildDirectory.dir('test-mods')
+    from(sourceSets.test.output) {
+        include 'com/synsenetwork/vanadium/integration/BlockUpdateChecks*.class'
+    }
+    from('src/test/resources/block-update-checks.fabric.mod.json') {
+        rename { 'fabric.mod.json' }
+    }
+}
+
 // Runtime mods for the dev server (C2ME — required by fabric.mod.json — spark, etc.) are NOT
 // managed by Gradle: Loom can't unpack C2ME's 15 nested JiJ mods onto the dev classpath, so any
 // Gradle-side mechanism is a workaround. Drop the release jars into run/mods yourself;

@@ -38,8 +38,8 @@ Block-entity registrations enter a concurrent queue and are merged into the acti
 server thread after the ENTITY barrier. The BLOCK_ENTITY barrier runs before the ticking flag clears.
 
 Exact-ID serial rules also route selected entity and block-entity tickers through the inline
-server-thread path, before the corresponding wave. Rule lists are validated before command
-updates and after config loading. At each tick start, changed lists are compiled into ID sets;
+server-thread path, before the corresponding wave. Rule lists are validated after config
+loading. At each tick start, changed lists are compiled into ID sets;
 individual ticker lookups do not scan the configured lists.
 
 `TickProfiler` attaches an optional `TickProfile` to the scheduler from a server-tick start
@@ -88,6 +88,16 @@ In 26.2, `TicketStorage` owns the tickets formerly held by the simulation tracke
 synchronized through `SyncAllMixin`. `SavedDataStorageMixin` protects cache operations and
 save snapshot creation, while asynchronous disk writes and save completion waits remain outside
 that monitor. `ServerChunkCache` also has a concurrent set for pending chunk broadcasts.
+
+`ChunkHolder` keeps vanilla's section update sets. A per-holder monitor protects block/light
+update registration and broadcasting, including set creation, clearing, and pending flags.
+Replacing only an array entry is insufficient in 26.2: `blockChanged` adds the first position
+through a local set reference, which must remain the same object that broadcasting reads.
+
+Chunk dirty notifications enter a concurrent queue. The server thread drains them into
+`ChunkMap.chunksToEagerlySave` at chunk-map maintenance and eager-save entry points. This
+preserves vanilla's ordered, deduplicated save set and C2ME's idle autosave iteration;
+workers never mutate that set or wait for disk work while marking a chunk dirty.
 
 Item merging retains one global reentrant lock. Its method wrapper releases the lock in
 `finally`, including when vanilla code or another injection throws.
