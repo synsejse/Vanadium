@@ -156,6 +156,15 @@ cancels two named C2ME thread-detection mixins. `fabric.mod.json` requires C2ME 
 Lithium and VMP. The automated harness pins the C2ME release that was in this checkout's
 development mod directory; it does not include the optional ScalableLux jar found there.
 
+Chunk sending prepares section byte buffers on the shared pool after vanilla/C2ME select
+a player's batch, while simulation is at its between-ticks boundary. Batches below four
+chunks stay inline; preparation retains at most 64 chunks per batch. The caller constructs
+the packets using those buffers, including vanilla heightmaps, block-entity update tags and
+light snapshots, then sends them in the original order. Batch quotas/acknowledgments and
+debug tracking remain vanilla/C2ME-owned. A scoped thread-local releases prepared data on
+normal completion or exceptions. `parallelChunkPackets` and the master flag select the
+vanilla path. Arbitrary asynchronous chunk mutation by other mods is not supported.
+
 ## Follow-up areas for correctness work
 
 These are source-inspection leads, not a completed concurrency audit:

@@ -70,6 +70,7 @@ public final class VanadiumCommand {
         message.append(Component.literal("\n  parallelScheduledTicks: ")).append(onOff(config.parallelScheduledTicks, "on", "off"));
         message.append(Component.literal("\n  parallelSpawning: ")).append(onOff(config.parallelSpawning, "on", "off"));
         message.append(Component.literal("\n  parallelTracking: ")).append(onOff(config.parallelTracking, "on", "off"));
+        message.append(Component.literal("\n  parallelChunkPackets: ")).append(onOff(config.parallelChunkPackets, "on", "off"));
         message.append(Component.literal("\n  consolidateFlushes: ")).append(onOff(config.consolidateFlushes, "on", "off"));
         message.append(Component.literal("\n  chunkCache: ")).append(onOff(config.chunkCache, "on", "off"));
         message.append(Component.literal("\n  parallelChunkLoads: ")).append(onOff(config.parallelChunkLoads, "on", "off"));

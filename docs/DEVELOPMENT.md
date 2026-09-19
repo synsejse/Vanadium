@@ -78,6 +78,14 @@ unit test tied to the removed global merge lock. The full build and live C2ME ru
 `.vanadium/runs/smoke-9er168wv` passed. Actual player and specialized-mob pickup gameplay,
 modded item callbacks and redstone boundary interactions remain untested.
 
+Chunk packet checks compare complete chunk-data encoding byte-for-byte for eight loaded
+chunks, including a chest, with and without prepared section buffers. The real
+`PlayerChunkSender` path is checked for prepared data use, caller-thread sends, start/finish
+ordering, acknowledgment limits, disabled fallback and scope cleanup after a send failure.
+The full build passed 165 tests and all live fixtures passed with pinned C2ME in
+`.vanadium/runs/smoke-ewov_syc`, followed by saving and shutdown. These checks do not validate
+client rendering or arbitrary modded block-entity packet callbacks.
+
 ```sh
 ./gradlew build
 ./gradlew test --tests 'com.synsenetwork.vanadium.tick.*'

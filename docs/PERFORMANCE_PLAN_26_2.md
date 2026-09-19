@@ -7,6 +7,29 @@ The historical `TICK_COVERAGE.md` describes 1.21.1; the observations below were 
 against 26.2. Selected generated sources are retained in ignored
 `.vanadium/audit-26.2/sources/`.
 
+## Implementation follow-through (2026-09-19)
+
+- `d453440`: all four correctness fixes, with live scheduled-tick, passenger, event-set and
+  random-position checks.
+- `305bfb8`: preparation/per-world/cell profiling and separate spawn/random-tick stages;
+  live profiler output validated in `.vanadium/runs/bench-pkanm1pz`.
+- `7e9a650`: conservative navigation invalidation index with dirty/custom-predicate fallbacks.
+- `6256d0f`: parallel per-player tracking preparation with ordered caller-side merging.
+- `a1bdbc8`: parallel spawn-state preparation with ordered reduction of counts/caps/charges.
+- `d8bbabf`: per-item merge/pickup locking and removal of redundant neighbor-list copying.
+- Chunk section packet preparation: workers serialize sections; the caller retains
+  block-entity callbacks, lighting snapshots and packet batching/sending.
+
+Each implementation batch passed a full build and a live C2ME run before its commit.
+`DEVELOPMENT.md` records fixture scope and retained runs. These are correctness checks;
+only the navigation candidate sanity timing has a local before/after comparison.
+There is no whole-server or dual-Xeon speedup claim.
+
+The original roadmap below also describes larger follow-ups: region-owned neighbor chains,
+shared-random redesign, asynchronous player/world simulation and NUMA-aware scheduling
+are not implemented. Neighbor chains still require their world monitor. Narrowing item
+locks and removing redundant copying is the validated first step for the shared-lock priority.
+
 ## Current limits
 
 Entities (including their AI/navigation), supported block entities, scheduled callbacks,
