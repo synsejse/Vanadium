@@ -5,6 +5,9 @@ import com.synsenetwork.vanadium.tracking.NavigationIndex;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EntityTypes;
@@ -41,6 +44,7 @@ final class NavigationChecks {
                     }
                 }
             }
+            checkRefreshInvalidation(index, mobs);
             Mob moved = mobs.getFirst();
             moved.setPos(100000, 100, 0);
             check(index.candidates(new BlockPos(100000, 100, 0)).contains(moved), "moving mob missed dirty fallback");
@@ -67,6 +71,44 @@ final class NavigationChecks {
         } finally {
             for (Mob mob : mobs) index.remove(mob);
         }
+    }
+
+    private static void checkRefreshInvalidation(NavigationIndex index, List<Mob> mobs) throws Exception {
+        Mob blocked = mobs.getFirst();
+        Mob changed = mobs.getLast();
+        NavigationIndex.invalidate(blocked);
+        CountDownLatch started = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread refresh;
+        synchronized (blocked.getNavigation()) {
+            refresh = Thread.ofPlatform().daemon().start(() -> {
+                started.countDown();
+                try { index.refresh(); }
+                catch (Throwable e) { failure.set(e); }
+            });
+            check(started.await(5, TimeUnit.SECONDS), "refresh thread did not start");
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (refresh.getState() != Thread.State.BLOCKED && System.nanoTime() < deadline) Thread.onSpinWait();
+            check(refresh.getState() == Thread.State.BLOCKED, "refresh did not reach navigation snapshot");
+            NavigationIndex.invalidate(changed);
+        }
+        refresh.join(5000);
+        check(!refresh.isAlive() && failure.get() == null, "concurrent refresh failed: " + failure.get());
+        BlockPos distant = new BlockPos(1000000, 100, 1000000);
+        check(index.candidates(distant).contains(changed), "refresh cleared a concurrent invalidation");
+        index.refresh();
+        check(index.candidates(distant).isEmpty(), "unchanged refresh did not clear dirty entries");
+
+        index.refresh(); // Begin a quiet interval before invalidating the whole population.
+        for (Mob mob : mobs) NavigationIndex.invalidate(mob);
+        List<Mob> snapshot = index.candidates(distant);
+        check(snapshot.size() == mobs.size() && snapshot.containsAll(mobs), "full fallback lost or duplicated mobs");
+        snapshot.clear();
+        check(index.size() == mobs.size(), "candidate snapshot mutated membership");
+        index.refresh();
+        check(index.candidates(distant).containsAll(mobs), "deferred refresh lost dirty fallback");
+        index.refresh();
+        check(index.candidates(distant).isEmpty(), "stable pending entries were not refreshed");
     }
 
     private static void check(boolean condition, String message) {

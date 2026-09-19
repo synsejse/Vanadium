@@ -47,7 +47,7 @@ test jar. No unsafe unlocked mode is used. The fixture runs at server startup,
 outside normal ticking; its later catch-up warning is expected. This avoids the
 20 TPS ceiling but cannot supply tick p95/p99 or a no-Vanadium comparison.
 
-## Results
+## Baseline results
 
 **The changes are not uniformly faster.** Navigation has the largest conditional gain
 and the worst regression; tracking preparation regresses in both measured sizes.
@@ -143,3 +143,25 @@ world changes entity/path lifetimes, population, palette sizes, packet callbacks
 allocation pressure and the fraction of time spent in each path. Shared world
 monitors, caller-side merges and cell imbalance can dominate the remainder.
 See [current limitations](DEVELOPMENT.md#current-limitations) before deployment.
+
+## Slowdown fixes: navigation
+
+Three new JVMs with the same durations, workers and workload, restricted to
+`--filter 'navigation-.*'`, confirm the cleanup/candidate-copy fixes and deferred
+refresh policy. These are post-fix on/off pairs; the older baseline above is retained.
+
+| Workload | Off µs | On µs | Paired speedup | Fork range | Caller CPU off/on µs | Allocation off/on KiB |
+|---|---:|---:|---:|---:|---:|---:|
+| navigation-spread-edits-1-static | 15.59 | 0.07 | 233.04× | 228.15–252.12× | 15.55 / 0.07 | 8.1 / 0.1 |
+| navigation-spread-edits-1-dirty | 25.48 | 24.73 | 1.03× | 1.02–1.04× | 25.41 / 24.69 | 8.2 / 8.1 |
+| navigation-spread-edits-64-static | 1034.65 | 2.47 | 418.59× | 414.95–421.84× | 1033.03 / 2.46 | 521.6 / 6.5 |
+| navigation-spread-edits-64-dirty | 1022.82 | 46.01 | 22.28× | 22.21–22.55× | 1020.90 / 45.94 | 521.6 / 14.6 |
+| navigation-dense-edits-64-static | 970.61 | 910.59 | 1.06× | 1.03–1.14× | 969.29 / 906.61 | 521.6 / 517.6 |
+
+The all-dirty/one-edit case is now effectively at full-scan cost; dense queries no
+longer allocate a deduplication set. Frequent edits still benefit from refreshing
+and using the index. Dirty fallbacks remain conservative if refresh is deferred or
+invalidation occurs during a snapshot. Live checks now cover those cases explicitly.
+Build: 165 tests passed; live C2ME checks: `.vanadium/runs/smoke-dvdaho0o`.
+Measured runs: `features-a07gdhlk` (JFR), `features-7yub2n7l`, `features-f0tzfxo0`;
+summary: `.vanadium/navigation-fixed.json`. The short exploratory run is excluded.

@@ -28,6 +28,8 @@ public final class NavigationIndex extends AbstractSet<Mob> {
     private final Set<Mob> unbounded = new ReferenceOpenHashSet<>();
     private final AreaMap<Mob> areas = new AreaMap<>();
     private long generation;
+    private long previousGeneration = -1;
+    private int queries;
 
     public static void invalidate(Entity entity) {
         if (entity instanceof Mob mob && entity.level() instanceof ServerLevel level) {
@@ -77,7 +79,12 @@ public final class NavigationIndex extends AbstractSet<Mob> {
     }
 
     public synchronized List<Mob> candidates(BlockPos pos) {
-        Set<Mob> candidates = new ReferenceOpenHashSet<>(areas.objectsAt(ChunkPos.pack(pos)));
+        if (queries < 2) queries++;
+        Set<Mob> nearby = areas.objectsAt(ChunkPos.pack(pos));
+        if (dirty.isEmpty() && unbounded.isEmpty()) return new ArrayList<>(nearby);
+        // A full snapshot is cheaper than merging candidate sets that already cover the population.
+        if ((long) nearby.size() + dirty.size() + unbounded.size() >= members.size()) return new ArrayList<>(members);
+        Set<Mob> candidates = new ReferenceOpenHashSet<>(nearby);
         candidates.addAll(dirty);
         candidates.addAll(unbounded);
         return new ArrayList<>(candidates);
@@ -88,6 +95,14 @@ public final class NavigationIndex extends AbstractSet<Mob> {
         List<Mob> changed;
         long version;
         synchronized (this) {
+            boolean changedAgain = previousGeneration != generation;
+            previousGeneration = generation;
+            int recentQueries = queries;
+            queries = 0;
+            if (dirty.isEmpty()) return;
+            // Rebuilding most paths costs more than one full scan. Keep their conservative
+            // fallback until edits become frequent or the pending paths stop changing.
+            if (changedAgain && recentQueries < 2 && dirty.size() > members.size() / 2) return;
             changed = new ArrayList<>(dirty);
             version = generation;
         }
@@ -112,7 +127,7 @@ public final class NavigationIndex extends AbstractSet<Mob> {
         }
         synchronized (this) {
             // A concurrent change keeps the fallback active even if its snapshot was already published.
-            if (version == generation) dirty.removeAll(changed);
+            if (version == generation) dirty.clear();
         }
     }
 

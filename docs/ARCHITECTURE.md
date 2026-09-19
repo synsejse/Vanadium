@@ -147,7 +147,11 @@ changes still call vanilla's exact predicate on the candidates. Membership chang
 path replacement, recomputation and navigation ticks mark mobs dirty; dirty mobs remain
 candidates for every block change until the next world-tick boundary refresh. Refresh reads
 navigation state outside the index monitor and retains the fallback if concurrent changes
-occur. Custom predicate overrides and paths longer than 256 remaining nodes use the full
+occur. An unchanged generation clears the dirty set directly. If most paths keep changing
+and the previous tick had fewer than two queries, refresh defers rebuilding and retains
+the full dirty fallback; frequent edits or stable pending paths resume indexing. Candidate
+queries copy the nearby set directly when no fallback entries need deduplication.
+Custom predicate overrides and paths longer than 256 remaining nodes use the full
 fallback. Mods mutating path internals outside normal navigation entry points require explicit
 integration. This is a candidate filter, not asynchronous pathfinding or delayed recomputation.
 

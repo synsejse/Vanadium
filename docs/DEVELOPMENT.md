@@ -91,11 +91,10 @@ profile times overlap: do not add them together. Caller tail wait is not lock ti
   tasks execute serially. Player simulation, tracking merge, packet sending and
   several world bookkeeping paths remain on the server thread. Auto workers can
   oversubscribe the CPU alongside C2ME, GC and networking. NUMA behavior is untested.
-- **Navigation:** refreshing dirty entries can dominate when many mobs move but few
-  blocks change; dense candidate sets can make indexing slower than scanning.
-  JFR identified quadratic list searches in `dirty.removeAll(changed)` during refresh;
-  the 1,024-dirty-mob/one-edit fixture was **26.5× slower**. This is a specific
-  optimization defect to fix, not an unavoidable indexing cost.
+- **Navigation:** the quadratic cleanup and redundant candidate copying are fixed.
+  When most paths keep changing but edits are rare, refresh defers rebuilding and
+  queries use the full dirty fallback. That avoids maintenance overhead but cannot
+  reduce candidate scans until paths settle or edits become frequent.
   Custom predicates use conservative fallbacks; mods bypassing invalidation hooks
   require integration. The benchmark includes refresh but not pathfinding itself.
 - **Tracking/spawning:** copying inputs, diff records and ordered reduction can

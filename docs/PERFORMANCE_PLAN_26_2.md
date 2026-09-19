@@ -24,9 +24,8 @@ actual config toggles from test-only controls and narrower contention probes.
 
 ## Next priorities
 
-1. **Address measured regressions first.** Replace the quadratic
-   `dirty.removeAll(changed)` navigation cleanup identified in JFR, then remeasure
-   dirty/dense workloads. Tracking
+1. **Address measured regressions first.** Navigation cleanup, candidate copying
+   and rare-edit refresh overhead now have fixes validated by repeated A/B runs. Tracking
    preparation can spend its savings on records and caller-side merging. Measure
    representative dirty rates/player populations before choosing a fallback policy
    or changing thresholds. Do not assume more helpers fixes extra serial work.
