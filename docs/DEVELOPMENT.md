@@ -71,6 +71,13 @@ charges in order and local player caps across four partial states. The full buil
 run `.vanadium/runs/smoke-4querp01` passed with the previous regression checks and save/shutdown.
 This validates equivalent prepared state, not natural-spawning behavior in a live modpack.
 
+The item fixture races opposite-order merge attempts against two independent hopper
+containers for 16 rounds. It checks conservation of all 512 items per round, stack limits,
+bounded completion and lock release after an injected merge failure. This replaces the old
+unit test tied to the removed global merge lock. The full build and live C2ME run
+`.vanadium/runs/smoke-9er168wv` passed. Actual player and specialized-mob pickup gameplay,
+modded item callbacks and redstone boundary interactions remain untested.
+
 ```sh
 ./gradlew build
 ./gradlew test --tests 'com.synsenetwork.vanadium.tick.*'

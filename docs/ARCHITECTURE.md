@@ -118,8 +118,14 @@ spawn states and local-cap calculators. The caller combines category counts, loc
 caps, and potential charges before spawning begins. Charge order follows the original
 entity order. This does not change the later shared spawn-attempt accounting policy.
 
-Item merging retains one global reentrant lock. Its method wrapper releases the lock in
-`finally`, including when vanilla code or another injection throws.
+Item merging locks the two participating items in entity-ID order and rechecks merge
+eligibility under those locks. Mob pickup (base and existing specialized overrides), player
+pickup, and hopper collection use the same per-item lock. Independent item interactions
+can proceed concurrently; every wrapper releases locks in `finally`. This does not establish
+thread safety for arbitrary modded item mutation or shared inventories. Neighbor-update
+chains retain their world-wide monitor; vanilla's ArrayList is sufficient inside that
+monitor, so the redundant copy-on-write replacement was removed. Region-owned propagation
+remains architectural follow-up work.
 
 `AreaMap` and `NearbyTrackers` index nearby tracking relationships to avoid scanning all
 players for every entity. Fresh trackers stay in an identity-keyed linked map holding their
