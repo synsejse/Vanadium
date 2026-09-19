@@ -38,13 +38,14 @@ public abstract class ServerChunkCacheMixin {
 
     @Inject(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;J)V", at = @At("HEAD"))
     private void beginChunkTicks(ProfilerFiller profiler, long timeDiff, CallbackInfo ci) {
-        Vanadium.scheduler.begin(Stage.CHUNK);
+        Vanadium.scheduler.begin(Stage.SPAWNING);
     }
 
     @Inject(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;J)V", at = @At(value = "INVOKE",
             target = "Lnet/minecraft/server/level/ChunkMap;forEachBlockTickingChunk(Ljava/util/function/Consumer;)V"))
     private void finishSpawning(ProfilerFiller profiler, long timeDiff, CallbackInfo ci) {
-        Vanadium.scheduler.run(Stage.CHUNK);
+        Vanadium.scheduler.run(Stage.SPAWNING);
+        Vanadium.scheduler.begin(Stage.CHUNK);
     }
 
     @Inject(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;J)V", at = @At(value = "INVOKE",
@@ -60,12 +61,12 @@ public abstract class ServerChunkCacheMixin {
         if (!Vanadium.config.enabled || !Vanadium.config.parallelSpawning) {
             // Thunder for this chunk must finish before its inline spawn attempt.
             if (Vanadium.config.enabled && Vanadium.config.parallelChunkTicks) {
-                Vanadium.scheduler.run(Stage.CHUNK);
+                Vanadium.scheduler.run(Stage.SPAWNING);
             }
             NaturalSpawner.spawnForChunk(level, chunk, info, categories);
             return;
         }
-        Vanadium.scheduler.enqueue(Stage.CHUNK, chunk.getPos().x(), chunk.getPos().z(),
+        Vanadium.scheduler.enqueue(Stage.SPAWNING, chunk.getPos().x(), chunk.getPos().z(),
                 () -> NaturalSpawner.spawnForChunk(level, chunk, info, categories), null);
     }
 
@@ -76,7 +77,7 @@ public abstract class ServerChunkCacheMixin {
             level.tickThunder(chunk);
             return;
         }
-        Vanadium.scheduler.enqueue(Stage.CHUNK, chunk.getPos().x(), chunk.getPos().z(),
+        Vanadium.scheduler.enqueue(Stage.SPAWNING, chunk.getPos().x(), chunk.getPos().z(),
                 () -> level.tickThunder(chunk), null);
     }
 

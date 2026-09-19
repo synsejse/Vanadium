@@ -1,6 +1,7 @@
 package com.synsenetwork.vanadium.tick;
 
 import java.util.EnumMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.LongConsumer;
@@ -19,6 +20,8 @@ public final class TickScheduler {
     private TickProfile profile;
     private WaveDiagnostics diagnostics;
     private String dimension = "unknown";
+    private final Map<Stage, Long> preparationStarts = new EnumMap<>(Stage.class);
+    private long worldStart;
 
     public TickScheduler(WorkerPool pool, int cellSize) {
         this.pool = pool;
@@ -37,6 +40,7 @@ public final class TickScheduler {
     /** Server-thread only; profiling is opt-in and does not change dispatch. */
     public void setProfile(TickProfile profile) {
         this.profile = profile;
+        preparationStarts.clear();
     }
 
     public void setDiagnostics(WaveDiagnostics diagnostics) {
@@ -45,6 +49,11 @@ public final class TickScheduler {
 
     public void setDimension(String dimension) {
         this.dimension = dimension;
+        if (profile != null) worldStart = System.nanoTime();
+    }
+
+    public void finishWorld() {
+        if (profile != null) profile.recordPhase(dimension, "world total", System.nanoTime() - worldStart);
     }
 
     public boolean detailedDiagnostics() {
@@ -67,6 +76,7 @@ public final class TickScheduler {
 
     /** Starts a stage's tick: ages idle cells and clears leftover work. */
     public void begin(Stage stage) {
+        if (profile != null) preparationStarts.put(stage, System.nanoTime());
         grids.get(stage).beginTick();
     }
 
@@ -80,6 +90,10 @@ public final class TickScheduler {
         CellGrid grid = grids.get(stage);
         TickProfile recording = profile;
         long start = recording != null ? System.nanoTime() : 0;
+        if (recording != null) {
+            Long preparation = preparationStarts.remove(stage);
+            if (preparation != null) recording.recordPhase(dimension, stage + " preparation", start - preparation);
+        }
         LongConsumer waitRecorder = recording != null ? nanos -> recording.recordWait(stage, nanos) : null;
         try {
             for (int color = 0; color < COLORS; color++) {
@@ -87,11 +101,33 @@ public final class TickScheduler {
                 if (recording != null) recording.recordWave(stage, cells);
                 try (WaveDiagnostics.Watch watch = diagnostics != null && !cells.isEmpty()
                         ? diagnostics.watch(stage, dimension, color, cellSize) : null) {
-                    pool.runWave(watch == null ? cells : watch.wrap(cells), waitRecorder);
+                    List<? extends Runnable> tasks = watch == null ? cells : watch.wrap(cells);
+                    if (recording == null) {
+                        pool.runWave(tasks, waitRecorder);
+                    } else {
+                        long[] durations = new long[tasks.size()];
+                        List<Runnable> measured = new ArrayList<>(tasks.size());
+                        for (int i = 0; i < tasks.size(); i++) {
+                            int index = i;
+                            Runnable task = tasks.get(i);
+                            measured.add(() -> {
+                                long cellStart = System.nanoTime();
+                                try { task.run(); }
+                                finally { durations[index] = System.nanoTime() - cellStart; }
+                            });
+                        }
+                        try { pool.runWave(measured, waitRecorder); }
+                        finally { recording.recordCells(stage, durations); }
+                    }
                 }
             }
         } finally {
-            if (recording != null) recording.recordStage(stage, System.nanoTime() - start);
+            if (recording != null) {
+                long end = System.nanoTime();
+                recording.recordStage(stage, end - start);
+                recording.recordPhase(dimension, stage + " execution", end - start);
+                preparationStarts.put(stage, end);
+            }
         }
         grid.endTick();
     }

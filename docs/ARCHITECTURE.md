@@ -48,7 +48,11 @@ event. It records tick work at the end event and stage execution around each sch
 The pool reports the caller's tail wait after it finishes claiming work; this is distinct
 from total stage duration and is not a measurement of lock contention. Cell/task counts
 are read on the server thread while wave lists are stable. There are no worker-side profile
-counters or per-task timers. Capture duration is 1–300 seconds, with at most 65,536 stored
+counters or per-task timers in normal operation. Opt-in profiles time each cell into a
+separate array slot, then aggregate samples on the caller after the barrier. Per-world
+preparation intervals include collection and inline fallbacks, and world totals overlap
+stage timings. Spawning/thunder and random/precipitation work have separate stage entries.
+Capture duration is 1–300 seconds, with at most 65,536 stored
 samples per series; reaching the tick sample limit also finishes the capture. Stage series
 that reach their cap retain totals and label their percentile truncation. Server stop clears
 active/previous captures and releases the command source.

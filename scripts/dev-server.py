@@ -160,9 +160,11 @@ def exercise(args):
                          f'summon minecraft:zombie {i % 16} 101 {i // 16} '
                          '{PersistenceRequired:1b,Invulnerable:1b}', expect="Summoned new")
                 print(rcon(rcon_port, password, "debug start", expect="Started tick profiling"), flush=True)
+                print(rcon(rcon_port, password, "vanadium profile 300"), flush=True)
             time.sleep(args.seconds)
             if args.mode == "bench":
                 print(rcon(rcon_port, password, "debug stop", expect="Stopped tick profiling"), flush=True)
+                print(rcon(rcon_port, password, "vanadium profile stop"), flush=True)
             print(rcon(rcon_port, password, "save-all flush", expect="Saved the game"), flush=True)
             rcon(rcon_port, password, "stop")
             if process.wait(timeout=60) != 0:

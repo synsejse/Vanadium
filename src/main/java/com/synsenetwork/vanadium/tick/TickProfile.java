@@ -4,12 +4,15 @@ import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
-/** Bounded, server-thread-only measurements. No per-task timers or worker-side counters. */
+/** Bounded samples aggregated on the server thread after each completion barrier. */
 public final class TickProfile {
     public static final int MAX_SAMPLES = 65_536;
     private final Samples ticks = new Samples();
     private final EnumMap<Stage, StageStats> stages = new EnumMap<>(Stage.class);
+    private final Map<String, Samples> phases = new LinkedHashMap<>();
 
     public TickProfile() {
         for (Stage stage : Stage.values()) stages.put(stage, new StageStats());
@@ -25,6 +28,14 @@ public final class TickProfile {
 
     public void recordStage(Stage stage, long nanos) {
         stages.get(stage).durations.add(nanos);
+    }
+
+    public void recordPhase(String dimension, String phase, long nanos) {
+        phases.computeIfAbsent(dimension + " / " + phase, key -> new Samples()).add(nanos);
+    }
+
+    public void recordCells(Stage stage, long[] durations) {
+        for (long duration : durations) stages.get(stage).cellDurations.add(duration);
     }
 
     public void recordWait(Stage stage, long nanos) {
@@ -53,13 +64,17 @@ public final class TickProfile {
                     stage, stats.durations.summary(), stats.waitNanos / 1e6,
                     stats.waves, stats.cells, stats.tasks,
                     stats.cells == 0 ? 0.0 : (double) stats.tasks / stats.cells, stats.maxTasksPerCell));
+            report.append("; cell execution ").append(stats.cellDurations.summary());
         }
+        phases.forEach((phase, samples) -> report.append('\n').append(phase).append(": ").append(samples.summary()));
+        report.append("\nPreparation includes collection and inline fallbacks; world totals include waves. Do not add overlapping totals.");
         report.append("\nCells count executions, not unique positions. Timings include profiling overhead.");
         return report.toString();
     }
 
     private static final class StageStats {
         final Samples durations = new Samples();
+        final Samples cellDurations = new Samples();
         long waitNanos;
         long waves;
         long cells;

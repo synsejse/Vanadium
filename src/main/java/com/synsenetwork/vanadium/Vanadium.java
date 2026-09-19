@@ -39,6 +39,7 @@ public class Vanadium implements ModInitializer {
         ServerLifecycleEvents.SERVER_STARTING.register(Vanadium::onServerStarting);
         ServerTickEvents.START_SERVER_TICK.register(Vanadium::onTickStart);
         ServerTickEvents.START_LEVEL_TICK.register(Vanadium::onWorldTickStart);
+        ServerTickEvents.END_LEVEL_TICK.register(world -> scheduler.finishWorld());
         ServerTickEvents.END_SERVER_TICK.register(Vanadium::onTickEnd);
         ServerLifecycleEvents.SERVER_STOPPED.register(Vanadium::onServerStopped);
 
@@ -62,9 +63,7 @@ public class Vanadium implements ModInitializer {
     }
 
     private static void onWorldTickStart(ServerLevel world) {
-        if (diagnostics.enabled()) {
-            scheduler.setDimension(world.dimension().identifier().toString());
-        }
+        scheduler.setDimension(world.dimension().identifier().toString());
     }
 
     private static void onTickEnd(MinecraftServer server) {

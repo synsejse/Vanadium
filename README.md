@@ -74,6 +74,11 @@ collection and serial fallbacks; whole-tick measurements include them but exclud
 time between ticks. Worlds are aggregated, and cell counts count executions rather than
 unique locations. Keep configuration and workload fixed when comparing captures. Profiling
 adds measurement overhead and does not unlock TPS. Reports are also written to the server log.
+Per-world entries also report preparation (collection plus inline fallbacks), stage execution,
+and whole-world time. Cell execution percentiles expose uneven work within waves. Spawning
+and thunder use `SPAWNING`; random/precipitation ticks use `CHUNK`. World totals include stage
+work, so these overlapping measurements must not be added together. Cell durations include
+any lock waits; use JFR to distinguish waiting from CPU work.
 
 For a stall investigation, set `slowWaveMillis = 1000` and optionally
 `detailedTickDiagnostics = true` in TOML, then run `/vanadium reload`. A separate watchdog reports the stage,
