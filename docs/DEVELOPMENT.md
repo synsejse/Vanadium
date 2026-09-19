@@ -51,6 +51,14 @@ in `.vanadium/runs/smoke-3_gc_6ny` with pinned C2ME, including block-update/dirt
 regressions and server save/shutdown. These focused checks do not replace gameplay coverage
 of interacting redstone, portals, and the actual modpack.
 
+Navigation checks compare indexed candidates with vanilla's predicate for 128 dispersed mobs,
+including negative coordinates and boundaries, then exercise movement/path-change invalidation
+and removal. The 2026-09-19 C2ME run in `.vanadium/runs/smoke-bpfl5xrk` passed. One local
+query selected 1 of 128 mobs; a 2,000-query sanity timing took 5.56ms for full scans and
+0.37ms for indexed scans. This un-warmed fixture excludes refresh cost and is not an
+end-to-end speedup claim. The host is the Ryzen 5 9600X, Java 25, 12 configured workers,
+auto cell size 3, default flags and pinned C2ME; no dual-Xeon result is available.
+
 ```sh
 ./gradlew build
 ./gradlew test --tests 'com.synsenetwork.vanadium.tick.*'

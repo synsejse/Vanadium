@@ -6,11 +6,13 @@
   "mixins": [
     "SyncAllMixin",
     "entity.ItemEntityMixin",
+    "entity.EntityMixin",
     "entity.LivingEntityMixin",
     "entity.ai.brain.sensor.NearestLivingEntitySensorMixin",
     "entity.ai.brain.task.ShowTradesToPlayerMixin",
     "entity.ai.goal.GoalSelectorMixin",
     "entity.ai.pathing.PathFinderMixin",
+    "entity.ai.pathing.PathNavigationMixin",
     "entity.mob.PiglinMixin",
     "entity.passive.AllayMixin",
     "entity.passive.DolphinMixin",

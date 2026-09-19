@@ -8,10 +8,11 @@ import com.synsenetwork.vanadium.chunk.ParallelChunkManager;
 import com.synsenetwork.vanadium.tick.Stage;
 import com.synsenetwork.vanadium.tick.ScheduledTickAccess;
 import com.synsenetwork.vanadium.tick.EntityTickRules;
+import com.synsenetwork.vanadium.tracking.NavigationAccess;
+import com.synsenetwork.vanadium.tracking.NavigationIndex;
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet;
-import java.util.Collections;
+import java.util.Iterator;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
@@ -43,12 +44,22 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(ServerLevel.class)
-public abstract class ServerLevelMixin {
+public abstract class ServerLevelMixin implements NavigationAccess {
 
     @Shadow
     @Final
     @Mutable
-    Set<Mob> navigatingMobs = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    Set<Mob> navigatingMobs = new NavigationIndex();
+
+    @Override
+    public NavigationIndex vanadium$navigations() {
+        return (NavigationIndex) navigatingMobs;
+    }
+
+    @Redirect(method = "sendBlockUpdated", at = @At(value = "INVOKE", target = "Ljava/util/Set;iterator()Ljava/util/Iterator;"))
+    private Iterator<Mob> navigationCandidates(Set<Mob> mobs, BlockPos pos) {
+        return Vanadium.config.enabled ? vanadium$navigations().candidates(pos).iterator() : mobs.iterator();
+    }
 
     @Shadow
     @Final

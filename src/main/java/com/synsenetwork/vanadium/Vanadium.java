@@ -7,6 +7,7 @@ import com.synsenetwork.vanadium.config.VanadiumConfig;
 import com.synsenetwork.vanadium.tick.TickScheduler;
 import com.synsenetwork.vanadium.tick.WaveDiagnostics;
 import com.synsenetwork.vanadium.tick.WorkerPool;
+import com.synsenetwork.vanadium.tracking.NavigationAccess;
 import me.shedaniel.autoconfig.AutoConfig;
 import me.shedaniel.autoconfig.ConfigHolder;
 import me.shedaniel.autoconfig.serializer.Toml4jConfigSerializer;
@@ -64,6 +65,7 @@ public class Vanadium implements ModInitializer {
 
     private static void onWorldTickStart(ServerLevel world) {
         scheduler.setDimension(world.dimension().identifier().toString());
+        if (config.enabled) ((NavigationAccess) world).vanadium$navigations().refresh();
     }
 
     private static void onTickEnd(MinecraftServer server) {

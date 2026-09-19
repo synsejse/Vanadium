@@ -123,6 +123,15 @@ unchanged coverage. Disjoint teleports still update both complete squares.
 Tracking, chunk transitions, and packet flush consolidation need
 live multiplayer coverage; unit scheduler tests do not exercise them.
 
+`NavigationIndex` conservatively indexes vanilla navigation invalidation ranges. Block
+changes still call vanilla's exact predicate on the candidates. Membership changes, movement,
+path replacement, recomputation and navigation ticks mark mobs dirty; dirty mobs remain
+candidates for every block change until the next world-tick boundary refresh. Refresh reads
+navigation state outside the index monitor and retains the fallback if concurrent changes
+occur. Custom predicate overrides and paths longer than 256 remaining nodes use the full
+fallback. Mods mutating path internals outside normal navigation entry points require explicit
+integration. This is a candidate filter, not asynchronous pathfinding or delayed recomputation.
+
 C2ME provides parallel generation/loading and bundles MixinSquared. `compat/C2ME.java`
 cancels two named C2ME thread-detection mixins. `fabric.mod.json` requires C2ME and rejects
 Lithium and VMP. The automated harness pins the C2ME release that was in this checkout's
