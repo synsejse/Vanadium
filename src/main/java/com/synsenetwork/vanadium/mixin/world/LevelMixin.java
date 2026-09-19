@@ -1,10 +1,13 @@
 package com.synsenetwork.vanadium.mixin.world;
 
+import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.tick.Stage;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -22,6 +25,16 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(Level.class)
 public abstract class LevelMixin {
+    @Unique
+    private final Object vanadium$randomPositionLock = new Object();
+
+    @WrapMethod(method = "getBlockRandomPos")
+    private BlockPos randomBlockPosition(int x, int y, int z, int mask, Operation<BlockPos> original) {
+        synchronized (vanadium$randomPositionLock) {
+            return original.call(x, y, z, mask);
+        }
+    }
+
     @Shadow
     @Final
     private Thread thread;

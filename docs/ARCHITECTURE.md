@@ -32,7 +32,8 @@ The actual stage timing comes from Minecraft mixin injection points, not the enu
 | Entities | `ServerLevelMixin` queues; `LevelMixin` drains before block-entity bookkeeping |
 | Block entities | `LevelMixin` queues supported tick invokers and drains at the end |
 
-Projectiles and entities currently in portals retain serial entity ticking. Stage flags
+Projectiles and entities currently in portals retain serial entity ticking. A serial rule
+on any passenger routes the entire vehicle tree through the serial path. Stage flags
 and `enabled` select fallback paths, but mixins and structural synchronization remain installed.
 Block-entity registrations enter a concurrent queue and are merged into the active list on the
 server thread after the ENTITY barrier. The BLOCK_ENTITY barrier runs before the ticking flag clears.
@@ -61,6 +62,14 @@ and completed waves are detached in `finally`, including failures. Task completi
 and interruption behavior are unchanged. No monitoring thread is started while disabled.
 
 ## Shared state and compatibility
+
+Scheduled ticks remain in an ordered, identity-indexed pending queue until a callback claims
+them under the vanilla scheduler monitor. Pending queries and area copying retain their
+bookkeeping during the wave, and area clearing cancels unclaimed callbacks. Collection,
+claiming, and final cleanup hold the monitor; execution and the completion barrier do not.
+Block events retain vanilla's ordered deduplication under a separate set monitor. Random
+block-position seed transitions use a dedicated short-lived lock, preserving the vanilla
+sequence without locking the world during callbacks.
 
 Coloring separates neighboring cells; it does not bound every possible interaction.
 Vanadium also replaces collections, adds monitors, uses striped entity locks, and stamps
@@ -123,8 +132,8 @@ These are source-inspection leads, not a completed concurrency audit:
   current caller; test coordinate-boundary behavior before using nonzero radii elsewhere.
 - Full integrated-server join/leave cycles still need interactive coverage. Lifecycle
   callback reinitialization and dedicated-server resource shutdown have automated coverage.
-- The 1.21.1 source audit in `TICK_COVERAGE.md` is historical. The port changes stage
-  boundaries, but scheduled-tick bookkeeping, passenger serial rules and other remaining
-  findings still need their own correctness work and live regression scenarios.
+- The 1.21.1 source audit in `TICK_COVERAGE.md` is historical. The scheduled-tick and
+  passenger-rule fixes now have live checks; full interacting redstone machines, dynamically
+  changing passenger trees, and modpack-specific cross-cell behavior still need coverage.
 
 See [development and validation](DEVELOPMENT.md) for commands and the live-test matrix.

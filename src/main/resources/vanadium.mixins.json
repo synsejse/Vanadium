@@ -36,6 +36,7 @@
     "world.EntityTickListMixin",
     "world.SimulationChunkTrackerMixin",
     "world.LevelMixin",
+    "world.LevelTicksMixin",
     "world.block.CollectingNeighborUpdaterMixin",
     "world.chunk.ChunkGenerationTaskMixin",
     "world.chunk.ChunkAccessMixin",

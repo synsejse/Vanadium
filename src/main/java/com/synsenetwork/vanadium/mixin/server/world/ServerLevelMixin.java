@@ -1,20 +1,21 @@
 package com.synsenetwork.vanadium.mixin.server.world;
 
 import com.mojang.datafixers.DataFixer;
+import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.chunk.ParallelChunkManager;
 import com.synsenetwork.vanadium.tick.Stage;
+import com.synsenetwork.vanadium.tick.ScheduledTickAccess;
+import com.synsenetwork.vanadium.tick.EntityTickRules;
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.Executor;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
-import java.util.function.Predicate;
 import java.util.function.Supplier;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -22,8 +23,9 @@ import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
-import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.level.BlockEventData;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.entity.ChunkStatusUpdateListener;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
@@ -35,7 +37,6 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Mutable;
 import org.spongepowered.asm.mixin.Shadow;
-import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
@@ -44,9 +45,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(ServerLevel.class)
 public abstract class ServerLevelMixin {
 
-    @Unique
-    private final ConcurrentLinkedDeque<BlockEventData> vanadium$blockEvents = new ConcurrentLinkedDeque<>();
-
     @Shadow
     @Final
     @Mutable
@@ -54,34 +52,33 @@ public abstract class ServerLevelMixin {
 
     @Shadow
     @Final
-    @Mutable
-    private ObjectLinkedOpenHashSet<BlockEventData> blockEvents = null;
+    private ObjectLinkedOpenHashSet<BlockEventData> blockEvents;
 
     @Redirect(method = "<init>", at = @At(value = "NEW", target = "(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/level/storage/LevelStorageSource$LevelStorageAccess;Lcom/mojang/datafixers/DataFixer;Lnet/minecraft/world/level/levelgen/structure/templatesystem/StructureTemplateManager;Ljava/util/concurrent/Executor;Lnet/minecraft/world/level/chunk/ChunkGenerator;IIZLnet/minecraft/world/level/entity/ChunkStatusUpdateListener;Ljava/util/function/Supplier;)Lnet/minecraft/server/level/ServerChunkCache;"))
     private ServerChunkCache createChunkManager(ServerLevel world, LevelStorageSource.LevelStorageAccess session, DataFixer dataFixer, StructureTemplateManager structureTemplateManager, Executor workerExecutor, ChunkGenerator chunkGenerator, int viewDistance, int simulationDistance, boolean dsync, ChunkStatusUpdateListener chunkStatusChangeListener, Supplier<SavedDataStorage> savedDataStorageFactory) {
         return new ParallelChunkManager(world, session, dataFixer, structureTemplateManager, workerExecutor, chunkGenerator, viewDistance, simulationDistance, dsync, chunkStatusChangeListener, savedDataStorageFactory);
     }
 
-    /**
-     * Runs each scheduler's due ticks as a parallel wave. The ticker handed to
-     * {@link LevelTicks#runCollectedTicks} enqueues into cells instead of
-     * executing, and the wave runs only after tick() returns — the scheduler's monitor
-     * (ACC_SYNCHRONIZED via SyncAllMixin) is released by then, so workers scheduling follow-up
-     * ticks (fluid spread does every step) can't deadlock against the barrier. Per-chunk order is
-     * preserved (cells run their tasks in insertion order); only cross-chunk interleaving becomes
-     * nondeterministic, matching the rest of the cell model.
-     */
+    /** Keep pending/executed ticks visible until the wave finishes, outside the scheduler monitor. */
     @Redirect(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/ticks/LevelTicks;tick(JILjava/util/function/BiConsumer;)V"))
     private <T> void dispatchScheduledTicks(LevelTicks<T> ticks, long time, int maxTicks, BiConsumer<BlockPos, T> ticker) {
         if (!Vanadium.config.enabled || !Vanadium.config.parallelScheduledTicks) {
             ticks.tick(time, maxTicks, ticker);
             return;
         }
+        ScheduledTickAccess<T> access = (ScheduledTickAccess<T>) ticks;
         Vanadium.scheduler.begin(Stage.SCHEDULED_TICK);
-        ticks.tick(time, maxTicks, (pos, type) ->
-                Vanadium.scheduler.enqueue(Stage.SCHEDULED_TICK, pos.getX() >> 4, pos.getZ() >> 4,
-                        () -> ticker.accept(pos, type), null));
-        Vanadium.scheduler.run(Stage.SCHEDULED_TICK);
+        try {
+            for (var tick : access.vanadium$collect(time, maxTicks)) {
+                Vanadium.scheduler.enqueue(Stage.SCHEDULED_TICK, tick.pos().getX() >> 4, tick.pos().getZ() >> 4,
+                        () -> {
+                            if (access.vanadium$claim(tick)) ticker.accept(tick.pos(), tick.type());
+                        }, null);
+            }
+            Vanadium.scheduler.run(Stage.SCHEDULED_TICK);
+        } finally {
+            access.vanadium$finish();
+        }
     }
 
     @Inject(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/entity/EntityTickList;forEach(Ljava/util/function/Consumer;)V"))
@@ -92,9 +89,7 @@ public abstract class ServerLevelMixin {
     @Redirect(method = "lambda$tick$0", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/level/ServerLevel;guardEntityTick(Ljava/util/function/Consumer;Lnet/minecraft/world/entity/Entity;)V"))
     private void dispatchEntityTick(ServerLevel level, Consumer<Entity> ticker, Entity entity) {
         if (!Vanadium.config.enabled || !Vanadium.config.parallelEntities
-                || (entity.portalProcess != null && entity.portalProcess.isInsidePortalThisTick())
-                || entity instanceof Projectile
-                || Vanadium.config.isSerialEntity(BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()))) {
+                || EntityTickRules.requiresSerial(entity)) {
             ticker.accept(entity);
             return;
         }
@@ -103,29 +98,26 @@ public abstract class ServerLevelMixin {
                         ? BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString() : null);
     }
 
-    @Redirect(method = "blockEvent", at = @At(value = "INVOKE", target = "Lit/unimi/dsi/fastutil/objects/ObjectLinkedOpenHashSet;add(Ljava/lang/Object;)Z"))
-    private boolean addBlockEvent(ObjectLinkedOpenHashSet<BlockEventData> events, Object object) {
-        return vanadium$blockEvents.add((BlockEventData) object);
+    @WrapMethod(method = "blockEvent")
+    private void queueBlockEvent(BlockPos pos, Block block, int type, int data, Operation<Void> original) {
+        synchronized (blockEvents) {
+            original.call(pos, block, type, data);
+        }
     }
 
-    @Redirect(method = "clearBlockEvents", at = @At(value = "INVOKE", target = "Lit/unimi/dsi/fastutil/objects/ObjectLinkedOpenHashSet;removeIf(Ljava/util/function/Predicate;)Z"))
-    private boolean removeBlockEvents(ObjectLinkedOpenHashSet<BlockEventData> events, Predicate<BlockEventData> filter) {
-        return vanadium$blockEvents.removeIf(filter);
+    @WrapMethod(method = "clearBlockEvents")
+    private void clearBlockEvents(BoundingBox area, Operation<Void> original) {
+        synchronized (blockEvents) {
+            original.call(area);
+        }
     }
 
-    @Redirect(method = "runBlockEvents", at = @At(value = "INVOKE", target = "Lit/unimi/dsi/fastutil/objects/ObjectLinkedOpenHashSet;isEmpty()Z"))
-    private boolean areBlockEventsEmpty(ObjectLinkedOpenHashSet<BlockEventData> events) {
-        return vanadium$blockEvents.isEmpty();
-    }
-
-    @Redirect(method = "runBlockEvents", at = @At(value = "INVOKE", target = "Lit/unimi/dsi/fastutil/objects/ObjectLinkedOpenHashSet;removeFirst()Ljava/lang/Object;"))
-    private Object removeFirstBlockEvent(ObjectLinkedOpenHashSet<BlockEventData> events) {
-        return vanadium$blockEvents.removeFirst();
-    }
-
-    @Redirect(method = "runBlockEvents", at = @At(value = "INVOKE", target = "Lit/unimi/dsi/fastutil/objects/ObjectLinkedOpenHashSet;addAll(Ljava/util/Collection;)Z"))
-    private boolean requeueBlockEvents(ObjectLinkedOpenHashSet<BlockEventData> instance, Collection<? extends BlockEventData> events) {
-        return vanadium$blockEvents.addAll(events);
+    @WrapMethod(method = "runBlockEvents")
+    private void runBlockEvents(Operation<Void> original) {
+        // One serial consumer; callbacks can reentrantly enqueue into the same ordered set.
+        synchronized (blockEvents) {
+            original.call();
+        }
     }
 
     @Redirect(method = "sendBlockUpdated", at = @At(value = "FIELD", target = "Lnet/minecraft/server/level/ServerLevel;isUpdatingNavigations:Z", opcode = Opcodes.PUTFIELD))

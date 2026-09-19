@@ -43,6 +43,14 @@ Initial builds still download Minecraft, Gradle, and Maven dependencies.
 
 ## Build and unit tests
 
+The live fixture also checks scheduled-tick pending visibility, area copy/cancellation,
+two concurrent callbacks scheduling follow-ups, failure cleanup and serial fallback;
+nested passenger rules; ordered block-event deduplication; and 16,384 concurrent random
+position transitions matching vanilla's serial seed progression. The 2026-09-19 run passed
+in `.vanadium/runs/smoke-3_gc_6ny` with pinned C2ME, including block-update/dirty-chunk
+regressions and server save/shutdown. These focused checks do not replace gameplay coverage
+of interacting redstone, portals, and the actual modpack.
+
 ```sh
 ./gradlew build
 ./gradlew test --tests 'com.synsenetwork.vanadium.tick.*'

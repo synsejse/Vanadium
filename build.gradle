@@ -73,7 +73,7 @@ tasks.register('blockUpdateChecksJar', Jar) {
     archiveFileName = 'block-update-checks.jar'
     destinationDirectory = layout.buildDirectory.dir('test-mods')
     from(sourceSets.test.output) {
-        include 'com/synsenetwork/vanadium/integration/BlockUpdateChecks*.class'
+        include 'com/synsenetwork/vanadium/integration/*.class'
     }
     from('src/test/resources/block-update-checks.fabric.mod.json') {
         rename { 'fabric.mod.json' }
