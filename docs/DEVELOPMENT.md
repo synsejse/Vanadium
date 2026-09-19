@@ -65,6 +65,12 @@ checks leaving/returning watchers, and detects concurrent update callbacks on on
 Callbacks are instrumented stand-ins: actual client packet ordering still needs multiplayer
 coverage. The full build and live C2ME fixture passed after tracking preparation was split.
 
+Spawn preparation checks compare serial and parallel counting of 2,048 mixed mobs, including
+persistent exclusions and disabled fallback. Reduction checks also combine nonzero density
+charges in order and local player caps across four partial states. The full build and C2ME
+run `.vanadium/runs/smoke-4querp01` passed with the previous regression checks and save/shutdown.
+This validates equivalent prepared state, not natural-spawning behavior in a live modpack.
+
 ```sh
 ./gradlew build
 ./gradlew test --tests 'com.synsenetwork.vanadium.tick.*'

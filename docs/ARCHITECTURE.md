@@ -112,6 +112,12 @@ Chunk dirty notifications enter a concurrent queue. The server thread drains the
 preserves vanilla's ordered, deduplicated save set and C2ME's idle autosave iteration;
 workers never mutate that set or wait for disk work while marking a chunk dirty.
 
+Spawn preparation snapshots entity membership between simulation stages. Below 1,024
+entities it counts inline; larger inputs use contiguous batches with independent vanilla
+spawn states and local-cap calculators. The caller combines category counts, local player
+caps, and potential charges before spawning begins. Charge order follows the original
+entity order. This does not change the later shared spawn-attempt accounting policy.
+
 Item merging retains one global reentrant lock. Its method wrapper releases the lock in
 `finally`, including when vanilla code or another injection throws.
 

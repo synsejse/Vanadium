@@ -14,3 +14,12 @@ accessible class net/minecraft/world/level/chunk/LevelChunk$BoundTickingBlockEnt
 accessible class net/minecraft/world/level/redstone/CollectingNeighborUpdater$NeighborUpdates
 accessible class net/minecraft/world/level/entity/PersistentEntitySectionManager$Callback
 accessible class net/minecraft/server/level/ServerChunkCache$MainThreadExecutor
+accessible field net/minecraft/world/level/NaturalSpawner$SpawnState mobCategoryCounts Lit/unimi/dsi/fastutil/objects/Object2IntOpenHashMap;
+accessible field net/minecraft/world/level/NaturalSpawner$SpawnState spawnPotential Lnet/minecraft/world/level/PotentialCalculator;
+accessible field net/minecraft/world/level/NaturalSpawner$SpawnState localMobCapCalculator Lnet/minecraft/world/level/LocalMobCapCalculator;
+accessible field net/minecraft/world/level/PotentialCalculator charges Ljava/util/List;
+accessible class net/minecraft/world/level/PotentialCalculator$PointCharge
+accessible field net/minecraft/world/level/LocalMobCapCalculator playersNearChunk Lit/unimi/dsi/fastutil/longs/Long2ObjectMap;
+accessible field net/minecraft/world/level/LocalMobCapCalculator playerMobCounts Ljava/util/Map;
+accessible class net/minecraft/world/level/LocalMobCapCalculator$MobCounts
+accessible field net/minecraft/world/level/LocalMobCapCalculator$MobCounts counts Lit/unimi/dsi/fastutil/objects/Object2IntMap;

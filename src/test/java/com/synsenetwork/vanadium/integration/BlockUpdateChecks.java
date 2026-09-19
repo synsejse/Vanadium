@@ -47,6 +47,7 @@ public class BlockUpdateChecks implements ModInitializer {
                 TickSafetyChecks.run(server.overworld());
                 NavigationChecks.run(server.overworld());
                 TrackingChecks.run(server.overworld());
+                SpawnChecks.run(server.overworld());
                 System.out.println("BLOCK_AND_DIRTY_CHECKS_PASSED");
             } catch (Exception e) { throw new RuntimeException(e); }
         });
