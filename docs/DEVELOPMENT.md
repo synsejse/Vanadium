@@ -1,375 +1,124 @@
 # Development and testing
 
-## Toolchain
+## Setup
 
-The build targets Minecraft **26.2** and Java **25**, using official unobfuscated names.
-There is no Yarn dependency or jar remapping step.
-Use the checked-in Gradle wrapper; its version and download checksum are in
-`gradle/wrapper/gradle-wrapper.properties`. Loom and library versions remain in
-`build.gradle` and `gradle.properties`.
+Minecraft **26.2**, official unobfuscated names, Java **25**. Use the checked-in
+Gradle wrapper. Versions live in `gradle.properties`, `build.gradle` and
+`gradle/wrapper/gradle-wrapper.properties`; do not upgrade them incidentally.
 
 ```sh
 nix develop
-java -version
 ./gradlew build
 ./gradlew genSources
+python3 scripts/dev-server.py prepare
 ```
 
-The flake pins Nixpkgs through `flake.lock` and sets `JAVA_HOME`. It supplies the full
-JDK (including `jcmd`, `jstack`, and `jfr`), Python 3 for the server harness, shellcheck,
-nixfmt, Git, ripgrep, curl, jq, and archive tools. It defines shells for x86_64/aarch64
-Linux and macOS; validation recorded below is specific to the local machine.
-The shell supports compilation and headless server work and exposes the Vulkan and
-OpenGL/EGL loaders on Linux for the graphical client (`./gradlew runClient`). The client
-still needs a working display session and host graphics drivers, plus its graphics/audio dependencies.
-After changing the flake, re-enter `nix develop` to refresh the library environment.
+The pinned Nix shell supplies the JDK, `jcmd`/`jfr`, Python and development tools.
+It also exposes Linux Vulkan/OpenGL loaders for `./gradlew runClient`; a working
+host display/driver is still required. Re-enter the shell after changing the flake.
+Without Nix, install Java 25 and Python 3. Initial builds need network access.
 
-On 2026-09-14, a standalone LWJGL check using the development client's classpath
-loaded OpenGL and created a hidden GLFW context: OpenGL 4.6, Mesa 26.2.2, Radeon
-RX 9060 XT. This validates native library loading and context creation, not a full
-Minecraft client session. The check is retained in `.vanadium/client-check/`.
+C2ME is a verified release jar in `.vanadium/mods/`, pinned by
+`scripts/runtime-mods.json`; Gradle must not flatten its nested mods. For interactive
+clients/servers, copy that jar into `run/mods/`, avoiding duplicate versions.
+Fabric API and Cloth Config are Gradle-managed. Preserve personal `run/` data.
 
-Enable `nix-command` and `flakes` in your Nix installation if necessary. Optional direnv
-integration uses the checked-in `.envrc`: with direnv/nix-direnv installed and your shell
-hook configured, run `direnv allow`. Without Nix, install Java 25 and Python 3 and use
-the same Gradle/Python commands.
-
-Nix only sees tracked files in a Git flake. When introducing new Nix files, add them to
-Git first or use `nix develop path:.` / `nix flake check path:.` temporarily (the path
-form can copy ignored build/world caches and is slower). Update intentionally with
-`nix flake update nixpkgs`, then recheck and include the changed lockfile in the commit.
-The shell provides reproducible tools; it is not an offline or sandboxed Gradle package.
-Initial builds still download Minecraft, Gradle, and Maven dependencies.
-
-## Build and unit tests
-
-The live fixture also checks scheduled-tick pending visibility, area copy/cancellation,
-two concurrent callbacks scheduling follow-ups, failure cleanup and serial fallback;
-nested passenger rules; ordered block-event deduplication; and 16,384 concurrent random
-position transitions matching vanilla's serial seed progression. The 2026-09-19 run passed
-in `.vanadium/runs/smoke-3_gc_6ny` with pinned C2ME, including block-update/dirty-chunk
-regressions and server save/shutdown. These focused checks do not replace gameplay coverage
-of interacting redstone, portals, and the actual modpack.
-
-Navigation checks compare indexed candidates with vanilla's predicate for 128 dispersed mobs,
-including negative coordinates and boundaries, then exercise movement/path-change invalidation
-and removal. The 2026-09-19 C2ME run in `.vanadium/runs/smoke-bpfl5xrk` passed. One local
-query selected 1 of 128 mobs; a 2,000-query sanity timing took 5.56ms for full scans and
-0.37ms for indexed scans. This un-warmed fixture excludes refresh cost and is not an
-end-to-end speedup claim. The host is the Ryzen 5 9600X, Java 25, 12 configured workers,
-auto cell size 3, default flags and pinned C2ME; no dual-Xeon result is available.
-
-The tracking fixture uses eight simulated players and 160 mobs with a four-worker test pool.
-It advances staging into the area index, exercises the parallel preparation threshold,
-checks leaving/returning watchers, and detects concurrent update callbacks on one tracker.
-Callbacks are instrumented stand-ins: actual client packet ordering still needs multiplayer
-coverage. The full build and live C2ME fixture passed after tracking preparation was split.
-
-Spawn preparation checks compare serial and parallel counting of 2,048 mixed mobs, including
-persistent exclusions and disabled fallback. Reduction checks also combine nonzero density
-charges in order and local player caps across four partial states. The full build and C2ME
-run `.vanadium/runs/smoke-4querp01` passed with the previous regression checks and save/shutdown.
-This validates equivalent prepared state, not natural-spawning behavior in a live modpack.
-
-The item fixture races opposite-order merge attempts against two independent hopper
-containers for 16 rounds. It checks conservation of all 512 items per round, stack limits,
-bounded completion and lock release after an injected merge failure. This replaces the old
-unit test tied to the removed global merge lock. The full build and live C2ME run
-`.vanadium/runs/smoke-9er168wv` passed. Actual player and specialized-mob pickup gameplay,
-modded item callbacks and redstone boundary interactions remain untested.
-
-Chunk packet checks compare complete chunk-data encoding byte-for-byte for eight loaded
-chunks, including a chest, with and without prepared section buffers. The real
-`PlayerChunkSender` path is checked for prepared data use, caller-thread sends, start/finish
-ordering, acknowledgment limits, disabled fallback and scope cleanup after a send failure.
-The full build passed 165 tests and all live fixtures passed with pinned C2ME in
-`.vanadium/runs/smoke-ewov_syc`, followed by saving and shutdown. These checks do not validate
-client rendering or arbitrary modded block-entity packet callbacks.
+## Checks
 
 ```sh
+./gradlew test --tests 'com.synsenetwork.vanadium.tick.*' --rerun-tasks
 ./gradlew build
-./gradlew test --tests 'com.synsenetwork.vanadium.tick.*'
-./gradlew test --tests 'com.synsenetwork.vanadium.concurrent.*'
-./gradlew test --rerun-tasks
-./gradlew benchScheduler
-./gradlew benchWorkerPool
-./gradlew benchAreaMap
 python3 scripts/check-block-updates.py
 nix flake check
 git diff --check
 ```
 
-Distributable jars and source jars land in `build/libs/`. HTML test reports
-are in `build/reports/tests/test/index.html`, with XML in `build/test-results/test/`.
-`clean` deletes `build/`; ordinary development does not need a clean build every time.
-JUnit tests cover cells, barriers, workers, lock tables, collection wrappers, tracking-area coverage, config,
-and the vanilla fields/methods/superclasses targeted by mixins.
-They do not start Fabric or apply Minecraft mixins.
-
-`scripts/check-block-updates.py` packages a separate test mod under `build/test-mods/`,
-then runs it with pinned C2ME in a fresh server directory using the same EULA and cleanup
-rules as the smoke harness. It exercises creative and survival block breaking, captures
-single-block and section update packets across successive broadcasts, and checks concurrent
-dirty-chunk notifications before startup/tick/save/shutdown completes. It does not launch
-a graphical client or reproduce client prediction, rendering, or an integrated-server session.
-The test mod is excluded from the distributable mod jar.
-
-`nix flake check` evaluates the shell and runs development-file checks; the Java tests
-must be run separately. CI builds/tests on Java 25 and retains jars and test reports.
-
-If an IDE and command-line build contend for Loom's shared cache, let the other import
-finish. For isolated jobs, set `GRADLE_USER_HOME="$PWD/.vanadium/gradle-home"` before
-running Gradle; this creates a separate dependency cache and needs initial downloads.
-Do not delete cache lock files belonging to a running process.
-
-## Isolated live-server checks
-
-```sh
-python3 scripts/dev-server.py prepare
-```
-
-This downloads the exact C2ME release listed in `scripts/runtime-mods.json` and checks
-its SHA-512 before use. A cached file is also checked. It stays a release jar so Fabric
-Loader can discover C2ME's nested mods. Gradle supplies Fabric API, Cloth Config, and
-the project itself. To change C2ME, update the URL/hash together and validate both its
-Minecraft version and the named mixins in `compat/C2ME.java`.
-
-Before starting Minecraft, read the [Minecraft EULA](https://aka.ms/MinecraftEULA).
-If you agree, create `.vanadium/eula.txt` containing `eula=true`. If you already accepted
-it in this checkout, you can reuse that file:
-
-```sh
-cp run/eula.txt .vanadium/eula.txt
-python3 scripts/dev-server.py smoke
-scripts/bench-server.sh 30
-```
-
-Every invocation creates a fresh directory in `.vanadium/runs/`, downloads/reuses the
-verified mod, and binds the game and RCON to loopback on available ports. It uses a
-random RCON password, a fixed world seed, and no additional optional mods. It checks
-Vanadium's status command, loads a small region, lets the world tick, saves, and stops.
-The benchmark adds 200 persistent zombies and runs the vanilla tick profiler.
-`--seconds N` controls the tick/profile interval; `--timeout N` controls startup waiting
-(default 300 seconds, including any Gradle preparation).
-
-Logs (`console.log`, `logs/latest.log`), worlds, crash reports, and profiles (`debug/`)
-remain in the printed directory on both success and failure. The harness exits nonzero
-on startup timeout, failed commands/connections, abnormal process exit, or server errors,
-and cleans up its process group. Inspect retained output before removing old runs.
-It never rewrites your existing `run/server.properties` or world.
-
-For interactive work, `./gradlew runServer` still uses `run/`. Copy the pinned C2ME jar
-from `.vanadium/mods/` into `run/mods/` if needed, avoiding duplicate C2ME versions.
-A custom server directory is supported with
+Before running Minecraft, read the [EULA](https://aka.ms/MinecraftEULA). If accepted,
+put `eula=true` in `.vanadium/eula.txt`, or reuse an existing accepted file.
+`python3 scripts/dev-server.py smoke` runs startup/ticking/save/shutdown alone.
+Both harnesses use fresh `.vanadium/runs/` worlds, loopback ports and random RCON
+passwords. Logs and worlds remain there, including after failure; the harness
+cleans up only its own processes. An isolated interactive run is also supported:
 `./gradlew -PvanadiumRunDir=/absolute/path runServer --args=nogui`.
 
-## Validation beyond a smoke test
+Build artifacts: `build/libs/`; JUnit reports: `build/reports/tests/test/`.
+The current suite has **165 unit tests**. They check bindings, scheduling, collections
+and config without applying mixins. The separate live test mod exercises block
+breaking/update packets, concurrent dirty notifications, scheduled-tick state,
+passenger rules, event deduplication, random-position transitions, navigation,
+tracking diffs, spawn counting, item conservation and chunk packet encoding/sending.
+These fixtures complement gameplay testing; they do not certify a modpack.
 
-A startup/tick/save check catches dependency resolution and many mixin failures. It
-does not certify long-running world safety or player interactions. For changes to
-Minecraft-facing code, use disposable worlds and cover the relevant scenarios:
+For IDE/CLI cache contention, let the other import finish. Use a separate
+`GRADLE_USER_HOME` for isolated jobs if needed; do not delete live cache lock files.
+`nix flake check` checks development files, not Minecraft. Only native x86_64 Linux
+execution has been validated here.
 
-| Change | Exercise |
-| --- | --- |
-| Scheduler/locks | One and multiple workers; negative coordinates; cell boundaries; exceptions and interruption |
-| Scheduled ticks | Redstone, repeaters, water/lava propagation, and updates crossing cells |
-| Entity ticking | Mob AI/combat, item merging, projectiles, portals, cross-dimension teleports |
-| Block entities | Hoppers, furnaces, inventories, chunk unload/reload |
-| Tracking/networking | Multiple players, joining/leaving, dimension changes, movement across tracking range |
-| Configuration | `enabled=false`, each stage flag disabled, live reload, workers requiring restart |
-| Lifecycle/storage | Save/reload, shutdown under load, integrated-server restart |
+## Benchmarks and profiles
 
-For performance comparisons, keep hardware, Java/C2ME versions, seed, workload, flags,
-worker count, and cell size fixed. Compare multiple warmed runs. The scheduler
-microbenchmark measures synthetic overhead; it is not an end-to-end TPS claim.
-`benchWorkerPool` isolates dispatch with 1 and the available CPU count of workers, 1–1,024
-tasks, and no-op/balanced/uneven CPU work. It reports time and total warmed-thread allocation
-per wave; run several fresh JVMs sequentially and compare identical configurations.
-`benchAreaMap` measures time and caller-thread allocation for stationary updates, one-chunk
-and diagonal moves, teleports, and radius changes at radii 2, 8, and 16. It uses overlapping
-stationary coverage, warms each case for 250 ms, and measures 50,000 updates. Compare several
-fresh JVMs; index timings exclude players, packets, and scheduler work.
-See [profiling](../scripts/PROFILING.md) for Flight Recorder commands.
+[26.2 feature results](BENCHMARKS_26_2.md) contains measured on/off timings, allocation,
+server-thread CPU costs and JFR findings. Reproduce inside `nix develop`:
 
-## Cleanup and lifecycle validation (2026-09-14)
+```sh
+python3 scripts/bench-features.py
+python3 scripts/report-feature-bench.py .vanadium/runs/features-FIRST \
+  .vanadium/runs/features-SECOND .vanadium/runs/features-THIRD \
+  --output .vanadium/feature-results.json
+```
 
-Mixin and accessor names now follow their Minecraft targets. Source-level qualified
-types use imports, wildcard package imports are expanded, and unused shadows,
-interfaces, superclass constructors, and raw tick callback types were removed.
-`SynchronisePlugin` uses one mixin-name comparison and logs directly.
+The default suite uses three fresh JVMs, four helpers plus the participating server
+thread, cell size two, C2ME parallelism four, and a fixed 2GiB G1 heap. Each workload
+warms both arms, alternates their order for 12 paired samples per JVM, then records
+separate on/off JFR profiles in the first JVM. Timing samples exclude active JFR.
+`--workers N` changes helpers; `--filter 'spawn-.*'` selects cases; `--no-jfr` skips
+recordings. Reduced `--scale`/`--rounds` are for harness checks, not reported results.
+The benchmark mod and its switches are excluded from release jars.
 
-Each server lifecycle now creates and closes its own worker pool, scheduler, and
-watchdog. Shutdown releases the profiler and benchmark command references. Each
-chunk manager owns one maintenance executor for cache clearing and lock eviction;
-`ChunkLockTable` no longer creates a thread. Maintenance closes with the manager,
-including when vanilla close throws.
+`./gradlew benchScheduler`, `benchWorkerPool` and `benchAreaMap` isolate scheduler,
+worker and index overhead. `scripts/bench-server.sh 30` exercises a normal ticking
+server with 200 clustered zombies; it is a smoke workload, not an all-feature A/B
+comparison. For actual worlds use `/vanadium profile`, tick sprint for throughput,
+and [JFR](../scripts/PROFILING.md) for CPU, allocation and locks. World and stage
+profile times overlap: do not add them together. Caller tail wait is not lock time.
 
-- `./gradlew build` passed **166 tests**, including the vanilla mixin binding checks
-  and a gated regression proving pool close waits for a worker without interrupting it.
-- A disposable Fabric fixture exercised three stop/start callback cycles in one JVM,
-  checked fresh scheduler identity and changed worker counts, discarded queued tasks,
-  and verified that old workers, watchdogs, profiles, and benchmarks were released.
-- The isolated server passed configuration commands, save/reload, profiling with
-  nonzero tasks in all five stages, and actual server save/shutdown. The final stop
-  left no Vanadium worker, watchdog, or chunk-maintenance threads alive.
-- The smoke harness now recognizes the `/ERROR]` console format, so errors logged
-  during shutdown fail validation even if the game process exits successfully.
-- `nix flake check` passed on x86_64 Linux; `git diff --check` passed.
+## Current limitations
 
-Evidence is retained in `.vanadium/cleanup-26.2/` and
-`.vanadium/runs/smoke-5tzimr8z/`. Callback reinitialization is not a full interactive
-singleplayer world-close/reopen test; that scenario and real modpack behavior remain
-untested. This cleanup makes no new throughput claim. The scheduled-tick bookkeeping
-and passenger serial-rule findings remain separate follow-up work.
+- **Hardware and scope:** local measurements use a Ryzen 5 9600X, not the dual
+  E5-2699 v3. They isolate the recent optimization paths; they do not measure whole
+  modpack TPS, p95/p99 tick latency, exploration, or every older config flag.
+  Timing batches and JFR samples are not individual-tick latency distributions.
+- **Parallelism:** worlds, stages and four colors still have barriers; one cell's
+  tasks execute serially. Player simulation, tracking merge, packet sending and
+  several world bookkeeping paths remain on the server thread. Auto workers can
+  oversubscribe the CPU alongside C2ME, GC and networking. NUMA behavior is untested.
+- **Navigation:** refreshing dirty entries can dominate when many mobs move but few
+  blocks change; dense candidate sets can make indexing slower than scanning.
+  JFR identified quadratic list searches in `dirty.removeAll(changed)` during refresh;
+  the 1,024-dirty-mob/one-edit fixture was **26.5× slower**. This is a specific
+  optimization defect to fix, not an unavoidable indexing cost.
+  Custom predicates use conservative fallbacks; mods bypassing invalidation hooks
+  require integration. The benchmark includes refresh but not pathfinding itself.
+- **Tracking/spawning:** copying inputs, diff records and ordered reduction can
+  outweigh parallel work: tracking preparation was **13–25% slower**, and the small
+  spawn-count fallback was **28% slower** here. Tracking fixtures omit real network
+  callbacks; spawn fixtures omit real player caps and charged-biome populations.
+  The spawn check/accounting sequence is not made atomic by preparation parallelism.
+- **Shared locks:** neighbor chains still hold one world monitor. Removing list
+  copies does not parallelize redstone. Per-item locks cover known vanilla paths;
+  arbitrary modded inventory writes are not coordinated. The item benchmark changes
+  lock granularity on candidate checks, not the complete old merge implementation.
+- **Chunk packets:** only section serialization is parallel; selection, heightmaps,
+  block-entity callbacks, lighting and sending remain on the caller. Preparation
+  starts at four chunks, caps at 64, and adds buffers/copies. Arbitrary asynchronous
+  chunk mutations are unsupported. Packet timings exclude compression and clients.
+- **Safety/compatibility:** `enabled=false` retains structural mixins and locks; it
+  is not a no-Vanadium baseline. C2ME is required; Lithium and VMP are incompatible.
+  The four correctness fixes remain enabled in every benchmark arm.
 
-## Minecraft 26.2 port validation (2026-09-14)
-
-The port uses Java 25.0.4.1, Loom 1.17.12, Gradle 9.6.0, Fabric Loader 0.19.3,
-Fabric API 0.160.0+26.2, Cloth Config 26.2.155, Mod Menu 20.0.2, and pinned
-C2ME 0.4.2-alpha.0.52. `genSources` completed against the unobfuscated game.
-The distributable version is `2.0.0+26.2`; earlier game releases are rejected
-by the mod metadata.
-
-- `./gradlew build --rerun-tasks` passed **165 tests**, including 57 vanilla
-  mixin binding checks, plus access-widener validation and jar generation.
-- `nix flake check` passed on x86_64 Linux. Other architectures were not executed.
-- The isolated live check passed configuration toggles, bounds, serial-rule
-  save/reload, profiler start/stop/report, diagnostic settings, and startup/save/shutdown.
-  A capture with zombies, a hopper and water recorded nonzero work in all five stages.
-- A temporary Fabric fixture blocked real caller/worker tasks until the watchdog
-  reported their stage, dimension, cells and labels, then released both successfully.
-- `scripts/bench-server.sh 5` passed a 200-zombie workload, profiling 100 ticks and
-  saving/shutting down successfully in `.vanadium/runs/bench-foapcqvh/`. This was
-  validation at the normal tick cap, not a before/after performance comparison.
-- Linux cleanup of a JVM detached from Gradle's process group passed an isolated
-  readiness-gated process check. Cleanup only targets Java processes whose working
-  directory is this invocation's fresh run directory.
-- Evidence is retained in `.vanadium/port-26.2/` and
-  `.vanadium/runs/smoke-a5nm6wjz/`. No existing `run/` world was used.
-
-The new chunk pipeline drains spawning/thunder before random block ticks and finishes
-random ticks before custom spawning, broadcasts and tracking. Block-entity registration
-uses a concurrent queue drained on the server thread. The old blanket saved-data lock
-deadlocked the new asynchronous writer during startup; the replacement protects cache
-access and save snapshots without holding a monitor across disk IO or completion waits.
-The removed bubble-column query and old spawn-region count workaround have no matching
-26.2 path and were removed. Command bodies retain their inline layout, with the new
-gamemaster permission API replacing integer permission checks.
-
-These checks do not establish a performance improvement or modpack safety. Real players,
-integrated-server restart, modded machines, portals and long-running worlds still need
-validation. The historical tick audit's remaining scheduled-tick bookkeeping, passenger
-serial-rule and shared-state findings have not all been resolved by this port.
-
-## Historical validation on Minecraft 1.21.1
-
-The following entries describe the previous Java 21/Yarn build, not validation of the 26.2 port.
-
-## Setup validation (2026-09-12)
-
-Validated locally on x86_64 Linux/NixOS with the locked OpenJDK 21.0.12.1:
-
-- `./gradlew clean build`: passed; **78 tests**, 11 suites, no failures/errors/skips.
-- `nix flake check --all-systems`: all four shells/checks evaluated; the native Linux
-  development-file check built and passed. Other platforms were not executed.
-- `python3 scripts/dev-server.py smoke --seconds 5`: passed initialization, status,
-  chunk loading, block edit, ticking, save, and shutdown with pinned C2ME.
-- `scripts/bench-server.sh 5`: passed with 200 zombies; produced a vanilla tick profile
-  covering 100 ticks. This verifies the harness, not a performance improvement.
-- `./gradlew benchScheduler`: completed both synthetic workloads.
-- Harness failure checks: fragmented RCON reads, rejected RCON request IDs, missing EULA,
-  and corrupt cached runtime jars behaved as expected.
-- A forced one-second startup timeout exited nonzero and left no harness server processes.
-
-The test runs retain their evidence under `.vanadium/runs/`. C2ME emitted optional
-Starlight class-lookup warnings; both server runs completed without error-level log entries.
-Graphical clients, multiple players, long-running worlds, and the manual scenarios above
-remain unverified by this setup pass.
-
-## Readability refactor validation (2026-09-13)
-
-Tracking separates staging migration from dispatch and centralizes accessor casts.
-Chunk locking separates ordered key construction, atomic reservation, and acquisition.
-These are method extractions with the existing operation order and lock scopes preserved;
-no performance improvement is claimed and no new dependency was introduced.
-The command readability changes were subsequently reverted to keep the inline handlers.
-
-- Focused chunk/config/tracking tests passed with `--rerun-tasks`; the full build passed
-  all **97 tests**, access-widener validation, and remapped-jar generation.
-- An isolated server with pinned C2ME passed every boolean toggle/set, integer bounds,
-  worker restart status, save/reload/defaults, and startup/tick/save/shutdown checks.
-- The existing temporary tracking fixture also passed staging expiry, identity membership,
-  movement, and watcher checks using simulated server-side players.
-- `git diff --check` passed. Evidence is in `.vanadium/readability-review/` and
-  `.vanadium/runs/smoke-d0uubtdu/`. Real multiplayer and modpack compatibility remain untested.
-
-## Serial type rules validation (2026-09-13)
-
-The full build passed **101 tests**, including exact-ID parsing, list edits, invalid-input
-rejection, and reset behavior. A disposable Fabric fixture invoked the applied entity and
-block-entity dispatch injections: unlisted tickers remained queued, listed tickers ran
-immediately on the server thread, and neither ticked twice. The block-entity fixture used
-a wrapped direct invoker with an instrumented ticker.
-
-Live command checks covered both rule lists, rejected malformed IDs without changing the
-active list, and verified TOML save/reload and defaults. Startup/tick/save/shutdown with
-pinned C2ME passed in `.vanadium/runs/smoke-7v637gn1/`; fixture sources and logs are in
-`.vanadium/features/serial/`. Actual modded machines, callbacks, and multiplayer remain
-untested. Serial rules do not establish safety for a mod's other shared state.
-
-## Stage profiler validation (2026-09-13)
-
-`./gradlew build` passed **105 tests**. Scheduler tests were rerun, and new tests cover
-nearest-rank percentiles, bounded sample storage, cell/task counts, detaching a capture,
-and reporting caller wait after all tasks finish even when a task fails.
-
-The isolated server exercised `/vanadium profile` with 16 zombies, automatic completion,
-manual stop, duplicate starts, duration bounds, and report retrieval. The report contained
-nonzero entity work, percentiles, wait time, and task distribution. Startup/tick/save/shutdown
-and serial dispatch checks also passed with pinned C2ME in `.vanadium/runs/smoke-esv9urx3/`.
-Evidence is under `.vanadium/features/profile/`. This validates instrumentation, not a
-performance gain; real modpack, multiplayer, and dual-Xeon measurements remain outstanding.
-
-## Wave diagnostics validation (2026-09-13)
-
-The full build passed **108 tests**; scheduler tests were rerun after the final change.
-New deterministic tests use an injected clock and bounded latches to verify disabled mode,
-warning thresholds, global rate limiting, blocked caller/worker reports, task labels,
-negative cell coordinates, unchanged inline execution, and cleanup on completion/failure.
-
-A temporary Fabric fixture blocked two real scheduler cells until the watchdog reported
-them. The warning included the overworld, ENTITY stage, negative/zero cell coordinates,
-both type labels, and stacks for the server thread and a worker. Both tasks then finished
-without interruption. The final isolated run also passed diagnostic config bounds,
-save/reload, disabling, profile commands, and startup/tick/save/shutdown with pinned C2ME.
-Evidence is `.vanadium/features/diagnostics/server-final.log` and
-`.vanadium/runs/smoke-xlaurxa7/`. `git diff --check` passed.
-
-See `PERFORMANCE_REVIEW.md` for the disabled-mode overhead comparison. Real modpack stalls,
-multiplayer behavior, integrated-server restart, and enabled-mode overhead remain untested.
-
-### Configuration command simplification
-
-Configuration changes now come from editing `config/vanadium.toml` and running
-`/vanadium reload`. The `toggle`, `set`, `defaults`, and `save` subcommands were removed.
-Both status forms, profiling, and benchmarking remain available; no F3 integration was added.
-
-Validation: `./gradlew build` passed with 161 tests. An isolated server with pinned C2ME
-rejected all four removed subcommands, preserved the file on those rejected commands,
-reloaded a changed enabled flag, cell size, and serial entity list, then restored the original
-configuration. Both status forms, profile start/stop/report, and startup/tick/save/shutdown
-passed. Evidence: `.vanadium/f3/commands-smoke.log` and `.vanadium/runs/smoke-zkm_3buv/`.
-
-### Block updates and dirty-chunk notifications (26.2)
-
-The old block-update array redirect lost the first changed position in a section because
-26.2 adds it through a local set reference. The live regression check reproduced the missing
-creative block-update packet with the old mixin. Concurrent calls to `setChunkUnsaved` also
-lost dirty entries before the queue fix; the reported random-tick crash came from the same
-unsynchronized save set.
-
-With the fixes, `scripts/check-block-updates.py` passed creative and survival breaking,
-single/multiple updates and subsequent broadcasts, and retention of 16,384 distinct dirty
-notifications from four concurrent producers. The isolated C2ME server also passed ticking,
-save, and shutdown. Evidence: `.vanadium/block-fixes/` and `.vanadium/runs/smoke-nkbm0ge9/`.
-Interactive client prediction and the original integrated-server world were not retested.
+Before deployment, test the intended modpack with real players: tracking-range and
+cell crossings, joining/leaving, portals/dimensions, redstone/fluid chains, inventories,
+chunk unload/reload, save/restart and integrated-server reopen. On the Xeons, sweep
+worker counts with cell size and C2ME budget fixed, then vary cell size and socket
+placement. Keep a no-Vanadium baseline separate from disabled and enabled Vanadium.
+Historical setup/port validation is available in Git history; current measurements
+and reproducible commands take precedence over those older smoke timings.

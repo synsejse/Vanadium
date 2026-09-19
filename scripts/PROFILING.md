@@ -1,5 +1,19 @@
 # Profiling Vanadium
 
+## Paired feature measurements
+
+`python3 scripts/bench-features.py` runs the recent optimization paths on/off in
+three isolated Fabric/C2ME JVMs. Each workload has warmup and alternating paired
+measurements; separate JFR recordings for both arms are retained in the first run's
+`feature-bench/` directory. The harness records elapsed time, server/worker CPU time
+and allocation. It deliberately runs fixture operations at server startup, outside
+the 20 TPS loop; the resulting startup catch-up warning is expected.
+
+Use `python3 scripts/report-feature-bench.py RUN1 RUN2 RUN3 --output RESULTS.json`
+to summarize timing samples and sampled stacks, allocations, monitor waits and parks.
+The Nix JDK supplies `jfr`. See [measured results](../docs/BENCHMARKS_26_2.md) for
+exact controls: these are subsystem benchmarks, not whole-server TPS or p99 latency.
+
 ## Quick end-to-end MSPT (this repo)
 Enter `nix develop` and follow the [runtime/EULA setup](../docs/DEVELOPMENT.md).
 `scripts/bench-server.sh [seconds]` boots a fresh headless server, forceloads a 4x4-chunk

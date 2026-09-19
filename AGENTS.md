@@ -17,6 +17,8 @@ Do not upgrade Minecraft, mappings, Loom, Gradle, or runtime mods as incidental 
 - `./gradlew benchScheduler`: synthetic scheduler overhead/allocation benchmark.
 - `./gradlew benchWorkerPool`: small/large, balanced/uneven wave timing and allocation benchmark.
 - `./gradlew benchAreaMap`: tracking-index movement, resize, and teleport microbenchmark.
+- `python3 scripts/bench-features.py`: paired live on/off feature workloads; separate JFR recordings.
+  See `docs/BENCHMARKS_26_2.md` for control definitions and measurement limits.
 - `nix flake check`: Nix environment and development-script checks; does **not** build Minecraft.
 - `python3 scripts/dev-server.py prepare`: download and verify pinned C2ME into `.vanadium/mods`.
 - `python3 scripts/dev-server.py smoke`: isolated server startup/tick/save/shutdown test.

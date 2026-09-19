@@ -1,0 +1,7 @@
+{
+  "required": true,
+  "package": "com.synsenetwork.vanadium.featurebench.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "mixins": ["TrackingPreparationSwitch"],
+  "injectors": { "defaultRequire": 1 }
+}

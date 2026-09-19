@@ -26,7 +26,7 @@ Edit `config/vanadium.toml`, then run `/vanadium reload` to apply changes live.
 
 | Option | Default | Effect |
 |---|---|---|
-| `enabled` | `true` | Master switch; `false` = fully vanilla ticking |
+| `enabled` | `true` | Master switch; `false` uses serial ticking, with structural mixins and locks still installed |
 | `workers` | `0` | `<= 0` = available logical processors; positive values clamp to 2..max(2, available logical processors) (restart) |
 | `cellSize` | `0` | Cell width/height in chunks; `0` = auto from resolved worker count |
 | `parallelEntities` | `true` | Tick entities in parallel |
@@ -110,6 +110,9 @@ See [development and testing](docs/DEVELOPMENT.md) for setup, EULA handling, iso
 checks, reports, and troubleshooting; [architecture notes](docs/ARCHITECTURE.md) describe
 the concurrency model and follow-up investigation areas. [AGENTS.md](AGENTS.md) records
 repository guidance for coding agents.
+
+Measured on/off costs for the recent optimizations are in
+[the 26.2 benchmark report](docs/BENCHMARKS_26_2.md), including regressions and workload limits.
 
 The interactive dev server loads runtime mods from `run/mods`. The setup helper downloads
 a pinned, checksum-verified C2ME jar to `.vanadium/mods/`; copy it to `run/mods` for interactive

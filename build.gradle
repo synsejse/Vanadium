@@ -80,6 +80,19 @@ tasks.register('blockUpdateChecksJar', Jar) {
     }
 }
 
+tasks.register('featureBenchJar', Jar) {
+    group = 'verification'
+    description = 'Packages isolated, paired feature benchmarks (never included in the release jar)'
+    dependsOn 'testClasses'
+    archiveFileName = 'feature-bench.jar'
+    destinationDirectory = layout.buildDirectory.dir('test-mods')
+    from(sourceSets.test.output) {
+        include 'com/synsenetwork/vanadium/featurebench/**'
+    }
+    from('src/test/resources/feature-bench.fabric.mod.json') { rename { 'fabric.mod.json' } }
+    from('src/test/resources/feature-bench.mixins.json')
+}
+
 // Runtime mods for the dev server (C2ME — required by fabric.mod.json — spark, etc.) are NOT
 // managed by Gradle: Loom can't unpack C2ME's 15 nested JiJ mods onto the dev classpath, so any
 // Gradle-side mechanism is a workaround. Drop the release jars into run/mods yourself;
