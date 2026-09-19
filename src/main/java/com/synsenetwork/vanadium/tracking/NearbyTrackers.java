@@ -9,6 +9,7 @@ import it.unimi.dsi.fastutil.objects.Reference2LongOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Set;
 import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ChunkMap.TrackedEntity;
@@ -170,33 +171,82 @@ public final class NearbyTrackers {
 
     /** Diffs each player's in-range tracker set against what they knew last tick. */
     private void diffPlayers(List<ServerPlayer> players, DistanceManager tickets) {
+        List<PlayerDiff> diffs = new ArrayList<>(players.size());
         for (ServerPlayer player : players) {
             ReferenceOpenHashSet<TrackedEntity> known = playerTrackers.get(player);
-            if (known == null) {
-                continue; // tracker not loaded yet; the load-time pass covers this join tick
-            }
+            if (known == null) continue;
             Set<TrackedEntity> current = areaMap.objectsAt(player.chunkPosition().pack());
             boolean playerMoved = playerPrevPos.get(player) != player.position();
+            diffs.add(new PlayerDiff(player, known, current, playerMoved, tickets));
+        }
+        // tick() excludes membership/index changes. Each job owns exactly one player's known set;
+        // workers only read the stable index and movement set, and never invoke tracking callbacks.
+        long comparisons = 0;
+        for (PlayerDiff diff : diffs) comparisons += (long) diff.known.size() + diff.current.size();
+        if (diffs.size() < 2 || comparisons < 1024) {
+            for (PlayerDiff diff : diffs) diff.run();
+            return;
+        }
+        for (PlayerDiff diff : diffs) diff.updates = new ArrayList<>();
+        Vanadium.scheduler.prepare(diffs);
+        for (PlayerDiff diff : diffs) {
+            for (TrackingUpdate update : diff.updates) {
+                applyUpdate(diff.player, update.tracker, update.remove, update.sendChanges, update.updatePlayer);
+            }
+        }
+    }
 
+    private void applyUpdate(ServerPlayer player, TrackedEntity tracker, boolean remove, boolean send, boolean update) {
+        if (remove) {
+            enqueue(tracker, () -> tracker.removePlayer(player));
+        } else {
+            if (send && tickedOnce.add(tracker)) enqueue(tracker, entry(tracker)::sendChanges);
+            if (update) enqueue(tracker, () -> tracker.updatePlayer(player));
+        }
+    }
+
+    private final class PlayerDiff implements Runnable {
+        private final ServerPlayer player;
+        private final ReferenceOpenHashSet<TrackedEntity> known;
+        private final Set<TrackedEntity> current;
+        private final boolean playerMoved;
+        private final DistanceManager tickets;
+        private List<TrackingUpdate> updates;
+
+        private PlayerDiff(ServerPlayer player, ReferenceOpenHashSet<TrackedEntity> known,
+                           Set<TrackedEntity> current, boolean playerMoved, DistanceManager tickets) {
+            this.player = player;
+            this.known = known;
+            this.current = current;
+            this.playerMoved = playerMoved;
+            this.tickets = tickets;
+        }
+
+        @Override public void run() {
             for (var iterator = known.iterator(); iterator.hasNext(); ) {
                 TrackedEntity tracker = iterator.next();
                 if (!current.contains(tracker)) {
                     iterator.remove();
-                    enqueue(tracker, () -> tracker.removePlayer(player));
+                    update(tracker, true, false, false);
                 }
             }
             for (TrackedEntity tracker : current) {
                 boolean fresh = known.add(tracker);
-                if (tickedOnce.add(tracker) && (entity(tracker).needsSync || tickets.inEntityTickingRange(entity(tracker).chunkPosition().pack()))) {
-                    ServerEntity entry = entry(tracker);
-                    enqueue(tracker, entry::sendChanges);
-                }
-                if (fresh || playerMoved || movedTrackers.contains(tracker)) {
-                    enqueue(tracker, () -> tracker.updatePlayer(player));
+                boolean send = entity(tracker).needsSync || tickets.inEntityTickingRange(entity(tracker).chunkPosition().pack());
+                boolean update = fresh || playerMoved || movedTrackers.contains(tracker);
+                if (send || update) {
+                    update(tracker, false, send, update);
                 }
             }
         }
+
+        private void update(TrackedEntity tracker, boolean remove, boolean send, boolean update) {
+            if (updates == null) applyUpdate(player, tracker, remove, send, update);
+            else updates.add(new TrackingUpdate(tracker, remove, send, update));
+        }
     }
+
+    private record TrackingUpdate(TrackedEntity tracker, boolean remove, boolean sendChanges, boolean updatePlayer) {}
 
     /** Publishes this tick's positions as "previous" and clears the per-tick scratch. */
     private void commitPositions(List<ServerPlayer> players) {

@@ -59,6 +59,12 @@ query selected 1 of 128 mobs; a 2,000-query sanity timing took 5.56ms for full s
 end-to-end speedup claim. The host is the Ryzen 5 9600X, Java 25, 12 configured workers,
 auto cell size 3, default flags and pinned C2ME; no dual-Xeon result is available.
 
+The tracking fixture uses eight simulated players and 160 mobs with a four-worker test pool.
+It advances staging into the area index, exercises the parallel preparation threshold,
+checks leaving/returning watchers, and detects concurrent update callbacks on one tracker.
+Callbacks are instrumented stand-ins: actual client packet ordering still needs multiplayer
+coverage. The full build and live C2ME fixture passed after tracking preparation was split.
+
 ```sh
 ./gradlew build
 ./gradlew test --tests 'com.synsenetwork.vanadium.tick.*'

@@ -37,6 +37,11 @@ public final class TickScheduler {
         return cellSize;
     }
 
+    /** Independent preparation jobs only: inputs stay stable and jobs must not enqueue into cell grids. */
+    public void prepare(List<? extends Runnable> jobs) {
+        pool.runWave(jobs, null);
+    }
+
     /** Server-thread only; profiling is opt-in and does not change dispatch. */
     public void setProfile(TickProfile profile) {
         this.profile = profile;

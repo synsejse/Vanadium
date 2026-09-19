@@ -123,6 +123,13 @@ unchanged coverage. Disjoint teleports still update both complete squares.
 Tracking, chunk transitions, and packet flush consolidation need
 live multiplayer coverage; unit scheduler tests do not exercise them.
 
+Tracking preparation partitions visibility diffs by player once at least two players and
+1,024 candidate/known comparisons are present. Smaller workloads run inline. The nearby
+index stays stable across the preparation barrier; each job owns one player's known set
+and only records actions. The caller merges these actions in player order, deduplicates
+entry ticks, and enqueues normal per-tracker cell work. Workers in this preparation phase
+must not invoke tracking callbacks or acquire the nearby-index monitor held by the caller.
+
 `NavigationIndex` conservatively indexes vanilla navigation invalidation ranges. Block
 changes still call vanilla's exact predicate on the candidates. Membership changes, movement,
 path replacement, recomputation and navigation ticks mark mobs dirty; dirty mobs remain
