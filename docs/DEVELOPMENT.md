@@ -88,7 +88,7 @@ profile times overlap: do not add them together. Caller tail wait is not lock ti
   modpack TPS, p95/p99 tick latency, exploration, or every older config flag.
   Timing batches and JFR samples are not individual-tick latency distributions.
 - **Parallelism:** worlds, stages and four colors still have barriers; one cell's
-  tasks execute serially. Player simulation, tracking merge, packet sending and
+  tasks execute serially. Player simulation, tracking dispatch, packet sending and
   several world bookkeeping paths remain on the server thread. Auto workers can
   oversubscribe the CPU alongside C2ME, GC and networking. NUMA behavior is untested.
 - **Navigation:** the quadratic cleanup and redundant candidate copying are fixed.
@@ -97,9 +97,10 @@ profile times overlap: do not add them together. Caller tail wait is not lock ti
   reduce candidate scans until paths settle or edits become frequent.
   Custom predicates use conservative fallbacks; mods bypassing invalidation hooks
   require integration. The benchmark includes refresh but not pathfinding itself.
-- **Tracking/spawning:** copying inputs, diff records and ordered reduction can
-  outweigh parallel work: tracking preparation was **13–25% slower**, and the small
-  spawn-count fallback was **28% slower** here. Tracking fixtures omit real network
+- **Tracking/spawning:** tracking uses reusable player-owned action rows and one task
+  per tracker; caller-side dispatch/index maintenance remain. Rows retain capacity
+  for peak tracker counts until the player leaves. The small spawn-count fallback
+  was **28% slower** in the baseline and still needs its copy removed. Fixtures omit real network
   callbacks; spawn fixtures omit real player caps and charged-biome populations.
   The spawn check/accounting sequence is not made atomic by preparation parallelism.
 - **Shared locks:** neighbor chains still hold one world monitor. Removing list

@@ -136,11 +136,16 @@ Tracking, chunk transitions, and packet flush consolidation need
 live multiplayer coverage; unit scheduler tests do not exercise them.
 
 Tracking preparation partitions visibility diffs by player once at least two players and
-1,024 candidate/known comparisons are present. Smaller workloads run inline. The nearby
-index stays stable across the preparation barrier; each job owns one player's known set
-and only records actions. The caller merges these actions in player order, deduplicates
-entry ticks, and enqueues normal per-tracker cell work. Workers in this preparation phase
-must not invoke tracking callbacks or acquire the nearby-index monitor held by the caller.
+1,024 candidate/known comparisons are present. Smaller workloads run inline through the
+same preparation path. Each player owns a reusable byte array of action flags, indexed by
+tracker slots assigned on the caller. Rows have separate writers, and slots stay stable
+through preparation and tracking barriers. The caller queues one task per active tracker;
+that task reads the completed rows in player order, sends entry changes once, then applies
+the appropriate remove/update callbacks. There are no per-pair records or serial object
+merge. Buffers grow geometrically and clear the active prefix on reuse; byte storage is
+proportional to player count times peak tracker count. Player departure releases its row.
+Workers in preparation never invoke callbacks or acquire the nearby-index monitor held
+by the caller. The subsequent tracking wave owns all callback writes per tracker.
 
 `NavigationIndex` conservatively indexes vanilla navigation invalidation ranges. Block
 changes still call vanilla's exact predicate on the candidates. Membership changes, movement,

@@ -24,14 +24,12 @@ actual config toggles from test-only controls and narrower contention probes.
 
 ## Next priorities
 
-1. **Address measured regressions first.** Navigation cleanup, candidate copying
-   and rare-edit refresh overhead now have fixes validated by repeated A/B runs. Tracking
-   preparation can spend its savings on records and caller-side merging. Measure
-   representative dirty rates/player populations before choosing a fallback policy
-   or changing thresholds. Do not assume more helpers fixes extra serial work.
-2. **Reduce preparation allocation.** Small spawn-count workloads still copy entity
-   membership; chunk packets create additional buffers and copy them again on the
-   caller. Preserve snapshot consistency, lifetime bounds and ordered reductions.
+1. **Remove small spawn-count copying.** Navigation and tracking regressions now
+   have fixes validated by repeated A/B runs. Tracking uses reusable player-owned
+   action rows and one task per tracker, eliminating its serial record merge.
+2. **Reduce remaining preparation allocation.** Spawn snapshots and chunk packet
+   buffers still add caller work. Preserve snapshot consistency, lifetime bounds
+   and ordered reductions while reducing those costs.
 3. **Profile the intended pack on the Xeons.** Use steady-state dense-base, dispersed
    players, mob farms, redstone and exploration workloads. Record TPS, tick p95/p99,
    main-thread CPU, allocation and waits. Compare no Vanadium, disabled Vanadium

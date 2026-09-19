@@ -30,19 +30,27 @@ final class TrackingChecks {
             NearbyTrackers index = new NearbyTrackers();
             List<ServerPlayer> players = new ArrayList<>();
             List<Set<ServerPlayer>> watchers = new ArrayList<>();
+            List<ChunkMap.TrackedEntity> playerTrackers = new ArrayList<>();
+            List<ChunkMap.TrackedEntity> mobTrackers = new ArrayList<>();
             for (int i = 0; i < 8; i++) {
                 ServerPlayer player = new ServerPlayer(level.getServer(), level,
                         new GameProfile(UUID.randomUUID(), "Tracking" + i), ClientInformation.createDefault());
                 player.setPos(0, 100, 0);
                 players.add(player);
             }
-            for (ServerPlayer player : players) index.add(tracker(level, player, ConcurrentHashMap.newKeySet()), players);
+            for (ServerPlayer player : players) {
+                var tracker = tracker(level, player, ConcurrentHashMap.newKeySet());
+                playerTrackers.add(tracker);
+                index.add(tracker, players);
+            }
             for (int i = 0; i < 160; i++) {
                 Pig mob = new Pig(EntityTypes.PIG, level);
                 mob.setPos(i % 32, 100, i / 32);
                 Set<ServerPlayer> seen = ConcurrentHashMap.newKeySet();
                 watchers.add(seen);
-                index.add(tracker(level, mob, seen), players);
+                var tracker = tracker(level, mob, seen);
+                mobTrackers.add(tracker);
+                index.add(tracker, players);
             }
             for (int i = 0; i < 202; i++) tick(index, players, level);
             check(watchers.stream().allMatch(seen -> seen.size() == 8), "staging migration lost watchers");
@@ -52,6 +60,24 @@ final class TrackingChecks {
             players.getFirst().setPos(0, 100, 0);
             tick(index, players, level);
             check(watchers.stream().allMatch(seen -> seen.size() == 8), "return-range diff failed");
+
+            // Grow player rows, reorder slots by removing a tracker, then reuse the buffers.
+            ServerPlayer newcomer = new ServerPlayer(level.getServer(), level,
+                    new GameProfile(UUID.randomUUID(), "NewTracker"), ClientInformation.createDefault());
+            newcomer.setPos(0, 100, 0);
+            players.add(newcomer);
+            index.add(tracker(level, newcomer, ConcurrentHashMap.newKeySet()), players);
+            tick(index, players, level);
+            check(watchers.stream().allMatch(seen -> seen.size() == 9), "joining player lost tracking actions");
+            ServerPlayer leaving = players.removeFirst();
+            index.remove(playerTrackers.getFirst());
+            index.remove(mobTrackers.getFirst());
+            Set<ServerPlayer> removed = watchers.removeFirst();
+            removed.clear();
+            for (int i = 0; i < 3; i++) tick(index, players, level);
+            check(removed.isEmpty(), "removed tracker received stale actions");
+            check(watchers.stream().allMatch(seen -> seen.size() == 8 && !seen.contains(leaving)
+                    && seen.contains(newcomer)), "player removal or slot reuse corrupted actions");
             System.out.println("TRACKING_PREPARATION_CHECKS_PASSED players=8 mobs=160");
         } finally {
             Vanadium.scheduler = previous;
@@ -74,7 +100,11 @@ final class TrackingChecks {
                     else watchers.remove(player);
                 } finally { updating.set(false); }
             }
-            @Override public void removePlayer(ServerPlayer player) { watchers.remove(player); }
+            @Override public void removePlayer(ServerPlayer player) {
+                check(updating.compareAndSet(false, true), "concurrent remove/update on one tracker");
+                try { watchers.remove(player); }
+                finally { updating.set(false); }
+            }
             @Override public void sendToTrackingPlayersAndSelf(Packet<? super ClientGamePacketListener> packet) {}
         };
     }

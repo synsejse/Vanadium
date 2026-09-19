@@ -10,6 +10,7 @@ import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Set;
 import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ChunkMap.TrackedEntity;
@@ -23,11 +24,10 @@ import net.minecraft.world.phys.Vec3;
 /**
  * Inverted entity-tracking index, replacing the O(entities x players) scans in
  * tickEntityMovement. Algorithm derived from VMP-fabric's NearbyEntityTracking (MIT,
- * Copyright (c) ishland), restructured for Vanadium's wave model: every decision (index
- * maintenance, per-player diff, moved detection) runs serially on the server thread, and the
- * per-tracker work it produces — entry ticks, tracked-status updates, stop-tracking — is
- * enqueued into TRACKING cells keyed by the tracked entity's chunk, so a tracker's listener
- * set and entry state are only ever touched by one worker.
+ * Copyright (c) ishland), restructured for Vanadium's wave model. The caller maintains
+ * the index; independent player diffs prepare actions, then one task per tracker applies
+ * them in player order. TRACKING cells ensure each tracker's listener set and entry state
+ * are only touched by one worker.
  *
  * <p>Each tracker is painted onto an {@link AreaMap} square of its own track distance, so
  * "which trackers must consider player P" is one lookup. Freshly loaded trackers spend
@@ -41,12 +41,16 @@ import net.minecraft.world.phys.Vec3;
  */
 public final class NearbyTrackers {
     private static final int STAGING_TICKS = 200;
+    private static final byte REMOVE = 1;
+    private static final byte SEND = 2;
+    private static final byte UPDATE = 4;
 
     private final AreaMap<TrackedEntity> areaMap = new AreaMap<>();
     /** Painted trackers -> chunk key their square is centered on. */
     private final Reference2LongOpenHashMap<TrackedEntity> paintedChunk = new Reference2LongOpenHashMap<>();
     /** Trackers each player currently knows (mirrors the pair state built by the diff). */
-    private final Reference2ObjectOpenHashMap<ServerPlayer, ReferenceOpenHashSet<TrackedEntity>> playerTrackers = new Reference2ObjectOpenHashMap<>();
+    private final Reference2ObjectOpenHashMap<ServerPlayer, PlayerDiff> playerTrackers = new Reference2ObjectOpenHashMap<>();
+    private final Reference2ObjectOpenHashMap<TrackedEntity, TrackingTask> trackingTasks = new Reference2ObjectOpenHashMap<>();
     /** Last observed position identity per tracker/player; a fresh key counts as moved. */
     private final Reference2ObjectOpenHashMap<TrackedEntity, Vec3> trackerPrevPos = new Reference2ObjectOpenHashMap<>();
     private final Reference2ObjectOpenHashMap<ServerPlayer, Vec3> playerPrevPos = new Reference2ObjectOpenHashMap<>();
@@ -56,7 +60,6 @@ public final class NearbyTrackers {
 
     /** Per-tick scratch, cleared at the end of every tick. */
     private final ReferenceOpenHashSet<TrackedEntity> movedTrackers = new ReferenceOpenHashSet<>();
-    private final ReferenceOpenHashSet<TrackedEntity> tickedOnce = new ReferenceOpenHashSet<>();
 
     private long tick;
 
@@ -66,8 +69,9 @@ public final class NearbyTrackers {
      */
     public synchronized void add(TrackedEntity tracker, List<ServerPlayer> players) {
         if (entity(tracker) instanceof ServerPlayer player) {
-            playerTrackers.put(player, new ReferenceOpenHashSet<>());
+            playerTrackers.put(player, new PlayerDiff(player));
         }
+        trackingTasks.put(tracker, new TrackingTask(tracker));
         staging.put(tracker, tick);
         for (ServerPlayer player : players) {
             tracker.updatePlayer(player);
@@ -80,13 +84,14 @@ public final class NearbyTrackers {
             removePlayer(player);
         }
         staging.removeLong(tracker);
+        trackingTasks.remove(tracker);
         if (paintedChunk.containsKey(tracker)) {
             paintedChunk.removeLong(tracker);
             areaMap.remove(tracker);
         }
         trackerPrevPos.remove(tracker);
-        for (ReferenceOpenHashSet<TrackedEntity> known : playerTrackers.values()) {
-            known.remove(tracker);
+        for (PlayerDiff diff : playerTrackers.values()) {
+            diff.known.remove(tracker);
         }
     }
 
@@ -94,9 +99,10 @@ public final class NearbyTrackers {
         for (TrackedEntity tracker : staging.keySet()) {
             tracker.removePlayer(player);
         }
-        ReferenceOpenHashSet<TrackedEntity> known = playerTrackers.remove(player);
-        if (known != null) {
-            for (TrackedEntity tracker : known) {
+        PlayerDiff diff = playerTrackers.remove(player);
+        playerPrevPos.remove(player);
+        if (diff != null) {
+            for (TrackedEntity tracker : diff.known) {
                 tracker.removePlayer(player);
             }
         }
@@ -171,63 +177,61 @@ public final class NearbyTrackers {
 
     /** Diffs each player's in-range tracker set against what they knew last tick. */
     private void diffPlayers(List<ServerPlayer> players, DistanceManager tickets) {
+        if (players.isEmpty()) return;
+        int index = 0;
+        for (TrackingTask task : trackingTasks.values()) task.index = index++;
         List<PlayerDiff> diffs = new ArrayList<>(players.size());
         for (ServerPlayer player : players) {
-            ReferenceOpenHashSet<TrackedEntity> known = playerTrackers.get(player);
-            if (known == null) continue;
-            Set<TrackedEntity> current = areaMap.objectsAt(player.chunkPosition().pack());
-            boolean playerMoved = playerPrevPos.get(player) != player.position();
-            diffs.add(new PlayerDiff(player, known, current, playerMoved, tickets));
+            PlayerDiff diff = playerTrackers.get(player);
+            if (diff == null) continue;
+            diff.current = areaMap.objectsAt(player.chunkPosition().pack());
+            diff.playerMoved = playerPrevPos.get(player) != player.position();
+            diff.tickets = tickets;
+            if (diff.actions.length < trackingTasks.size()) {
+                diff.actions = new byte[Math.max(trackingTasks.size(), diff.actions.length * 2)];
+            }
+            diffs.add(diff);
         }
         // tick() excludes membership/index changes. Each job owns exactly one player's known set;
-        // workers only read the stable index and movement set, and never invoke tracking callbacks.
+        // workers write separate action arrays and never invoke tracking callbacks. Slots are
+        // assigned on the caller and remain stable through both preparation and tracking barriers.
         long comparisons = 0;
         for (PlayerDiff diff : diffs) comparisons += (long) diff.known.size() + diff.current.size();
         if (diffs.size() < 2 || comparisons < 1024) {
             for (PlayerDiff diff : diffs) diff.run();
-            return;
-        }
-        for (PlayerDiff diff : diffs) diff.updates = new ArrayList<>();
-        Vanadium.scheduler.prepare(diffs);
-        for (PlayerDiff diff : diffs) {
-            for (TrackingUpdate update : diff.updates) {
-                applyUpdate(diff.player, update.tracker, update.remove, update.sendChanges, update.updatePlayer);
-            }
-        }
-    }
-
-    private void applyUpdate(ServerPlayer player, TrackedEntity tracker, boolean remove, boolean send, boolean update) {
-        if (remove) {
-            enqueue(tracker, () -> tracker.removePlayer(player));
         } else {
-            if (send && tickedOnce.add(tracker)) enqueue(tracker, entry(tracker)::sendChanges);
-            if (update) enqueue(tracker, () -> tracker.updatePlayer(player));
+            Vanadium.scheduler.prepare(diffs);
+        }
+        for (TrackingTask task : trackingTasks.values()) {
+            for (PlayerDiff diff : diffs) {
+                if (diff.actions[task.index] != 0) {
+                    task.diffs = diffs;
+                    enqueue(task.tracker, task);
+                    break;
+                }
+            }
         }
     }
 
     private final class PlayerDiff implements Runnable {
         private final ServerPlayer player;
-        private final ReferenceOpenHashSet<TrackedEntity> known;
-        private final Set<TrackedEntity> current;
-        private final boolean playerMoved;
-        private final DistanceManager tickets;
-        private List<TrackingUpdate> updates;
+        private final ReferenceOpenHashSet<TrackedEntity> known = new ReferenceOpenHashSet<>();
+        private Set<TrackedEntity> current;
+        private boolean playerMoved;
+        private DistanceManager tickets;
+        private byte[] actions = new byte[0];
 
-        private PlayerDiff(ServerPlayer player, ReferenceOpenHashSet<TrackedEntity> known,
-                           Set<TrackedEntity> current, boolean playerMoved, DistanceManager tickets) {
+        private PlayerDiff(ServerPlayer player) {
             this.player = player;
-            this.known = known;
-            this.current = current;
-            this.playerMoved = playerMoved;
-            this.tickets = tickets;
         }
 
         @Override public void run() {
+            Arrays.fill(actions, 0, trackingTasks.size(), (byte) 0);
             for (var iterator = known.iterator(); iterator.hasNext(); ) {
                 TrackedEntity tracker = iterator.next();
                 if (!current.contains(tracker)) {
                     iterator.remove();
-                    update(tracker, true, false, false);
+                    actions[trackingTasks.get(tracker).index] = REMOVE;
                 }
             }
             for (TrackedEntity tracker : current) {
@@ -235,18 +239,38 @@ public final class NearbyTrackers {
                 boolean send = entity(tracker).needsSync || tickets.inEntityTickingRange(entity(tracker).chunkPosition().pack());
                 boolean update = fresh || playerMoved || movedTrackers.contains(tracker);
                 if (send || update) {
-                    update(tracker, false, send, update);
+                    actions[trackingTasks.get(tracker).index] = (byte) ((send ? SEND : 0) | (update ? UPDATE : 0));
                 }
             }
         }
-
-        private void update(TrackedEntity tracker, boolean remove, boolean send, boolean update) {
-            if (updates == null) applyUpdate(player, tracker, remove, send, update);
-            else updates.add(new TrackingUpdate(tracker, remove, send, update));
-        }
     }
 
-    private record TrackingUpdate(TrackedEntity tracker, boolean remove, boolean sendChanges, boolean updatePlayer) {}
+    /** Reads the completed player-owned rows; one scheduled task owns all callbacks for this tracker. */
+    private static final class TrackingTask implements Runnable {
+        private final TrackedEntity tracker;
+        private int index;
+        private List<PlayerDiff> diffs;
+
+        private TrackingTask(TrackedEntity tracker) { this.tracker = tracker; }
+
+        @Override public void run() {
+            boolean sent = false;
+            try {
+                for (PlayerDiff diff : diffs) {
+                    byte action = diff.actions[index];
+                    if ((action & REMOVE) != 0) {
+                        tracker.removePlayer(diff.player);
+                    } else {
+                        if (!sent && (action & SEND) != 0) {
+                            entry(tracker).sendChanges();
+                            sent = true;
+                        }
+                        if ((action & UPDATE) != 0) tracker.updatePlayer(diff.player);
+                    }
+                }
+            } finally { diffs = null; }
+        }
+    }
 
     /** Publishes this tick's positions as "previous" and clears the per-tick scratch. */
     private void commitPositions(List<ServerPlayer> players) {
@@ -256,7 +280,6 @@ public final class NearbyTrackers {
             access(tracker).vanadium$setTrackedSection(SectionPos.of(entity));
         }
         movedTrackers.clear();
-        tickedOnce.clear();
         for (ServerPlayer player : players) {
             playerPrevPos.put(player, player.position());
         }

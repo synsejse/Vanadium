@@ -165,3 +165,31 @@ invalidation occurs during a snapshot. Live checks now cover those cases explici
 Build: 165 tests passed; live C2ME checks: `.vanadium/runs/smoke-dvdaho0o`.
 Measured runs: `features-a07gdhlk` (JFR), `features-7yub2n7l`, `features-f0tzfxo0`;
 summary: `.vanadium/navigation-fixed.json`. The short exploratory run is excluded.
+
+## Slowdown fixes: tracking
+
+The off control now runs the same reusable-row/batched-task implementation inline;
+on runs independent player preparation in parallel. Both arms include dispatch and
+callbacks, so this table isolates parallelism within the improved implementation.
+
+| Workload | Off µs | On µs | Paired speedup | Fork range | Caller CPU off/on µs | Allocation off/on KiB |
+|---|---:|---:|---:|---:|---:|---:|
+| tracking-8-players-256-mobs | 30.20 | 25.90 | 1.17× | 1.17–1.18× | 30.17 / 23.99 | 8.1 / 8.6 |
+| tracking-8-players-2048-mobs | 307.25 | 236.91 | 1.29× | 1.22–1.32× | 306.83 / 226.79 | 51.3 / 51.7 |
+
+Compared with the earlier implementation's enabled measurements (separate JVM runs),
+256 mobs improved from 56.13 to 25.90µs; 2,048 mobs from 464.70 to 236.91µs.
+Large-case allocation fell from 1,116.6 to 51.7KiB/op and caller CPU from 450.29 to
+226.79µs. Those historical comparisons are not paired samples. The within-build
+on/off comparisons above retain the original alternating-pair method.
+
+JFR no longer shows enqueue/record merging as the dominant caller work. The large
+on-profile spends 141/377 caller samples in `ServerEntity.sendChanges` and 64 in
+`TrackingTask.run`; workers execute player diffs. This clustered fixture still has
+little cell-level callback parallelism. Player-owned rows avoid shared output writes;
+tracker callbacks retain input player order and send changes once per tracker.
+
+Build: 165 tests passed. Live checks cover player arrival/departure, tracker removal,
+buffer growth and slot reuse as well as existing visibility/concurrent-writer checks:
+`.vanadium/runs/smoke-apw7b28_`. Measured runs: `features-gatvpb69` (JFR),
+`features-d6pzpvtz`, `features-2usbxpys`; summary `.vanadium/tracking-fixed.json`.
