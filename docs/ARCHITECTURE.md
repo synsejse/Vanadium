@@ -112,10 +112,13 @@ Chunk dirty notifications enter a concurrent queue. The server thread drains the
 preserves vanilla's ordered, deduplicated save set and C2ME's idle autosave iteration;
 workers never mutate that set or wait for disk work while marking a chunk dirty.
 
-Spawn preparation snapshots entity membership between simulation stages. Below 1,024
-entities it counts inline; larger inputs use contiguous batches with independent vanilla
-spawn states and local-cap calculators. The caller combines category counts, local player
-caps, and potential charges before spawning begins. Charge order follows the original
+The entity lookup exposes a live read-only Collection view, preserving membership and
+iteration semantics while allowing constant-time sizing. Spawn preparation counts views
+below 1,024 entities inline without a snapshot. Larger views are copied directly into a
+sized snapshot; unsized iterables retain a single-pass snapshot fallback. Parallel work
+uses contiguous batches with independent vanilla spawn states and local-cap calculators.
+The caller combines category counts, local player caps, and potential charges before
+spawning begins. Charge order follows the original
 entity order. This does not change the later shared spawn-attempt accounting policy.
 
 Item merging locks the two participating items in entity-ID order and rechecks merge

@@ -4,6 +4,7 @@ import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.tick.SpawnPreparation;
 import com.mojang.authlib.GameProfile;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import net.minecraft.core.BlockPos;
@@ -19,6 +20,7 @@ import net.minecraft.world.level.LocalMobCapCalculator;
 import net.minecraft.world.level.NaturalSpawner;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.PotentialCalculator;
+import net.minecraft.world.level.entity.EntityLookup;
 
 final class SpawnChecks {
     static void run(ServerLevel level) throws Exception {
@@ -32,6 +34,38 @@ final class SpawnChecks {
             entities.add(mob);
         }
         NaturalSpawner.ChunkGetter chunks = (pos, consumer) -> consumer.accept(chunk);
+        check(level.getAllEntities() instanceof Collection<?>, "world entity view does not expose its size");
+        for (int size : new int[]{0, 256, 1023, 1024, 1025, 2048}) {
+            List<Entity> input = entities.subList(0, size);
+            var expected = NaturalSpawner.createState(289, input, chunks, new LocalMobCapCalculator(map));
+            var counted = SpawnPreparation.count(289, input, chunks, new LocalMobCapCalculator(map), map);
+            check(expected.getMobCategoryCounts().equals(counted.getMobCategoryCounts()), "sized count differs at " + size);
+            boolean[] iterated = {false};
+            Iterable<Entity> singlePass = () -> {
+                check(!iterated[0], "unsized input iterated twice");
+                iterated[0] = true;
+                return input.iterator();
+            };
+            var unsized = SpawnPreparation.count(289, singlePass, chunks, new LocalMobCapCalculator(map), map);
+            check(expected.getMobCategoryCounts().equals(unsized.getMobCategoryCounts()), "unsized count differs at " + size);
+        }
+        EntityLookup<Entity> lookup = new EntityLookup<>();
+        Collection<?> view = (Collection<?>) lookup.getAllEntities();
+        check(view.isEmpty(), "new entity view is not empty");
+        lookup.add(entities.getFirst());
+        check(view.size() == 1 && view.contains(entities.getFirst()), "entity view lost live membership");
+        try {
+            view.clear();
+            throw new AssertionError("entity view permits clearing");
+        } catch (UnsupportedOperationException expected) { /* Preserve the read-only contract. */ }
+        var iterator = view.iterator();
+        iterator.next();
+        try {
+            iterator.remove();
+            throw new AssertionError("entity view permits iterator removal");
+        } catch (UnsupportedOperationException expected) { /* Preserve the read-only contract. */ }
+        lookup.remove(entities.getFirst());
+        check(view.isEmpty(), "entity view retained a removed entity");
         var reference = NaturalSpawner.createState(289, entities, chunks, new LocalMobCapCalculator(map));
         var parallel = SpawnPreparation.count(289, entities, chunks, new LocalMobCapCalculator(map), map);
         check(reference.getMobCategoryCounts().equals(parallel.getMobCategoryCounts()), "parallel spawn counts differ");

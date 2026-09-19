@@ -2,6 +2,7 @@ package com.synsenetwork.vanadium.mixin.world.entity;
 
 import com.synsenetwork.vanadium.concurrent.Int2ObjectConcurrentHashMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -14,6 +15,7 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(EntityLookup.class)
 public abstract class EntityLookupMixin<T extends EntityAccess> {
@@ -33,4 +35,9 @@ public abstract class EntityLookupMixin<T extends EntityAccess> {
         byId = new Int2ObjectConcurrentHashMap<>();
     }
 
+    /** Keep the visible entity view read-only while exposing its size for spawn preparation. */
+    @Inject(method = "getAllEntities", at = @At("HEAD"), cancellable = true)
+    private void readableEntities(CallbackInfoReturnable<Iterable<T>> ci) {
+        ci.setReturnValue(Collections.unmodifiableCollection(byId.values()));
+    }
 }

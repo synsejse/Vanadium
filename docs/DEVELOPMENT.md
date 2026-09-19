@@ -99,9 +99,10 @@ profile times overlap: do not add them together. Caller tail wait is not lock ti
   require integration. The benchmark includes refresh but not pathfinding itself.
 - **Tracking/spawning:** tracking uses reusable player-owned action rows and one task
   per tracker; caller-side dispatch/index maintenance remain. Rows retain capacity
-  for peak tracker counts until the player leaves. The small spawn-count fallback
-  was **28% slower** in the baseline and still needs its copy removed. Fixtures omit real network
-  callbacks; spawn fixtures omit real player caps and charged-biome populations.
+  for peak tracker counts until the player leaves. Small sized entity views now count
+  without copying; unsized mod-provided iterables still require a snapshot. Fixtures
+  omit real network callbacks; spawn fixtures omit real player caps and charged-biome
+  populations.
   The spawn check/accounting sequence is not made atomic by preparation parallelism.
 - **Shared locks:** neighbor chains still hold one world monitor. Removing list
   copies does not parallelize redstone. Per-item locks cover known vanilla paths;

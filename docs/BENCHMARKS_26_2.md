@@ -1,8 +1,11 @@
 # Minecraft 26.2 feature benchmarks
 
-Measured 2026-09-19, production code at `bc13da9`, using the checked-in feature
-benchmark harness. These are warmed subsystem operations in a transformed Fabric
-server with C2ME, not whole-server TPS gains. All four correctness fixes remain on.
+Measured 2026-09-19 using the checked-in feature benchmark harness. The baseline
+uses production code at `bc13da9`; follow-up results cover the fixes for
+[navigation](#slowdown-fixes-navigation), [tracking](#slowdown-fixes-tracking) and
+[spawn preparation](#slowdown-fixes-spawn-preparation). These are warmed subsystem
+operations in a transformed Fabric server with C2ME, not whole-server TPS gains.
+All four correctness fixes remain on.
 
 ## Method
 
@@ -35,8 +38,8 @@ server with C2ME, not whole-server TPS gains. All four correctness fixes remain 
 | Feature | Off control | On operation and workload |
 |---|---|---|
 | Navigation | Full scan through the current navigation set; invalidation hooks stay installed | Conservative candidates plus one refresh per operation; 1,024 32-node paths, 1 or 64 edits. Dispersed mobs are 128 blocks apart; dense mobs overlap. Dirty cases invalidate every mob before refresh, without moving the bounds. No pathfinding/recomputation is executed. |
-| Tracking preparation | Test-only mixin selects the existing inline diff branch | Same area index, eight simulated players, 256/2,048 mobs, completed staging, moving players and sync-requested entities. Includes preparation, ordered merge, enqueue and stage drain. Player update/send callbacks are stand-ins; no real clients. |
-| Spawn counting | `parallelSpawning=false` calls vanilla `createState` | Snapshot, worker counts and reduction included. 256/2,048/8,192 alternating pigs/zombies; one third persistent, one loaded flat chunk. No live player caps or nonzero biome density charges in the timing fixture. Spawn attempts themselves are excluded. |
+| Tracking preparation | Test-only mixin selects the existing inline diff branch | Same area index, eight simulated players, 256/2,048 mobs, completed staging, moving players and sync-requested entities. Includes preparation and callback dispatch/drain; the baseline also merges update records. Player update/send callbacks are stand-ins; no real clients. |
+| Spawn counting | `parallelSpawning=false` calls vanilla `createState` | Snapshot when needed, worker counts and reduction included. 256/2,048/8,192 alternating pigs/zombies; one third persistent, one loaded flat chunk. No live player caps or nonzero biome density charges in the timing fixture. Spawn attempts themselves are excluded. |
 | Item locks | All candidate pairs share one reentrant lock | Same current safe merge method with individual locks; 1/32 independent pairs, 128 checks per pair per wave, nonmatching stone/dirt stacks. This isolates lock granularity, not the historical whole neighbor-search implementation or pickup throughput. |
 | Neighbor queue | Former `CopyOnWriteArrayList` restored in the real updater | Current `ArrayList`; same synchronized queue drain. Synthetic callbacks enqueue 6/256 leaves. Block behavior, redstone computation and cross-region chains are excluded. |
 | Chunk packets | Direct `ClientboundLevelChunkPacketData` construction | Section preparation, barrier, buffers, copying and packet-data construction included. Batches of 8/32 flat chunks, then eight dense 16-state palette sections per chunk. Fixture section edits are outside measurement. Lighting packets, selection/quotas, compression and sending are excluded. |
@@ -49,7 +52,7 @@ outside normal ticking; its later catch-up warning is expected. This avoids the
 
 ## Baseline results
 
-**The changes are not uniformly faster.** Navigation has the largest conditional gain
+**The original changes were not uniformly faster.** Navigation has the largest conditional gain
 and the worst regression; tracking preparation regresses in both measured sizes.
 Large spawn counts, independent item candidates, neighbor queue storage and packet
 section preparation benefit in these fixtures. One operation means the complete
@@ -78,7 +81,7 @@ workload named in the row, not one Minecraft tick. 1,000µs = 1ms.
 | profiler-128-cells-work-0 | 5.67 | 11.67 | 0.48× | 0.47–0.49× | 5.37 / 10.58 | 1.1 / 6.4 |
 | profiler-128-cells-work-2000 | 40.82 | 46.29 | 0.90× | 0.88–0.95× | 36.64 / 39.92 | 1.7 / 6.8 |
 
-## What the profiles show
+## What the baseline profiles show
 
 - **Navigation cleanup has a concrete quadratic path.** In the all-dirty/one-edit
   on-profile, 292 of 394 caller CPU samples end in `Entity.getId`; the stack is
@@ -193,3 +196,32 @@ Build: 165 tests passed. Live checks cover player arrival/departure, tracker rem
 buffer growth and slot reuse as well as existing visibility/concurrent-writer checks:
 `.vanadium/runs/smoke-apw7b28_`. Measured runs: `features-gatvpb69` (JFR),
 `features-d6pzpvtz`, `features-2usbxpys`; summary `.vanadium/tracking-fixed.json`.
+
+## Slowdown fixes: spawn preparation
+
+The entity lookup exposes a live, read-only collection. Inputs below 1,024 entities
+take the serial path without copying; larger collections provide a sized snapshot.
+Unsized, potentially single-pass mod iterables retain the snapshot fallback.
+
+| Workload | Off µs | On µs | Paired speedup | Fork range | Caller CPU off/on µs | Allocation off/on KiB |
+|---|---:|---:|---:|---:|---:|---:|
+| spawn-count-256 | 2.47 | 2.47 | 1.00× | 1.00–1.00× | 2.46 / 2.46 | 11.7 / 11.7 |
+| spawn-count-2048 | 21.22 | 11.39 | 1.86× | 1.76–1.93× | 21.16 / 10.08 | 86.4 / 108.4 |
+| spawn-count-8192 | 107.15 | 33.30 | 3.21× | 3.13–3.27× | 106.82 / 23.36 | 342.4 / 412.4 |
+
+The small-case regression and extra allocation disappear. Large-case caller CPU
+falls by 78%; combined caller/helper CPU is approximately 108µs versus 107µs off.
+JFR no longer lists `ArrayList.grow` among the leading caller frames. Both caller
+and helpers spend their samples counting entities and looking up biome data.
+
+The enabled 8,192-entity operation previously measured 63.47µs and now measures
+33.30µs, but that historical comparison uses separate JVM runs. Absolute allocation
+also differs in the vanilla off arm between the original full suite and this
+filtered run; do not attribute that difference to the fix. Within this run, parallel
+preparation still adds 70KiB/op for the large case, versus 116KiB in the baseline.
+
+Build: 165 tests passed. Live C2ME checks cover the 1,023/1,024/1,025 boundaries,
+single-pass iterables, live collection membership and rejected view mutations:
+`.vanadium/runs/smoke-8z1xd693`. Measured runs: `features-m8ict8ix` (JFR),
+`features-g49ks_8b`, `features-xez91_l4`; summary `.vanadium/spawn-fixed.json`.
+All three JVMs used `--filter 'spawn-count-.*'`; the short exploratory run is excluded.

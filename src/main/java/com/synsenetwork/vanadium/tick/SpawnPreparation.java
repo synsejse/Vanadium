@@ -2,6 +2,7 @@ package com.synsenetwork.vanadium.tick;
 
 import com.synsenetwork.vanadium.Vanadium;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import net.minecraft.server.level.ChunkMap;
 import net.minecraft.world.entity.Entity;
@@ -18,8 +19,15 @@ public final class SpawnPreparation {
         if (!Vanadium.config.enabled || !Vanadium.config.parallelSpawning) {
             return NaturalSpawner.createState(chunkCount, entities, chunks, localCaps);
         }
-        List<Entity> snapshot = new ArrayList<>();
-        entities.forEach(snapshot::add);
+        List<Entity> snapshot;
+        if (entities instanceof Collection<Entity> collection) {
+            if (collection.size() < 1024) return NaturalSpawner.createState(chunkCount, entities, chunks, localCaps);
+            snapshot = new ArrayList<>(collection);
+        } else {
+            // Preserve support for unsized, possibly single-pass iterables from other implementations.
+            snapshot = new ArrayList<>();
+            entities.forEach(snapshot::add);
+        }
         if (snapshot.size() < 1024) return NaturalSpawner.createState(chunkCount, snapshot, chunks, localCaps);
 
         int jobs = Math.min(Vanadium.scheduler.workerCount() + 1, (snapshot.size() + 255) / 256);
