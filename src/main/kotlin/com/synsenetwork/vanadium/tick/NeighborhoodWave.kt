@@ -15,6 +15,12 @@ import java.util.concurrent.atomic.AtomicReference
  * other's, so at least one observes the other: both can never pass. Waits only point to higher
  * indices, so they cannot form a cycle.
  *
+ * Claim attempts first read the neighbors and write nothing when one is busy, so idle participants do not
+ * bounce the state lines that running cells and other scanners read. A participant whose scan finds no
+ * free cell waits for the completion count to change instead of rescanning: a claim only backs off for a
+ * RUNNING neighbor or a lower-index TRYING one, and every such chain ends at a cell that runs, so a
+ * failed scan always has a completion coming.
+ *
  * Cells are tried in list order (callers sort them largest-first); tasks within a cell still run in
  * insertion order. Adjacent cells run in an order that varies between ticks.
  *
@@ -48,8 +54,12 @@ internal class NeighborhoodWave(cells: List<Cell>, private val work: List<Runnab
     fun failure(): Throwable? = failure.get()
 
     private fun participate() {
-        while (remaining.get() > 0) {
-            if (!claimAndRunOne()) Thread.onSpinWait()
+        while (true) {
+            val seen = remaining.get()
+            if (seen == 0) return
+            if (claimAndRunOne()) continue
+            // Nothing claimable: only a completion can unblock a cell, so wait for one instead of rescanning.
+            while (remaining.get() == seen) Thread.onSpinWait()
         }
     }
 
@@ -65,7 +75,7 @@ internal class NeighborhoodWave(cells: List<Cell>, private val work: List<Runnab
                 }
                 continue
             }
-            if (state != PENDING || !tryClaim(i)) continue
+            if (state != PENDING || blocked(i) || !tryClaim(i)) continue
             try {
                 work[i].run()
             } catch (t: Throwable) {
@@ -75,6 +85,17 @@ internal class NeighborhoodWave(cells: List<Cell>, private val work: List<Runnab
                 remaining.decrementAndGet()
             }
             return true
+        }
+        return false
+    }
+
+    /** Read-only precheck: a claim attempt that would back off writes nothing. */
+    private fun blocked(cell: Int): Boolean {
+        for (k in 0 until 8) {
+            val neighbor = neighbors[cell * 8 + k]
+            if (neighbor < 0) continue
+            val state = states.get(neighbor * STRIDE)
+            if (state == RUNNING || state == TRYING) return true
         }
         return false
     }
