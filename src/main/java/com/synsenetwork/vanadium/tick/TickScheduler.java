@@ -1,18 +1,20 @@
 package com.synsenetwork.vanadium.tick;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.LongConsumer;
 
 /**
- * Runs each {@link Stage} of a world tick as four colored passes on a {@link WorkerPool}.
- * Worlds are processed one at a time; within a stage, cells of the same color run in parallel,
- * and different colors are separated by a barrier so adjacent cells never overlap in time.
+ * Runs each {@link Stage} of a world tick as one {@link NeighborhoodWave} on a {@link WorkerPool}:
+ * a cell starts as soon as none of its eight neighbors is running, so adjacent cells never overlap
+ * in time. Worlds are processed one at a time, and stages are separated by full barriers.
  */
 public final class TickScheduler {
-    private static final int COLORS = 4;
+    /** Largest-first order shortens a wave's tail when cell sizes differ (LPT scheduling). */
+    private static final Comparator<Cell> LARGEST_FIRST = (a, b) -> Integer.compare(b.taskCount(), a.taskCount());
 
     private final WorkerPool pool;
     private int cellSize;
@@ -90,7 +92,7 @@ public final class TickScheduler {
         grids.get(stage).enqueue(chunkX, chunkZ, label == null ? task : new WaveDiagnostics.NamedTask(label, task));
     }
 
-    /** Runs the stage's queued work as four colored passes, then resets it. */
+    /** Runs the stage's queued work as one neighborhood-exclusion wave, then resets the stage. */
     public void run(Stage stage) {
         CellGrid grid = grids.get(stage);
         TickProfile recording = profile;
@@ -99,21 +101,9 @@ public final class TickScheduler {
             Long preparation = preparationStarts.remove(stage);
             if (preparation != null) recording.recordPhase(dimension, stage + " preparation", start - preparation);
         }
-        LongConsumer waitRecorder = recording != null ? nanos -> recording.recordWait(stage, nanos) : null;
         try {
-            for (int color = 0; color < COLORS; color++) {
-                List<Cell> cells = grid.cellsWithColor(color);
-                if (recording != null) recording.recordWave(stage, cells);
-                try (WaveDiagnostics.Watch watch = diagnostics != null && !cells.isEmpty()
-                        ? diagnostics.watch(stage, dimension, color, cellSize) : null) {
-                    List<? extends Runnable> tasks = watch == null ? cells : watch.wrap(cells);
-                    if (recording == null) {
-                        pool.runWave(tasks, waitRecorder);
-                    } else {
-                        runProfiledWave(stage, tasks, recording, waitRecorder);
-                    }
-                }
-            }
+            List<Cell> cells = grid.activeCells();
+            if (!cells.isEmpty()) runWave(stage, grid, cells, recording);
         } finally {
             if (recording != null) {
                 long end = System.nanoTime();
@@ -121,13 +111,36 @@ public final class TickScheduler {
                 recording.recordPhase(dimension, stage + " execution", end - start);
                 preparationStarts.put(stage, end);
             }
+            grid.endTick();
         }
-        grid.endTick();
     }
 
-    private void runProfiledWave(Stage stage, List<? extends Runnable> tasks,
-                                 TickProfile recording, LongConsumer waitRecorder) {
-        long[] durations = new long[tasks.size()];
+    private void runWave(Stage stage, CellGrid grid, List<Cell> cells, TickProfile recording) {
+        if (cells.size() > 2) cells.sort(LARGEST_FIRST);
+        if (recording != null) recording.recordWave(stage, cells);
+        LongConsumer waitRecorder = recording != null ? nanos -> recording.recordWait(stage, nanos) : null;
+        try (WaveDiagnostics.Watch watch = diagnostics != null ? diagnostics.watch(stage, dimension, cellSize) : null) {
+            List<? extends Runnable> tasks = watch == null ? cells : watch.wrap(cells);
+            long[] durations = recording != null ? new long[tasks.size()] : null;
+            if (durations != null) tasks = measured(tasks, durations);
+            try {
+                if (cells.size() == 1) {
+                    tasks.getFirst().run();
+                    return;
+                }
+                NeighborhoodWave wave = new NeighborhoodWave(cells, tasks, grid);
+                pool.runWave(wave.participants(Math.min(pool.workerCount() + 1, cells.size())), waitRecorder);
+                if (wave.failure() != null) {
+                    throw new RuntimeException("Vanadium worker task failed", wave.failure());
+                }
+            } finally {
+                if (durations != null) recording.recordCells(stage, durations);
+            }
+        }
+    }
+
+    /** Opt-in profiling: each cell writes its duration into its own slot; the caller aggregates. */
+    private static List<Runnable> measured(List<? extends Runnable> tasks, long[] durations) {
         List<Runnable> measured = new ArrayList<>(tasks.size());
         for (int i = 0; i < tasks.size(); i++) {
             int index = i;
@@ -141,10 +154,6 @@ public final class TickScheduler {
                 }
             });
         }
-        try {
-            pool.runWave(measured, waitRecorder);
-        } finally {
-            recording.recordCells(stage, durations);
-        }
+        return measured;
     }
 }

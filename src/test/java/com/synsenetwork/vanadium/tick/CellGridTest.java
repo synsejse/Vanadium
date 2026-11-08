@@ -13,20 +13,20 @@ class CellGridTest {
         assertNotSame(grid.cellFor(0, 0), grid.cellFor(8, 0));
     }
 
-    @Test void enqueuePartitionsActiveCellsByColor() {
+    @Test void enqueueRecordsEachActiveCellOnce() {
         CellGrid grid = new CellGrid(8);
-        grid.enqueue(0, 0, NOOP);   // cell (0,0) color 0
-        grid.enqueue(8, 0, NOOP);   // cell (1,0) color 1
-        assertEquals(1, grid.cellsWithColor(0).size());
-        assertEquals(1, grid.cellsWithColor(1).size());
-        assertEquals(0, grid.cellsWithColor(2).size());
+        grid.enqueue(0, 0, NOOP);   // cell (0,0)
+        grid.enqueue(7, 7, NOOP);   // same cell
+        grid.enqueue(8, 0, NOOP);   // cell (1,0)
+        assertEquals(2, grid.activeCells().size());
+        assertEquals(2, grid.activeCells().getFirst().taskCount());
     }
 
     @Test void cellForAloneDoesNotMarkActive() {
         CellGrid grid = new CellGrid(8);
         grid.cellFor(0, 0); // no task enqueued
         assertTrue(grid.isEmpty());
-        assertEquals(0, grid.cellsWithColor(0).size());
+        assertEquals(0, grid.activeCells().size());
     }
 
     @Test void endTickClearsActiveButKeepsCells() {
@@ -42,11 +42,11 @@ class CellGridTest {
         CellGrid grid = new CellGrid(8);
         grid.beginTick();
         grid.enqueue(0, 0, NOOP);
-        Cell first = grid.cellsWithColor(0).get(0);
+        Cell first = grid.activeCells().getFirst();
         grid.endTick();
         grid.beginTick();
         grid.enqueue(0, 0, NOOP);
-        assertSame(first, grid.cellsWithColor(0).get(0)); // same Cell object reused
+        assertSame(first, grid.activeCells().getFirst()); // same Cell object reused
         grid.endTick();
     }
 
@@ -68,9 +68,9 @@ class CellGridTest {
         assertSame(grid.cellFor(-1, -1), grid.cellFor(-8, -8)); // cell (-1,-1)
         assertNotSame(grid.cellFor(-1, -1), grid.cellFor(0, 0));
         assertNotSame(grid.cellFor(-8, -8), grid.cellFor(-9, -9));
-        assertEquals(3, grid.cellFor(-1, -1).color());
-        assertEquals(0, grid.cellFor(-9, -9).color());
-        assertEquals(1, grid.cellFor(-1, 0).color());
-        assertEquals(2, grid.cellFor(0, -1).color());
+        assertEquals(-1, grid.cellFor(-1, -1).cellX());
+        assertEquals(-2, grid.cellFor(-9, -9).cellZ());
+        assertEquals(0, grid.cellFor(0, -1).cellX());
+        assertEquals(-1, grid.cellFor(0, -1).cellZ());
     }
 }

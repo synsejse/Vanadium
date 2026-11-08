@@ -28,20 +28,26 @@ Each implementation batch passed a build and live C2ME checks. Correctness fixes
 stay enabled during performance comparisons. The benchmark report distinguishes
 actual config toggles from test-only controls and narrower contention probes.
 
+Xeon VM profiling (see the [benchmark report](BENCHMARKS_26_2.md#dual-xeon-e5-2699-v3-development-vm-2026-11-08))
+removed the measured tick-path monitors, replaced pool dispatch and color barriers, and batched
+serial collection: 4,096 AI zombies went from 27.5–32 to 72–76 uncapped TPS at 24–36 workers.
+
 ## Next priorities
 
 1. **Reduce remaining preparation allocation.** Large spawn snapshots and chunk packet
    buffers still add caller work. Preserve snapshot consistency, lifetime bounds
    and ordered reductions while reducing those costs.
-2. **Profile the intended pack on the Xeons.** Use steady-state dense-base, dispersed
+2. **Expose the host topology to the VM** (threads per core, NUMA cells, vCPU pinning) or give
+   it only physical cores; beyond 36 busy vCPUs total throughput currently drops.
+3. **Profile the intended pack on the Xeons.** Use steady-state dense-base, dispersed
    players, mob farms, redstone and exploration workloads. Record TPS, tick p95/p99,
    main-thread CPU, allocation and waits. Compare no Vanadium, disabled Vanadium
    and enabled Vanadium separately; disabled mode retains structural mixins.
-3. **Tune worker and cell counts together with C2ME's CPU budget.** Start with a
+4. **Tune worker and cell counts together with C2ME's CPU budget.** Start with a
    fixed cell size and compare 8/16/24/32/48 helpers, then vary cell size. Include
    one-socket and both-socket CPU/memory placement. No optimal count or NUMA policy
    has been established on the desktop benchmark machine.
-4. **Replace broad synchronization only with a state-ownership design.** Neighbor
+5. **Replace broad synchronization only with a state-ownership design.** Neighbor
    chains still hold a world monitor; shared random and spawn decisions also need
    explicit semantics. Region queues must preserve ordering, recursion limits and
    cross-region effects. Thread-local queues alone do not solve those interactions.

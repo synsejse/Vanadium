@@ -7,7 +7,7 @@ import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.chunk.ParallelChunkManager;
 import com.synsenetwork.vanadium.tick.Stage;
 import com.synsenetwork.vanadium.tick.ScheduledTickAccess;
-import com.synsenetwork.vanadium.tick.EntityTickRules;
+import com.synsenetwork.vanadium.tick.EntityBatch;
 import com.synsenetwork.vanadium.tracking.NavigationAccess;
 import com.synsenetwork.vanadium.tracking.NavigationIndex;
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet;
@@ -19,7 +19,6 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
@@ -29,6 +28,7 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.entity.ChunkStatusUpdateListener;
+import net.minecraft.world.level.entity.EntityTickList;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
 import net.minecraft.world.level.storage.LevelStorageSource;
 import net.minecraft.world.level.storage.SavedDataStorage;
@@ -38,6 +38,7 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Mutable;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
@@ -97,17 +98,24 @@ public abstract class ServerLevelMixin implements NavigationAccess {
         Vanadium.scheduler.begin(Stage.ENTITY);
     }
 
-    @Redirect(method = "lambda$tick$0", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/level/ServerLevel;guardEntityTick(Ljava/util/function/Consumer;Lnet/minecraft/world/entity/Entity;)V"))
-    private void dispatchEntityTick(ServerLevel level, Consumer<Entity> ticker, Entity entity) {
-        if (!Vanadium.config.enabled || !Vanadium.config.parallelEntities
-                || EntityTickRules.requiresSerial(entity)) {
-            ticker.accept(entity);
+    /**
+     * Collects entities into ENTITY cells with vanilla's complete per-entity body (removal and frozen
+     * checks, despawn check, ticking-range lookup, vehicle handling, tick), so the server thread only
+     * sorts entities into cells. Serial-rule entities run the body inline, as before the wave.
+     */
+    @Redirect(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/entity/EntityTickList;forEach(Ljava/util/function/Consumer;)V"))
+    private void dispatchEntityTicks(EntityTickList list, Consumer<Entity> body) {
+        if (!Vanadium.config.enabled || !Vanadium.config.parallelEntities) {
+            list.forEach(body);
             return;
         }
-        Vanadium.scheduler.enqueue(Stage.ENTITY, entity.chunkPosition().x(), entity.chunkPosition().z(),
-                () -> ticker.accept(entity), Vanadium.scheduler.detailedDiagnostics()
-                        ? BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString() : null);
+        // Record only; workers map entities to cells, then cells are filled in iteration order.
+        list.forEach(vanadium$entityBatch::add);
+        vanadium$entityBatch.dispatch(Vanadium.scheduler, body);
     }
+
+    @Unique
+    private final EntityBatch vanadium$entityBatch = new EntityBatch();
 
     @WrapMethod(method = "blockEvent")
     private void queueBlockEvent(BlockPos pos, Block block, int type, int data, Operation<Void> original) {

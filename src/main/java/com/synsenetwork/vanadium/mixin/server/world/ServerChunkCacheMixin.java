@@ -4,6 +4,8 @@ import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.tick.Stage;
+import com.synsenetwork.vanadium.tick.RandomTickBatch;
+import com.synsenetwork.vanadium.tick.RandomTickSink;
 import com.synsenetwork.vanadium.tick.SpawnPreparation;
 import java.util.Collections;
 import java.util.List;
@@ -17,6 +19,7 @@ import net.minecraft.util.profiling.ProfilerFiller;
 import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.LocalMobCapCalculator;
+import net.minecraft.world.level.gamerules.GameRules;
 import net.minecraft.world.level.NaturalSpawner;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunk;
@@ -26,6 +29,7 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Mutable;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
@@ -53,17 +57,40 @@ public abstract class ServerChunkCacheMixin {
         Vanadium.scheduler.begin(Stage.SPAWNING);
     }
 
+    /**
+     * Ends spawning before 26.2's block-ticking pass. With parallel chunk ticks, ChunkMapMixin then
+     * records each ticking holder instead of invoking vanilla's per-chunk consumer; otherwise the
+     * vanilla consumer ticks chunks inline.
+     */
     @Inject(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;J)V", at = @At(value = "INVOKE",
             target = "Lnet/minecraft/server/level/ChunkMap;forEachBlockTickingChunk(Ljava/util/function/Consumer;)V"))
     private void finishSpawning(ProfilerFiller profiler, long timeDiff, CallbackInfo ci) {
         Vanadium.scheduler.run(Stage.SPAWNING);
         Vanadium.scheduler.begin(Stage.CHUNK);
+        if (Vanadium.config.enabled && Vanadium.config.parallelChunkTicks) {
+            RandomTickBatch batch = vanadium$randomTicks();
+            batch.begin(level.getGameRules().get(GameRules.RANDOM_TICK_SPEED));
+            ((RandomTickSink) chunkMap).vanadium$setRandomTickSink(batch);
+        }
     }
 
     @Inject(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;J)V", at = @At(value = "INVOKE",
             target = "Lnet/minecraft/server/level/ChunkMap;forEachBlockTickingChunk(Ljava/util/function/Consumer;)V", shift = At.Shift.AFTER))
     private void finishRandomTicks(ProfilerFiller profiler, long timeDiff, CallbackInfo ci) {
+        ((RandomTickSink) chunkMap).vanadium$setRandomTickSink(null);
+        vanadium$randomTicks().dispatch(Vanadium.scheduler);
         Vanadium.scheduler.run(Stage.CHUNK);
+    }
+
+    @Shadow @Final ServerLevel level;
+
+    @Unique
+    private RandomTickBatch vanadium$randomTickBatch;
+
+    @Unique
+    private RandomTickBatch vanadium$randomTicks() {
+        if (vanadium$randomTickBatch == null) vanadium$randomTickBatch = new RandomTickBatch(level);
+        return vanadium$randomTickBatch;
     }
 
     /** The spawning phase completes before 26.2's separate block-ticking phase begins. */
@@ -92,17 +119,6 @@ public abstract class ServerChunkCacheMixin {
         Vanadium.scheduler.enqueue(Stage.SPAWNING, chunk.getPos().x(), chunk.getPos().z(),
                 () -> level.tickThunder(chunk), null);
     }
-
-    @Redirect(method = "lambda$tickChunks$0", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/level/ServerLevel;tickChunk(Lnet/minecraft/world/level/chunk/LevelChunk;I)V"))
-    private void dispatchRandomTicks(ServerLevel level, LevelChunk chunk, int randomTickSpeed) {
-        if (!Vanadium.config.enabled || !Vanadium.config.parallelChunkTicks) {
-            level.tickChunk(chunk, randomTickSpeed);
-            return;
-        }
-        Vanadium.scheduler.enqueue(Stage.CHUNK, chunk.getPos().x(), chunk.getPos().z(),
-                () -> level.tickChunk(chunk, randomTickSpeed), null);
-    }
-
 
     @Redirect(method = {"getChunk(IILnet/minecraft/world/level/chunk/status/ChunkStatus;Z)Lnet/minecraft/world/level/chunk/ChunkAccess;", "getChunkNow"}, at = @At(value = "FIELD", target = "Lnet/minecraft/server/level/ServerChunkCache;mainThread:Ljava/lang/Thread;", opcode = Opcodes.GETFIELD))
     private Thread overwriteServerThread(ServerChunkCache mgr) {

@@ -42,7 +42,7 @@ cleans up only its own processes. An isolated interactive run is also supported:
 `./gradlew -PvanadiumRunDir=/absolute/path runServer --args=nogui`.
 
 Build artifacts: `build/libs/`; JUnit reports: `build/reports/tests/test/`.
-The current suite has **165 unit tests**. They check bindings, scheduling, collections
+The current suite has **171 unit tests**. They check bindings, scheduling, collections
 and config without applying mixins. The separate live test mod exercises block
 breaking/update packets, concurrent dirty notifications, scheduled-tick state,
 passenger rules, event deduplication, random-position transitions, navigation,
@@ -74,6 +74,12 @@ separate on/off JFR profiles in the first JVM. Timing samples exclude active JFR
 recordings. Reduced `--scale`/`--rounds` are for harness checks, not reported results.
 The benchmark mod and its switches are excluded from release jars.
 
+For whole-server scaling, `scripts/bench-sweep.py --workers 16,24,32 --out DIR` starts one
+fresh server per worker count and records uncapped TPS, a 20 TPS stage profile and per-thread
+CPU for idle and zombie workloads; `variants:` compares configurations in ABBA order inside one
+JVM, `--numactl` constrains placement and `jfr` records lock/park events. See the Xeon section of
+the benchmark report for results and caveats.
+
 `./gradlew benchScheduler`, `benchWorkerPool` and `benchAreaMap` isolate scheduler,
 worker and index overhead. `scripts/bench-server.sh 30` exercises a normal ticking
 server with 200 clustered zombies; it is a smoke workload, not an all-feature A/B
@@ -83,14 +89,16 @@ profile times overlap: do not add them together. Caller tail wait is not lock ti
 
 ## Current limitations
 
-- **Hardware and scope:** local measurements use a Ryzen 5 9600X, not the dual
-  E5-2699 v3. They isolate the recent optimization paths; they do not measure whole
-  modpack TPS, p95/p99 tick latency, exploration, or every older config flag.
+- **Hardware and scope:** subsystem measurements use a Ryzen 5 9600X; whole-server sweeps
+  now exist for a 72-vCPU KVM guest on the dual E5-2699 v3, whose usable compute is about 36
+  cores (see the benchmark report). Neither covers modpack TPS with real players, p95/p99
+  tick latency under load, exploration, or every older config flag.
   Timing batches and JFR samples are not individual-tick latency distributions.
-- **Parallelism:** worlds, stages and four colors still have barriers; one cell's
+- **Parallelism:** worlds and stages still have barriers; one cell's
   tasks execute serially. Player simulation, tracking dispatch, packet sending and
   several world bookkeeping paths remain on the server thread. Auto workers can
-  oversubscribe the CPU alongside C2ME, GC and networking. NUMA behavior is untested.
+  oversubscribe the CPU alongside C2ME, GC and networking; on the 72-vCPU VM, set about
+  32. Node binding showed no gain at 24 workers; NUMA effects at higher counts are unmeasured.
 - **Navigation:** the quadratic cleanup and redundant candidate copying are fixed.
   When most paths keep changing but edits are rare, refresh defers rebuilding and
   queries use the full dirty fallback. That avoids maintenance overhead but cannot

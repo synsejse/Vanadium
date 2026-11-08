@@ -51,7 +51,7 @@ public class VanadiumConfig implements ConfigData {
     @Comment("Batch each connection's packets into one flush per tick instead of one per packet")
     public boolean consolidateFlushes = true;
 
-    @Comment("Thread-safe chunk lookup cache for worker threads (disabling costs performance)")
+    @Comment("Lock-free lookups of loaded full chunks for worker threads (getChunk, getChunkNow, hasChunk)")
     public boolean chunkCache = true;
 
     @Comment("Per-chunk load locks so different chunks can load in parallel; false = one global lock")
@@ -72,6 +72,14 @@ public class VanadiumConfig implements ConfigData {
 
     public boolean isSerialBlockEntity(Identifier id) {
         return blockEntityRules.contains(id);
+    }
+
+    public boolean hasSerialEntityRules() {
+        return !entityRules.isEmpty();
+    }
+
+    public boolean hasSerialBlockEntityRules() {
+        return !blockEntityRules.isEmpty();
     }
 
     /** Refresh once per tick so in-place list edits never add scans to individual ticker lookups. */
@@ -109,13 +117,14 @@ public class VanadiumConfig implements ConfigData {
     }
 
     /**
-     * Heuristic cell size from resolved worker count: aim for enough cells to feed every worker thread across
-     * the four color waves over a typical ticking area. Clamped to a sane range.
+     * Heuristic cell size from resolved worker count: neighbor exclusion lets at most about a quarter of
+     * densely packed cells run at once, so aim for four cells per participant over a typical ticking area.
+     * Clamped to a sane range.
      */
     static int autoCellSize(int parallelism) {
-        int colors = 4;
+        int exclusion = 4;
         double referenceAreaChunks = 441.0; // ~ simulation distance 10
-        int size = (int) Math.round(Math.sqrt(referenceAreaChunks / (colors * Math.max(1, parallelism))));
+        int size = (int) Math.round(Math.sqrt(referenceAreaChunks / (exclusion * Math.max(1, parallelism))));
         return Math.clamp(size, 2, 8);
     }
 }

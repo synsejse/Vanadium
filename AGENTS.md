@@ -37,7 +37,8 @@ not flattened into Gradle's development classpath. Fabric API and Cloth Config a
 All Java paths below are relative to `src/main/java/com/synsenetwork/vanadium/`.
 
 - `Vanadium.java`: config, server lifecycle ownership of the shared scheduler/pool, command registration.
-- `tick/`: cell coordinates, four-color grid, stage scheduler, caller-participating worker pool.
+- `tick/`: cell coordinates, cell grid, neighborhood-exclusion waves, batched stage collection,
+  stage scheduler, caller-participating spin-then-park worker pool.
 - `chunk/`: chunk manager/cache and per-position loading locks.
 - `concurrent/`: fastutil-compatible concurrent wrappers and striped entity locks.
 - `tracking/`: area maps and nearby-player indexing for entity tracking.
@@ -56,8 +57,12 @@ All Java paths below are relative to `src/main/java/com/synsenetwork/vanadium/`.
   belong to the server thread; workers read/run cells only within a wave.
 - Create a fresh scheduler/pool per server lifecycle and close the pool after the final wave.
   Chunk managers own their maintenance executors; `ChunkLockTable` owns no background threads.
-- Same-color cells run concurrently; all tasks in a cell run serially in insertion order.
-  Maintain a full completion barrier between colors and stages.
+- Two neighboring cells (Chebyshev distance one) never run concurrently; all tasks in a cell
+  run serially in insertion order. Maintain a full completion barrier between stages.
+  Order between neighboring cells may vary between ticks.
+- Keep tick-path hot spots lock-free: every moving mob, chunk lookup or random draw on every
+  worker multiplies any shared monitor. Check JFR monitor events (threshold 100µs) on the
+  target machine after touching entity, chunk, navigation or saved-data paths.
 - The calling server thread participates in `WorkerPool.runWave`, and one-task waves run
   inline. Tick-path locks must work on both caller and worker threads; never gate those
   locks solely on `isWorkerThread()`.
@@ -67,10 +72,11 @@ All Java paths below are relative to `src/main/java/com/synsenetwork/vanadium/`.
 - Do not wait at a worker barrier while holding a monitor needed by those workers.
   Scheduled ticks are collected under vanilla scheduling and dispatched after its monitor releases.
 - Keep lock ordering deterministic. Preserve reservation/eviction atomicity in `ChunkLockTable`.
-- Publish loaded chunks into the cache before releasing their load lock; do not cache null results.
+- Full chunks are published by `LevelChunk.setLoaded` before their load completes; recheck that
+  map under the load lock, and never publish unloaded or null chunks.
 - Use floor division/modulo for negative chunk coordinates. Cell units, chunks, blocks,
   and packed positions are distinct; verify conversions at zero and negative boundaries.
-- Four-color separation does not protect every cross-cell interaction. Preserve explicit
+- Neighbor exclusion does not protect every cross-cell interaction. Preserve explicit
   entity locks, world synchronization, and collection semantics, including fastutil views.
 - SavedDataStorage has asynchronous writes in 26.2: never synchronize saveAndJoin/close
   across their completion wait. Keep cache/snapshot locks separate from disk IO.

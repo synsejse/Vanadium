@@ -1,6 +1,7 @@
 package com.synsenetwork.vanadium.integration;
 
 import com.synsenetwork.vanadium.Vanadium;
+import com.synsenetwork.vanadium.concurrent.PerThreadRandomSource;
 import com.synsenetwork.vanadium.tick.EntityTickRules;
 import com.synsenetwork.vanadium.tick.TickScheduler;
 import com.synsenetwork.vanadium.tick.WorkerPool;
@@ -25,7 +26,6 @@ import net.minecraft.world.entity.animal.pig.Pig;
 import net.minecraft.world.level.BlockEventData;
 import java.util.concurrent.Future;
 import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.ticks.LevelChunkTicks;
@@ -150,24 +150,27 @@ final class TickSafetyChecks {
     }
 
     private static void checkRandomPositions(ServerLevel level) throws Exception {
-        Field seed = Level.class.getDeclaredField("randValue");
-        seed.setAccessible(true);
-        seed.setInt(level, 12345);
-        for (int i = 0; i < 16384; i++) level.getBlockRandomPos(0, 0, 0, 15);
-        int expected = seed.getInt(level);
-        seed.setInt(level, 12345);
+        check(level.getRandom() instanceof PerThreadRandomSource, "level random is not per-thread");
+        PerThreadRandomSource random = (PerThreadRandomSource) level.getRandom();
         var pool = Executors.newFixedThreadPool(4);
         try {
             CountDownLatch start = new CountDownLatch(1);
-            var tasks = new ArrayList<Future<?>>();
+            var tasks = new ArrayList<Future<Object>>();
             for (int worker = 0; worker < 4; worker++) tasks.add(pool.submit(() -> {
                 try { check(start.await(10, TimeUnit.SECONDS), "random start timeout"); }
                 catch (InterruptedException e) { throw new AssertionError(e); }
-                for (int i = 0; i < 4096; i++) level.getBlockRandomPos(0, 0, 0, 15);
+                for (int i = 0; i < 4096; i++) {
+                    BlockPos pos = level.getBlockRandomPos(32, 64, -48, 15);
+                    check(pos.getX() >= 32 && pos.getX() < 48 && pos.getY() >= 64 && pos.getY() < 80
+                            && pos.getZ() >= -48 && pos.getZ() < -32, "random position outside its section");
+                    random.nextInt(16);
+                }
+                return random.current();
             }));
             start.countDown();
-            for (var task : tasks) task.get(15, TimeUnit.SECONDS);
-            check(seed.getInt(level) == expected, "concurrent random position seed lost updates");
+            var streams = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<Object, Boolean>());
+            for (var task : tasks) streams.add(task.get(15, TimeUnit.SECONDS));
+            check(streams.size() == 4 && !streams.contains(random.current()), "threads shared a random stream");
         } finally {
             pool.shutdownNow();
             check(pool.awaitTermination(5, TimeUnit.SECONDS), "random workers did not stop");

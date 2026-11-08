@@ -17,7 +17,7 @@ class WaveDiagnosticsTest {
         try (var diagnostics = new WaveDiagnostics(reports::add, () -> 0, false)) {
             diagnostics.configure(0, true);
             assertFalse(diagnostics.detailed());
-            assertNull(diagnostics.watch(Stage.ENTITY, "test:world", 0, 3));
+            assertNull(diagnostics.watch(Stage.ENTITY, "test:world", 3));
             diagnostics.poll();
             assertTrue(reports.isEmpty());
         }
@@ -46,7 +46,7 @@ class WaveDiagnosticsTest {
             Cell right = new Cell(0, 0);
             left.add(new WaveDiagnostics.NamedTask("example:machine", blocked));
             right.add(new WaveDiagnostics.NamedTask("minecraft:pig", blocked));
-            var watch = diagnostics.watch(Stage.BLOCK_ENTITY, "test:dimension", 0, 3);
+            var watch = diagnostics.watch(Stage.BLOCK_ENTITY, "test:dimension", 3);
             var wave = caller.submit(() -> {
                 try (watch) { pool.runWave(watch.wrap(List.of(left, right)), null); }
             });

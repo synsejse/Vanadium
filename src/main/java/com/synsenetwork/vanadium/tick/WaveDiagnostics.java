@@ -54,7 +54,7 @@ public final class WaveDiagnostics implements AutoCloseable {
         return enabled() && detailed;
     }
 
-    public Watch watch(Stage stage, String dimension, int color, int cellSize) {
+    public Watch watch(Stage stage, String dimension, int cellSize) {
         if (!enabled()) return null;
         if (automatic && polling == null) {
             if (executor == null) {
@@ -66,7 +66,7 @@ public final class WaveDiagnostics implements AutoCloseable {
             }
             polling = executor.scheduleWithFixedDelay(this::poll, 100, 100, TimeUnit.MILLISECONDS);
         }
-        Watch watch = new Watch(this, stage, dimension, color, cellSize, thresholdNanos, detailed, clock.getAsLong());
+        Watch watch = new Watch(this, stage, dimension, cellSize, thresholdNanos, detailed, clock.getAsLong());
         current = watch;
         return watch;
     }
@@ -99,7 +99,6 @@ public final class WaveDiagnostics implements AutoCloseable {
         private final WaveDiagnostics owner;
         private final Stage stage;
         private final String dimension;
-        private final int color;
         private final int cellSize;
         private final long thresholdNanos;
         private final boolean detailed;
@@ -107,12 +106,11 @@ public final class WaveDiagnostics implements AutoCloseable {
         private final ConcurrentHashMap<Thread, Progress> running = new ConcurrentHashMap<>();
         private volatile boolean closed;
 
-        private Watch(WaveDiagnostics owner, Stage stage, String dimension, int color, int cellSize,
+        private Watch(WaveDiagnostics owner, Stage stage, String dimension, int cellSize,
                       long thresholdNanos, boolean detailed, long started) {
             this.owner = owner;
             this.stage = stage;
             this.dimension = dimension;
-            this.color = color;
             this.cellSize = cellSize;
             this.thresholdNanos = thresholdNanos;
             this.detailed = detailed;
@@ -144,8 +142,8 @@ public final class WaveDiagnostics implements AutoCloseable {
 
         private String describe(long now) {
             StringBuilder report = new StringBuilder(String.format(Locale.ROOT,
-                    "Vanadium slow wave: stage=%s dimension=%s color=%d cellSize=%d elapsed=%.0fms; active participants=%d",
-                    stage, dimension, color, cellSize, (now - started) / 1e6, running.size()));
+                    "Vanadium slow wave: stage=%s dimension=%s cellSize=%d elapsed=%.0fms; active participants=%d",
+                    stage, dimension, cellSize, (now - started) / 1e6, running.size()));
             int shown = 0;
             for (var entry : running.entrySet()) {
                 if (shown++ == MAX_STACKS) {
