@@ -293,6 +293,25 @@ workers; packed position keys degraded concurrent maps into tree bins.
 | Maps | murmur3-mixed packed keys in concurrent long maps |
 | Serial work | Batched entity and random-tick collection, parallel tracker move scans, C2ME spawn filter unwrapped |
 
+### Tick split and wave utilization
+
+Measured with the profile's tick split and utilization (commit `f8ad3b5`) at 16 workers,
+cell size 2, Fabric Loader 0.20.1, C2ME 0.4.2-alpha.0.52, otherwise as above but with 256
+force-loaded chunks (16×16) and 1,024 zombies. One JVM: on, then `/vanadium set enabled off`.
+
+| Arm | Uncapped TPS | Stage waves | Preparation | Serial | ENTITY utilization | CHUNK utilization |
+|---|---:|---:|---:|---:|---:|---:|
+| On | 165.6 | 84.3% | 4.9% | 10.7% | 40% | 17% |
+| Off | 38.7 | 0.1% | 0% | 99.9% | – | – |
+
+A separate 30s JFR capture of the same workload (`scripts/jfr-summary.py`) gave stage waves
+86.2%, preparation 4.9% and serial 8.9%, with serial time per tick p50 0.44ms and p95 0.68ms.
+The serial share is not the main limit here: ENTITY waves keep participants only about
+35–40% busy. Likely causes, not yet measured separately, are neighbor exclusion (an 8×8
+cell grid lets at most 16 of its 64 cells run at once, so 17 participants share at most 16
+runnable cells and wait on neighbors) and uneven cells (the largest holds 29 tasks against an
+average of 9–11). Wave shape looks like a better next target than the remaining serial code.
+
 ### Machine findings
 
 - **Usable compute is about 36 cores.** One CPU-bound process per vCPU runs at 83–84% of solo
