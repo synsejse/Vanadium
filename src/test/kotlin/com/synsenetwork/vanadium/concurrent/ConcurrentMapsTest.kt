@@ -45,7 +45,7 @@ class ConcurrentMapsTest {
 
     @Test
     fun long2BytePutGetRemoveAndDefaults() {
-        val map = Long2ByteConcurrentHashMap()
+        val map = ConcurrentLong2ByteMap()
         assertEquals(0, map.put(1L, 5))
         assertEquals(5, map.put(1L, 9))
         assertEquals(9, map.get(1L))
@@ -73,7 +73,7 @@ class ConcurrentMapsTest {
         iterator.remove()
         assertEquals(keys.size - 1, objects.size)
 
-        val bytes = Long2ByteConcurrentHashMap()
+        val bytes = ConcurrentLong2ByteMap()
         for (key in keys) bytes.put(key, 2)
         val visited = HashSet<Long>()
         Long2ByteMaps.fastForEach(bytes) { visited.add(it.longKey) }
@@ -84,6 +84,61 @@ class ConcurrentMapsTest {
             direct.add(key)
         }
         assertEquals(keys, direct)
+    }
+
+    @Test
+    fun long2ByteMatchesFastutilUnderChurn() {
+        val random = java.util.Random(7)
+        val map = ConcurrentLong2ByteMap()
+        val reference = it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap()
+        map.defaultReturnValue(33)
+        reference.defaultReturnValue(33)
+        repeat(200_000) {
+            val key = random.nextInt(4096).toLong() * 0x1_0000_0001L - 2048 // Negative and packed-looking keys.
+            when (random.nextInt(3)) {
+                0 -> assertEquals(reference.remove(key), map.remove(key))
+                else -> {
+                    val value = random.nextInt(-128, 128).toByte()
+                    assertEquals(reference.put(key, value), map.put(key, value))
+                }
+            }
+            if (it % 997 == 0) assertEquals(reference.get(key), map.get(key))
+        }
+        assertEquals(reference.size, map.size)
+        for (entry in reference.long2ByteEntrySet()) {
+            assertTrue(map.containsKey(entry.longKey))
+            assertEquals(entry.byteValue, map.get(entry.longKey))
+        }
+        assertEquals(reference.keys, map.keys.toSet())
+        map.keys.forEach(java.util.function.LongConsumer { assertTrue(reference.containsKey(it)) })
+        map.clear()
+        assertEquals(0, map.size)
+        assertEquals(33, map.get(1L))
+    }
+
+    @Test
+    fun long2ByteReadersSeeStableKeysWhileWritersChurn() {
+        val map = ConcurrentLong2ByteMap()
+        val stable = LongArray(256) { it * 31L - 4000 }
+        for (key in stable) map.put(key, (key and 0x3F).toByte())
+        val stop = java.util.concurrent.atomic.AtomicBoolean()
+        val failure = java.util.concurrent.atomic.AtomicReference<String?>()
+        val readers = List(4) {
+            Thread {
+                while (!stop.get()) for (key in stable) {
+                    if (map.get(key) != (key and 0x3F).toByte()) failure.compareAndSet(null, "lost $key")
+                }
+            }.apply { start() }
+        }
+        // Churn other keys through growth, tombstones and rebuilds.
+        for (round in 0 until 50) for (i in 0 until 2000) {
+            val key = 1_000_000L + i
+            if (round % 2 == 0) map.put(key, 1) else map.remove(key)
+        }
+        stop.set(true)
+        readers.forEach { it.join(5000) }
+        assertNull(failure.get())
+        assertEquals(stable.size, map.size)
     }
 
     @Test
@@ -165,18 +220,5 @@ class ConcurrentMapsTest {
         set.spliterator().forEachRemaining(java.util.function.LongConsumer { streamed.add(it) })
         assertEquals(listOf(-2L, 5L, 9L), streamed)
         assertEquals(12L, set.longStream().sum())
-    }
-
-    @Test
-    fun sortedSetBasics() {
-        val set = ConcurrentLongSortedSet()
-        assertTrue(set.add(42L))
-        assertFalse(set.add(42L))
-        assertTrue(set.contains(42L))
-        assertTrue(set.remove(42L))
-        for (value in longArrayOf(5, 1, 9)) set.add(value)
-        assertEquals(1L, set.firstLong())
-        assertEquals(9L, set.lastLong())
-        assertEquals(listOf(1L, 5L, 9L), set.toLongArray().toList())
     }
 }

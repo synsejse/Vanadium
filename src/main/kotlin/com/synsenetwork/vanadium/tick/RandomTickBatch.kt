@@ -3,11 +3,7 @@ package com.synsenetwork.vanadium.tick
 import net.minecraft.server.level.ChunkHolder
 import net.minecraft.server.level.ServerLevel
 
-/**
- * Per-level CHUNK collection. While vanilla iterates entity-ticking positions, the server thread only
- * records each chunk holder; workers resolve the holder's ticking chunk (a future lookup that misses the
- * server thread's cache) and its cell. Holders without a ticking chunk are skipped, as vanilla skips them.
- */
+/** Records holders on the caller; workers resolve ticking chunks and their cells. */
 class RandomTickBatch(private val level: ServerLevel) : BatchEnqueue.Mapper<ChunkHolder> {
     private val batch = BatchEnqueue(Preparation.CHUNK_BATCH, this)
     private var tickSpeed = 0
@@ -19,7 +15,6 @@ class RandomTickBatch(private val level: ServerLevel) : BatchEnqueue.Mapper<Chun
 
     fun add(holder: ChunkHolder) = batch.add(holder)
 
-    /** Every resolved chunk is queued into its cell; there are no serial items. */
     fun dispatch(scheduler: TickScheduler) = batch.dispatch(scheduler, Stage.CHUNK) { }
 
     override fun key(item: ChunkHolder): Long = item.tickingChunk?.pos?.pack() ?: BatchEnqueue.SKIP

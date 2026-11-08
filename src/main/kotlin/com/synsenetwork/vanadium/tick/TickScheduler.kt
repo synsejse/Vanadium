@@ -3,11 +3,7 @@ package com.synsenetwork.vanadium.tick
 import java.util.EnumMap
 import java.util.function.LongConsumer
 
-/**
- * Runs each [Stage] of a world tick as one [NeighborhoodWave] on a [WorkerPool]: a cell starts as soon
- * as none of its eight neighbors is running, so adjacent cells never overlap in time. Worlds are
- * processed one at a time, and stages are separated by full barriers. Server-thread only.
- */
+/** Server-thread stage collection and dispatch. Worlds run sequentially, with a barrier per stage. */
 class TickScheduler(private val pool: WorkerPool, cellSize: Int) {
     private val grids = EnumMap<Stage, CellGrid>(Stage::class.java)
     private val preparationStarts = EnumMap<Stage, Long>(Stage::class.java)
@@ -23,7 +19,6 @@ class TickScheduler(private val pool: WorkerPool, cellSize: Int) {
             }
         }
 
-    /** Opt-in profiling; it does not change dispatch. */
     var profile: TickProfile? = null
         set(value) {
             field = value
@@ -59,8 +54,7 @@ class TickScheduler(private val pool: WorkerPool, cellSize: Int) {
         }
     }
 
-    /** Threads that can run a wave of [tasks] items: the caller plus at most one worker per extra item. */
-    private fun participants(tasks: Int): Int = if (tasks <= 1) tasks else minOf(pool.workerCount + 1, tasks)
+    private fun participants(tasks: Int): Int = minOf(pool.workerCount + 1, tasks)
 
     fun setDimension(dimension: String) {
         this.dimension = dimension
@@ -78,17 +72,17 @@ class TickScheduler(private val pool: WorkerPool, cellSize: Int) {
     /** Starts a stage's tick: ages idle cells and clears leftover work. */
     fun begin(stage: Stage) {
         if (profile != null) preparationStarts[stage] = System.nanoTime()
-        grid(stage).beginTick()
+        grids.getValue(stage).beginTick()
     }
 
     /** Queues a tick task into its cell. Pass null for the label unless detailed diagnostics are enabled. */
     fun enqueue(stage: Stage, chunkX: Int, chunkZ: Int, task: Runnable, label: String?) {
-        grid(stage).enqueue(chunkX, chunkZ, if (label == null) task else WaveDiagnostics.NamedTask(label, task))
+        grids.getValue(stage).enqueue(chunkX, chunkZ, if (label == null) task else WaveDiagnostics.NamedTask(label, task))
     }
 
     /** Runs the stage's queued work as one neighborhood-exclusion wave, then resets the stage. */
     fun run(stage: Stage) {
-        val grid = grid(stage)
+        val grid = grids.getValue(stage)
         val recording = profile
         val start = if (recording != null) System.nanoTime() else 0
         preparationStarts.remove(stage)?.let { recording?.recordPhase(dimension, "$stage preparation", start - it) }
@@ -117,7 +111,16 @@ class TickScheduler(private val pool: WorkerPool, cellSize: Int) {
         diagnostics?.watch(stage, dimension, cellSize).use { watch ->
             var tasks: List<Runnable> = watch?.wrap(cells) ?: cells
             val durations = if (recording != null) LongArray(tasks.size) else null
-            if (durations != null) tasks = measured(tasks, durations)
+            if (durations != null) tasks = tasks.mapIndexed { index, task ->
+                Runnable {
+                    val cellStart = System.nanoTime()
+                    try {
+                        task.run()
+                    } finally {
+                        durations[index] = System.nanoTime() - cellStart
+                    }
+                }
+            }
             try {
                 if (cells.size == 1) {
                     tasks[0].run()
@@ -142,22 +145,8 @@ class TickScheduler(private val pool: WorkerPool, cellSize: Int) {
         }
     }
 
-    private fun grid(stage: Stage): CellGrid = grids.getValue(stage)
-
     private companion object {
-        /** Largest-first order shortens a wave's tail when cell sizes differ (LPT scheduling). */
+        // Largest cells first to shorten the wave's tail.
         val LARGEST_FIRST = compareByDescending<Cell> { it.taskCount }
-
-        /** Opt-in profiling: each cell writes its duration into its own slot; the caller aggregates. */
-        fun measured(tasks: List<Runnable>, durations: LongArray): List<Runnable> = tasks.mapIndexed { index, task ->
-            Runnable {
-                val cellStart = System.nanoTime()
-                try {
-                    task.run()
-                } finally {
-                    durations[index] = System.nanoTime() - cellStart
-                }
-            }
-        }
     }
 }

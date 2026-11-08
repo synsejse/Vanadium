@@ -2,11 +2,7 @@ package com.synsenetwork.vanadium.tick
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 
-/**
- * The cells for one stage of one world. Cells and their task lists are reused across ticks; the cells
- * that receive work each tick are recorded in one reusable active list. Cells idle for
- * [IDLE_EVICT_TICKS] ticks are evicted. Server-thread only: workers read cells only during a wave.
- */
+/** Reuses one stage's cells and active list. Server-thread only outside a wave. */
 class CellGrid(private val cellSize: Int) {
     private val cells = Long2ObjectOpenHashMap<Cell>()
     private val active = ArrayList<Cell>()
@@ -24,8 +20,8 @@ class CellGrid(private val cellSize: Int) {
     /** Queues a task into the cell owning (chunkX, chunkZ) and records the cell active this tick. */
     fun enqueue(chunkX: Int, chunkZ: Int, task: Runnable) {
         val cell = cellFor(chunkX, chunkZ)
-        if (!cell.hasTasks()) active.add(cell)
-        cell.markActive(tick)
+        if (!cell.hasTasks) active.add(cell)
+        cell.lastActiveTick = tick
         cell.add(task)
     }
 
@@ -37,20 +33,17 @@ class CellGrid(private val cellSize: Int) {
 
     val isEmpty: Boolean get() = active.isEmpty()
 
-    /** Number of retained (live) cells. */
     internal val size: Int get() = cells.size
 
     /** Starts a new tick: ages and evicts idle cells, then clears per-tick state. */
     fun beginTick() {
         tick++
         cells.values.removeIf { tick - it.lastActiveTick > IDLE_EVICT_TICKS }
-        resetActive()
+        endTick()
     }
 
     /** Clears per-tick state after a stage's wave; keeps the cell objects for reuse. */
-    fun endTick() = resetActive()
-
-    private fun resetActive() {
+    fun endTick() {
         for (cell in active) cell.clearTasks()
         active.clear()
     }

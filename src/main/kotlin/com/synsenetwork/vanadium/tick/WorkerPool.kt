@@ -7,19 +7,9 @@ import java.util.concurrent.locks.LockSupport
 import java.util.function.LongConsumer
 
 /**
- * A fixed set of persistent worker threads that runs a batch of tasks and waits for all of them.
- *
- * In [runWave] the calling thread participates as a worker and claims tasks alongside the pool,
- * waiting only for the tail (tasks still in flight once every index has been claimed).
- *
- * Dispatch publishes the wave through one volatile field. Idle workers spin for a short, configurable
- * window before parking, so back-to-back waves of a tick reach running threads without futex wake-ups.
- * Parked workers are unparked individually only when a wave needs them; low-numbered workers take
- * small waves. Tasks are claimed in chunks once they greatly outnumber participants, and each
- * participant reports its completed count once, so per-task work does not bounce shared counters.
- *
- * Invariant: tick-path locking is unconditional, never gated on [isWorkerThread], so a cell runs the
- * same whether a worker or the calling thread executes it.
+ * Persistent workers with caller participation and a full barrier per wave. Dispatch uses a volatile
+ * wave and Dekker wake-ups; small waves use low-numbered workers. Claims and completion updates are
+ * batched to reduce contention. Tick-path locks must work on both the caller and workers.
  */
 class WorkerPool(threads: Int) : AutoCloseable {
     private val workers = Array(maxOf(1, threads)) { WorkerThread(this, it) }
@@ -183,8 +173,11 @@ class WorkerPool(threads: Int) : AutoCloseable {
     }
 
     companion object {
-        /** Idle spin before a worker parks; covers the gaps between a tick's waves. */
-        private val WORKER_SPIN_NANOS = java.lang.Long.getLong("vanadium.workerSpinMicros", 100) * 1_000L
+        /**
+         * Idle spin before parking. Two milliseconds covers inter-wave gaps on the Xeon VM,
+         * where waking parked workers costs hundreds of microseconds. Lower this for CPU economy.
+         */
+        private val WORKER_SPIN_NANOS = java.lang.Long.getLong("vanadium.workerSpinMicros", 2_000) * 1_000L
 
         /** Caller spin while waiting for the wave tail before parking. */
         private val CALLER_SPIN_NANOS = java.lang.Long.getLong("vanadium.callerSpinMicros", 200) * 1_000L

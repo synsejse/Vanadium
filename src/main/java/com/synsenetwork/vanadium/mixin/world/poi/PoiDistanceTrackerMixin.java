@@ -1,6 +1,6 @@
 package com.synsenetwork.vanadium.mixin.world.poi;
 
-import com.synsenetwork.vanadium.concurrent.Long2ByteConcurrentHashMap;
+import com.synsenetwork.vanadium.concurrent.ConcurrentLong2ByteMap;
 import com.synsenetwork.vanadium.concurrent.PoiDistanceAccess;
 import it.unimi.dsi.fastutil.longs.Long2ByteMap;
 import net.minecraft.server.level.SectionTracker;
@@ -15,7 +15,7 @@ public abstract class PoiDistanceTrackerMixin extends SectionTracker implements 
     @Shadow
     @Final
     @Mutable
-    private Long2ByteMap levels = new Long2ByteConcurrentHashMap();
+    private Long2ByteMap levels = new ConcurrentLong2ByteMap();
 
     protected PoiDistanceTrackerMixin(int levelCount, int minQueueSize, int minMapSize) {
         super(levelCount, minQueueSize, minMapSize);

@@ -19,11 +19,17 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
+import net.minecraft.core.QuartPos;
 import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.BlockEventData;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.chunk.ChunkGenerator;
@@ -142,5 +148,22 @@ public abstract class ServerLevelMixin implements NavigationAccess {
     @Redirect(method = "sendBlockUpdated", at = @At(value = "FIELD", target = "Lnet/minecraft/server/level/ServerLevel;isUpdatingNavigations:Z", opcode = Opcodes.PUTFIELD))
     private void skipSendBlockUpdatedCheck(ServerLevel instance, boolean value) {
 
+    }
+
+    /**
+     * Biome reads (mob AI, weather, spawning) ask for {@code BIOMES} status, which vanilla serves through
+     * the chunk-load path: a per-chunk load lock, the synchronized four-entry cache and its shared arrays.
+     * For a loaded full chunk vanilla returns its {@code ImposterProtoChunk}, which delegates biome reads
+     * to the full chunk, so the lock-free full-chunk lookup gives the same answer.
+     */
+    public Holder<Biome> getNoiseBiome(int quartX, int quartY, int quartZ) {
+        ServerChunkCache source = ((ServerLevel) (Object) this).getChunkSource();
+        int chunkX = QuartPos.toSection(quartX);
+        int chunkZ = QuartPos.toSection(quartZ);
+        LevelChunk loaded = source.getChunkNow(chunkX, chunkZ);
+        if (loaded != null) return loaded.getNoiseBiome(quartX, quartY, quartZ);
+        ChunkAccess chunk = source.getChunk(chunkX, chunkZ, ChunkStatus.BIOMES, false);
+        return chunk != null ? chunk.getNoiseBiome(quartX, quartY, quartZ)
+                : ((ServerLevel) (Object) this).getUncachedNoiseBiome(quartX, quartY, quartZ);
     }
 }

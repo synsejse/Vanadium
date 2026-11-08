@@ -18,9 +18,9 @@ class CellTest {
     @Test
     fun hasTasksReflectsContent() {
         val cell = Cell(0, 0)
-        assertFalse(cell.hasTasks())
+        assertFalse(cell.hasTasks)
         cell.add {}
-        assertTrue(cell.hasTasks())
+        assertTrue(cell.hasTasks)
         assertEquals(1, cell.taskCount)
     }
 
@@ -30,16 +30,16 @@ class CellTest {
         val cell = Cell(0, 0)
         cell.add { log.add(1) }
         cell.clearTasks()
-        assertFalse(cell.hasTasks())
+        assertFalse(cell.hasTasks)
         cell.add { log.add(2) }
         cell.run()
         assertEquals(listOf(2), log)
     }
 
     @Test
-    fun markActiveRecordsTick() {
+    fun recordsLastActiveTick() {
         val cell = Cell(0, 0)
-        cell.markActive(42L)
+        cell.lastActiveTick = 42L
         assertEquals(42L, cell.lastActiveTick)
     }
 }

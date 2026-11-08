@@ -61,7 +61,9 @@ object VanadiumCommand {
     /** Lists every option from the config class, so new options appear without command changes. */
     private fun status(ctx: CommandContext<CommandSourceStack>): Int {
         val config = Vanadium.config
-        val message = Component.literal("Vanadium ${version()} — ").append(onOff(config.enabled, "enabled", "disabled"))
+        val version = FabricLoader.getInstance().getModContainer("vanadium")
+            .map { it.metadata.version.friendlyString }.orElse("?")
+        val message = Component.literal("Vanadium $version — ").append(onOff(config.enabled, "enabled", "disabled"))
         for (field in VanadiumConfig::class.java.declaredFields) {
             if (Modifier.isStatic(field.modifiers) || Modifier.isTransient(field.modifiers) || field.name == "enabled") continue
             message.append("\n  ${field.name}: ")
@@ -88,10 +90,8 @@ object VanadiumCommand {
     private fun reload(ctx: CommandContext<CommandSourceStack>): Int {
         val holder = AutoConfig.getConfigHolder(VanadiumConfig::class.java)
         val loaded = holder.load()
-        Vanadium.config = holder.config // load() builds a fresh instance; consumers read the static field
-        if (!loaded) {
-            return fail(ctx, "config reload failed — check the file and server log; /vanadium status shows active values")
-        }
+        Vanadium.config = holder.config
+        if (!loaded) return fail(ctx, "config reload failed — check the file and server log; /vanadium status shows active values")
         feedback(ctx, "config reloaded from disk")
         return SUCCESS
     }
@@ -134,8 +134,4 @@ object VanadiumCommand {
 
     private fun onOff(value: Boolean, on: String, off: String): MutableComponent =
         Component.literal(if (value) on else off).withStyle(if (value) ChatFormatting.GREEN else ChatFormatting.RED)
-
-    private fun version(): String = FabricLoader.getInstance().getModContainer("vanadium")
-        .map { it.metadata.version.friendlyString }
-        .orElse("?")
 }

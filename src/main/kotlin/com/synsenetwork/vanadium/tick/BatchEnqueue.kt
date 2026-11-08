@@ -3,11 +3,8 @@ package com.synsenetwork.vanadium.tick
 import net.minecraft.world.level.ChunkPos
 
 /**
- * Two-phase stage collection for large populations. The server thread only records items. Workers
- * then map contiguous slices to a packed chunk key and a task, writing index-aligned arrays. Finally
- * the server thread enqueues the results in recording order, so per-cell insertion order is unchanged
- * while the item reads that miss the server thread's cache (fields last written by workers on other
- * cores) happen in parallel. Server-thread only and not reentrant; mapping jobs write disjoint slots.
+ * Workers map recorded items into disjoint array slots; the caller enqueues them in recording order.
+ * Server-thread only and non-reentrant outside mapping jobs.
  */
 class BatchEnqueue<T : Any>(private val kind: Preparation, private val mapper: Mapper<T>) {
     interface Mapper<T> {
