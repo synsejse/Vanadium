@@ -40,6 +40,23 @@ jcmd <server-pid> Thread.print > /tmp/vanadium-threads.txt
 jfr summary /absolute/path/vanadium.jfr
 ```
 
+### Vanadium events
+
+Every recording includes three Vanadium event types: `vanadium.ServerTick` (tick work,
+idle excluded), `vanadium.Wave` (one stage wave: stage, dimension, cells, tasks,
+participants, cell size) and `vanadium.Preparation` (preparation jobs by kind). They
+cost a branch when no recording runs. Summarize them with:
+
+```sh
+python3 scripts/jfr-summary.py /absolute/path/vanadium.jfr          # table
+python3 scripts/jfr-summary.py /absolute/path/vanadium.jfr --json   # for scripts
+```
+
+The summary splits tick work into stage waves, preparation waves and the serial
+remainder, and reports serial time per tick (p50/p95). The serial remainder bounds
+what more workers can gain. In Mission Control the events appear under *Vanadium*,
+on the same timeline as monitor waits, parks and allocations.
+
 Capture several thread dumps a few seconds apart when investigating a stall. Use the
 Minecraft JVM PID rather than the Gradle daemon PID. Mission Control is an optional
 separate GUI tool; it is not included in the development shell.

@@ -9,7 +9,7 @@ import net.minecraft.world.level.ChunkPos
  * while the item reads that miss the server thread's cache (fields last written by workers on other
  * cores) happen in parallel. Server-thread only and not reentrant; mapping jobs write disjoint slots.
  */
-class BatchEnqueue<T : Any>(private val mapper: Mapper<T>) {
+class BatchEnqueue<T : Any>(private val kind: Preparation, private val mapper: Mapper<T>) {
     interface Mapper<T> {
         /** A packed chunk position, [SERIAL] or [SKIP]. May run on a worker. */
         fun key(item: T): Long
@@ -42,7 +42,7 @@ class BatchEnqueue<T : Any>(private val mapper: Mapper<T>) {
         val n = count
         try {
             if (n >= MIN_PARALLEL_ITEMS) {
-                scheduler.prepare(List((n + ITEMS_PER_JOB - 1) / ITEMS_PER_JOB) { job ->
+                scheduler.prepare(kind, List((n + ITEMS_PER_JOB - 1) / ITEMS_PER_JOB) { job ->
                     Runnable { map(job * ITEMS_PER_JOB, minOf(n, (job + 1) * ITEMS_PER_JOB)) }
                 })
             } else {

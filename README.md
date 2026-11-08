@@ -64,14 +64,17 @@ scheduled ticks, or tracking. Validate the actual modpack before deployment.
 | Command | Permission | Effect |
 |---|---|---|
 | `/vanadium` or `/vanadium status` | everyone | Version, enabled state, workers (with restart-pending detection), cell size, all stage flags |
+| `/vanadium set <option> <value>` | op (2) | Change a boolean or integer option live (not `workers`); not saved, `/vanadium reload` restores the file |
 | `/vanadium reload` | op (2) | Re-read `vanadium.toml` and apply live |
-| `/vanadium benchmark` | op (2) | Unlock TPS for 30s (via vanilla tick-sprint) and report ticks run, average and peak TPS |
+| `/vanadium benchmark [seconds]` | op (2) | Unlock TPS (via vanilla tick-sprint; default 30s, range 5–300s) and report ticks run, average and peak TPS |
 | `/vanadium profile [seconds]` | op (2) | Capture tick/stage timings at the current tick rate; default 30s, range 1–300s |
 | `/vanadium profile stop` | op (2) | Finish the current capture early |
 | `/vanadium profile report` | op (2) | Show the last completed capture for this server |
 
 Profiles report average/p50/p95/p99 tick work and queued stage execution, caller tail-wait
-time, cell/task counts, and average/maximum tasks per cell. Stage measurements exclude
+time, cell/task counts, and average/maximum tasks per cell. They split tick work into stage
+waves, preparation waves and the serial remainder, which bounds what more workers can gain,
+and give each stage's participant utilization (cell time over wave time × participants). Stage measurements exclude
 collection and serial fallbacks; whole-tick measurements include them but exclude idle
 time between ticks. Worlds are aggregated, and cell counts count executions rather than
 unique locations. Keep configuration and workload fixed when comparing captures. Profiling
@@ -81,6 +84,12 @@ and whole-world time. Cell execution percentiles expose uneven work within waves
 and thunder use `SPAWNING`; random/precipitation ticks use `CHUNK`. World totals include stage
 work, so these overlapping measurements must not be added together. Cell durations include
 any lock waits; use JFR to distinguish waiting from CPU work.
+
+Benchmarks and profiles are also published as JSON: one `VANADIUM_RESULT {...}` log line and a
+file under `vanadium/results/` in the server directory. Each result records the active
+configuration, worker count, cell size, CPU count, heap and mod versions it was measured with.
+`/vanadium set` is meant for A/B runs in one JVM: for example `/vanadium set parallelTracking off`,
+`/vanadium benchmark`, then `/vanadium reload`.
 
 For a stall investigation, set `slowWaveMillis = 1000` and optionally
 `detailedTickDiagnostics = true` in TOML, then run `/vanadium reload`. A separate watchdog reports the stage,

@@ -9,7 +9,7 @@ import net.minecraft.server.level.ServerLevel
  * server thread's cache) and its cell. Holders without a ticking chunk are skipped, as vanilla skips them.
  */
 class RandomTickBatch(private val level: ServerLevel) : BatchEnqueue.Mapper<ChunkHolder> {
-    private val batch = BatchEnqueue(this)
+    private val batch = BatchEnqueue(Preparation.CHUNK_BATCH, this)
     private var tickSpeed = 0
 
     /** Starts a pass; all chunks of one tick share the speed vanilla reads once per pass. */

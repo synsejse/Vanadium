@@ -3,6 +3,7 @@ package com.synsenetwork.vanadium.tracking
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.mixin.server.network.ServerEntityAccessor
 import com.synsenetwork.vanadium.mixin.server.world.TrackedEntityAccessor
+import com.synsenetwork.vanadium.tick.Preparation
 import com.synsenetwork.vanadium.tick.Stage
 import it.unimi.dsi.fastutil.objects.Reference2LongLinkedOpenHashMap
 import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap
@@ -121,7 +122,7 @@ class NearbyTrackers {
      */
     private fun detectMoves() {
         if (ordered.size < MIN_PARALLEL_TRACKERS || moveScans.size < 2) moveScans.forEach(MoveScan::run)
-        else Vanadium.scheduler.prepare(moveScans)
+        else Vanadium.scheduler.prepare(Preparation.TRACKING_MOVES, moveScans)
         for (task in ordered) {
             if (!task.repaint) continue
             task.repaint = false
@@ -198,7 +199,7 @@ class NearbyTrackers {
         // caller and remain stable through both preparation and tracking barriers.
         val comparisons = diffs.sumOf { it.known.size.toLong() + it.current.size }
         if (diffs.size < 2 || comparisons < MIN_PARALLEL_COMPARISONS) diffs.forEach(PlayerDiff::run)
-        else Vanadium.scheduler.prepare(diffs)
+        else Vanadium.scheduler.prepare(Preparation.TRACKING_DIFFS, diffs)
         for (task in ordered) {
             if (diffs.any { it.actions[task.slot].toInt() != 0 }) {
                 task.diffs = diffs

@@ -41,7 +41,26 @@ class TickScheduler(private val pool: WorkerPool, cellSize: Int) {
     val detailedDiagnostics: Boolean get() = diagnostics?.detailed == true
 
     /** Independent preparation jobs only: inputs stay stable and jobs must not enqueue into cell grids. */
-    fun prepare(jobs: List<Runnable>) = pool.runWave(jobs)
+    fun prepare(kind: Preparation, jobs: List<Runnable>) {
+        val recording = profile
+        val event = PreparationEvent()
+        event.begin()
+        val start = if (recording != null) System.nanoTime() else 0
+        try {
+            pool.runWave(jobs)
+        } finally {
+            recording?.recordPreparation(kind, jobs.size, System.nanoTime() - start)
+            if (event.shouldCommit()) {
+                event.kind = kind.name
+                event.jobs = jobs.size
+                event.participants = participants(jobs.size)
+                event.commit()
+            }
+        }
+    }
+
+    /** Threads that can run a wave of [tasks] items: the caller plus at most one worker per extra item. */
+    private fun participants(tasks: Int): Int = if (tasks <= 1) tasks else minOf(pool.workerCount + 1, tasks)
 
     fun setDimension(dimension: String) {
         this.dimension = dimension
@@ -91,6 +110,10 @@ class TickScheduler(private val pool: WorkerPool, cellSize: Int) {
         if (cells.size > 2) cells.sortWith(LARGEST_FIRST)
         recording?.recordWave(stage, cells)
         val waitRecorder = recording?.let { LongConsumer { nanos -> it.recordWait(stage, nanos) } }
+        val participants = participants(cells.size)
+        val event = WaveEvent()
+        event.begin()
+        val start = if (recording != null) System.nanoTime() else 0
         diagnostics?.watch(stage, dimension, cellSize).use { watch ->
             var tasks: List<Runnable> = watch?.wrap(cells) ?: cells
             val durations = if (recording != null) LongArray(tasks.size) else null
@@ -101,10 +124,20 @@ class TickScheduler(private val pool: WorkerPool, cellSize: Int) {
                     return
                 }
                 val wave = NeighborhoodWave(cells, tasks, grid)
-                pool.runWave(wave.participants(minOf(pool.workerCount + 1, cells.size)), waitRecorder)
+                pool.runWave(wave.participants(participants), waitRecorder)
                 wave.failure()?.let { throw RuntimeException("Vanadium worker task failed", it) }
             } finally {
                 if (durations != null) recording?.recordCells(stage, durations)
+                recording?.recordWaveCapacity(stage, System.nanoTime() - start, participants)
+                if (event.shouldCommit()) {
+                    event.stage = stage.name
+                    event.dimension = dimension
+                    event.cells = cells.size
+                    event.tasks = cells.sumOf { it.taskCount }
+                    event.participants = participants
+                    event.cellSize = cellSize
+                    event.commit()
+                }
             }
         }
     }

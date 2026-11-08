@@ -32,7 +32,7 @@ class BatchEnqueueTest {
             val pool = WorkerPool(4)
             val scheduler = TickScheduler(pool, 1)
             val mapper = Mapper()
-            val batch = BatchEnqueue(mapper)
+            val batch = BatchEnqueue(Preparation.ENTITY_BATCH, mapper)
             val serial = ArrayList<Int>()
             repeat(2) {
                 mapper.ran.clear()
