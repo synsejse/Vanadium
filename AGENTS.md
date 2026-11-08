@@ -1,15 +1,16 @@
 # Working on Vanadium
 
-Vanadium is a Java 25 Fabric mod targeting **Minecraft 26.2 with official unobfuscated names**.
+Vanadium is a Kotlin Fabric mod (Java 25 bytecode) targeting **Minecraft 26.2 with official unobfuscated
+names**. Mixins stay in Java; everything else is Kotlin, loaded through Fabric Language Kotlin.
 Read `README.md`, `docs/DEVELOPMENT.md`, and `docs/ARCHITECTURE.md` before changing tick paths.
-Version sources are `gradle.properties`, `build.gradle`, and `gradle/wrapper/gradle-wrapper.properties`.
-Do not upgrade Minecraft, mappings, Loom, Gradle, or runtime mods as incidental cleanup.
+Version sources are `gradle.properties`, `build.gradle.kts`, and `gradle/wrapper/gradle-wrapper.properties`.
+Do not upgrade Minecraft, mappings, Loom, Gradle, Kotlin, or runtime mods as incidental cleanup.
 
 ## Environment and commands
 
 - Enter `nix develop` (or `nix develop path:.` while new Nix files are untracked).
   The shell supplies Java 25, Python 3, shellcheck, nixfmt, and common CLI tools.
-- Always use `./gradlew`, not a system Gradle. Java compilation uses a Java 25 toolchain.
+- Always use `./gradlew`, not a system Gradle. Kotlin and Java compile with a Java 25 toolchain.
 - `./gradlew genSources`: generate Minecraft sources for reviewing injection targets.
 - `./gradlew build`: compile, validate the access widener, test, and produce distributable jars.
 - `./gradlew test --tests 'com.synsenetwork.vanadium.tick.*'`: focused scheduler tests.
@@ -34,9 +35,17 @@ not flattened into Gradle's development classpath. Fabric API and Cloth Config a
 
 ## Source map
 
-All Java paths below are relative to `src/main/java/com/synsenetwork/vanadium/`.
+Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/` (logic) or
+`src/main/java/` (mixins and the bootstrap-time classes listed below).
 
-- `Vanadium.java`: config, server lifecycle ownership of the shared scheduler/pool, command registration.
+- **Kotlin vs. Java:** Mixin classes must be Java. So are the duck interfaces they implement
+  (`vanadium$`-prefixed methods: `NavigationAccess`, `NavigationState`, `ItemLockAccess`,
+  `PoiDistanceAccess`, `RandomTickSink`, `ScheduledTickAccess`) and code that runs during Mixin
+  bootstrap (`mixin/SynchronisePlugin.java`, `compat/C2ME.java`). Everything else is Kotlin.
+  Kotlin APIs called from mixins use `@JvmField`/`@JvmStatic` (`Vanadium.config`, `Vanadium.scheduler`);
+  call `vanadium$` methods from Kotlin with backticks. Keep collection adapters on fastutil's
+  `Abstract*` bases and override every method that would read unused superclass storage.
+- `Vanadium.kt`: config, server lifecycle ownership of the shared scheduler/pool, command registration.
 - `tick/`: cell coordinates, cell grid, neighborhood-exclusion waves, batched stage collection,
   stage scheduler, caller-participating spin-then-park worker pool.
 - `chunk/`: chunk manager/cache and per-position loading locks.
@@ -49,7 +58,8 @@ All Java paths below are relative to `src/main/java/com/synsenetwork/vanadium/`.
 - `config/`, `commands/`: TOML config, status, live reload, tick benchmark.
 - `src/main/resources/vanadium.mixins.json`: required mixin registration.
 - `src/main/resources/vanadium.accesswidener`: access required by mixins.
-- `src/test/java/`: JUnit 5 unit tests and standalone scheduler benchmark.
+- `src/test/kotlin/`: JUnit 5 unit tests (`kotlin.test`), benchmarks, and the live test mods
+  (`integration/`, `featurebench/`); `src/test/java/` holds only the feature-bench test mixin.
 
 ## Concurrency rules
 
@@ -86,7 +96,11 @@ All Java paths below are relative to `src/main/java/com/synsenetwork/vanadium/`.
 
 ## Change and validation discipline
 
-- Follow the surrounding Java style (four spaces, existing package layout). Avoid broad formatting.
+- Follow the surrounding style (four spaces, existing package layout). Avoid broad formatting.
+- Kotlin hot paths: a boxed value (`Long?`, collection element) assigned to a non-null local is unboxed
+  and re-boxed on the next nullable write; keep it in a nullable local instead. Avoid capturing
+  lambdas in per-item paths (enqueue, lookups). Check suspicious hot classes with
+  `javap -c` for `valueOf`/`invokedynamic`, and compare JFR allocation samples against a baseline.
 - Use deterministic gates/latches and bounded waits in new concurrency regression tests;
   do not use throughput thresholds as correctness assertions.
 - Run focused tests during implementation, then `./gradlew build`. For mixin/world/tracking

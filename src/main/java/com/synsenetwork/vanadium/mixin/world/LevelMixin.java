@@ -110,7 +110,7 @@ public abstract class LevelMixin {
         int chunkX = blockEntity.getBlockPos().getX() >> 4;
         int chunkZ = blockEntity.getBlockPos().getZ() >> 4;
         Vanadium.scheduler.enqueue(Stage.BLOCK_ENTITY, chunkX, chunkZ, ticker::tick,
-                Vanadium.scheduler.detailedDiagnostics()
+                Vanadium.scheduler.getDetailedDiagnostics()
                         ? BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(blockEntity.getType()).toString() : null);
     }
 

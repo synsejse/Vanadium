@@ -45,6 +45,10 @@ All four correctness fixes remain on.
 | Chunk packets | Direct `ClientboundLevelChunkPacketData` construction | Section preparation, barrier, buffers, copying and packet-data construction included. Batches of 8/32 flat chunks, then eight dense 16-state palette sections per chunk. Fixture section edits are outside measurement. Lighting packets, selection/quotas, compression and sending are excluded. |
 | Profiler | Scheduler profiling detached | Same 128-cell wave with profile attached; zero or 2,000 integer iterations per task. Includes collection, four color barriers and per-world/cell recording. Steady-state bounded sample storage can saturate. |
 
+Since the Kotlin port, the item-lock and neighbor-queue fixtures call the private vanilla methods
+through reflection instead of exact method handles. Both arms pay the same call overhead, but
+absolute times are not directly comparable with the tables recorded before the port.
+
 Benchmark switches and reflective field substitutions exist only in the separate
 test jar. No unsafe unlocked mode is used. The fixture runs at server startup,
 outside normal ticking; its later catch-up warning is expected. This avoids the

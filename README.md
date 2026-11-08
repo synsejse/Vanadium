@@ -10,8 +10,9 @@ Vanadium handles parallel *ticking*; [C2ME](https://modrinth.com/mod/c2me-fabric
 
 ## Requirements
 
-- Minecraft 26.2, Fabric Loader 0.19.3+, Java 25+
+- Minecraft 26.2, Fabric Loader 0.20.1+, Java 25+
 - [Fabric API](https://modrinth.com/mod/fabric-api)
+- [Fabric Language Kotlin](https://modrinth.com/mod/fabric-language-kotlin) 1.14.2+ (Kotlin 2.4.21)
 - [Cloth Config](https://modrinth.com/mod/cloth-config)
 - [C2ME](https://modrinth.com/mod/c2me-fabric) — **required**
 

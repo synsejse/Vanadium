@@ -114,8 +114,8 @@ other positions keep the ticket-level answer, which is true while a ticketed chu
 `getChunkNow` treats a chunk as present between `setLoaded(true)` and `setLoaded(false)`, which
 can differ briefly from vanilla during promotion and unload.
 
-Misses and other statuses take vanilla's path. Loads use `ChunkLockTable` or a global monitor,
-depending on configuration. The lock table reserves entries atomically before acquiring locks,
+Misses and other statuses take vanilla's path. Loads use `ChunkLockTable` (one reentrant lock
+per chunk) or a global monitor, depending on configuration. The lock table reserves entries atomically before acquiring locks,
 then evicts unreserved entries periodically. Under its load lock a FULL request rechecks the
 loaded map, since the previous holder's chunk was published by `setLoaded` before its load
 completed. One maintenance executor per chunk manager handles thirty-second lock eviction.
@@ -146,7 +146,15 @@ is pending. `SynchronisePlugin` leaves volatile-only readers such as
 `Long2ObjectConcurrentHashMap` and `Long2ByteConcurrentHashMap` store packed position keys
 through murmur3's bijective finalizer (`MixedLongKeys`). Under `Long.hashCode`, packed chunk
 keys hash to `x ^ z`, so a 32×32 area collapsed onto 32 hashes and degraded the backing
-`ConcurrentHashMap` into tree bins; key and entry views invert the mixing. `ServerChunkCache` also has a concurrent set for pending chunk broadcasts.
+`ConcurrentHashMap` into tree bins; key and entry views invert the mixing. The concurrent maps
+extend fastutil's `Abstract*Map` classes, which derive key and value views from one entry-set
+view; single-key operations, including the compute family, delegate atomically to the backing map.
+`ConcurrentLongLinkedOpenHashSet` must subclass vanilla's field type but never uses the
+superclass storage, so it overrides every method that would read it, including `forEach` and
+`spliterator` (`SectionStorage.flushAll` saves dirty POI chunks through `forEach`; earlier versions
+iterated the empty superclass table there and dropped pending POI writes on save-all flush and
+shutdown). Its iteration order is ascending, not insertion order.
+`ServerChunkCache` also has a concurrent set for pending chunk broadcasts.
 
 `ChunkHolder` keeps vanilla's section update sets. A per-holder monitor protects block/light
 update registration and broadcasting, including set creation, clearing, and pending flags.

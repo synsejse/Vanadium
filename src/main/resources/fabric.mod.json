@@ -16,7 +16,10 @@
   "environment": "*",
   "entrypoints": {
     "main": [
-      "com.synsenetwork.vanadium.Vanadium"
+      {
+        "adapter": "kotlin",
+        "value": "com.synsenetwork.vanadium.Vanadium"
+      }
     ],
     "mixinsquared": [
       "com.synsenetwork.vanadium.compat.C2ME"
@@ -27,7 +30,8 @@
     "vanadium.mixins.json"
   ],
   "depends": {
-    "fabricloader": ">=0.19.3",
+    "fabricloader": ">=0.20.1",
+    "fabric-language-kotlin": ">=1.14.2+kotlin.2.4.21",
     "fabric-api": ">=0.160.0",
     "minecraft": "26.2",
     "java": ">=25",
