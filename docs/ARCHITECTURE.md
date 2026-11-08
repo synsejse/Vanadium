@@ -159,7 +159,21 @@ Visit order matches vanilla's sorted keys (X, then Z and Y in unsigned packed or
 creation and removal serialize on the index. `GoalSelector` keeps vanilla's ordered set: goals
 belong to one mob, which only its own cell ticks.
 
-`Long2ObjectConcurrentHashMap` and `Long2ByteConcurrentHashMap` store packed position keys
+Chunk simulation levels and POI village distances, which workers read on every entity tick, are
+`ConcurrentLong2ByteMap`s: primitive open addressing whose slots are published FULL with release
+semantics and only tombstoned until a rebuild, so reads take no lock and box nothing.
+`DynamicGraphMinFixedPoint` itself keeps vanilla's `computedLevels` map and priority queue: every
+instance method that touches them is already synchronized by `SynchronisePlugin`.
+
+`ClassInstanceMultiMap` keeps copy-on-write per-class lists and returns one cached read-only view
+per class, so a repeated `find` neither locks nor allocates. Adds, removes and the first lookup of a
+class serialize, so a list built for a new class cannot miss an entity added concurrently.
+`ServerLevel.getNoiseBiome` reads loaded full chunks through the lock-free chunk map; vanilla's
+`BIOMES`-status request went through the load lock and the synchronized four-entry cache, and
+returned an `ImposterProtoChunk` that delegates biome reads to the same full chunk. `Profiler.get`
+skips its thread-local on workers, which never have an active profiler.
+
+`Long2ObjectConcurrentHashMap` stores packed position keys
 through murmur3's bijective finalizer (`MixedLongKeys`). Under `Long.hashCode`, packed chunk
 keys hash to `x ^ z`, so a 32×32 area collapsed onto 32 hashes and degraded the backing
 `ConcurrentHashMap` into tree bins; key and entry views invert the mixing. The concurrent maps

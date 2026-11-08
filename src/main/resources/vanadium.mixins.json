@@ -50,8 +50,6 @@
     "world.chunk.ChunkGenerationTaskMixin",
     "world.chunk.ChunkAccessMixin",
     "world.chunk.LevelChunkMixin",
-    "world.chunk.light.DynamicGraphMinFixedPointMixin",
-    "world.chunk.light.LeveledPriorityQueueMixin",
     "world.entity.EntityLookupMixin",
     "world.entity.EntitySectionStorageMixin",
     "world.poi.PoiDistanceTrackerMixin",
