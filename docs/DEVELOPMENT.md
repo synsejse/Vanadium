@@ -3,7 +3,7 @@
 ## Setup
 
 Minecraft **26.2**, official unobfuscated names, Java **25**. Use the checked-in
-Gradle wrapper. Versions live in `gradle.properties`, `build.gradle` and
+Gradle wrapper. Versions live in `gradle.properties`, `build.gradle.kts` and
 `gradle/wrapper/gradle-wrapper.properties`; do not upgrade them incidentally.
 
 ```sh
@@ -42,7 +42,7 @@ cleans up only its own processes. An isolated interactive run is also supported:
 `./gradlew -PvanadiumRunDir=/absolute/path runServer --args=nogui`.
 
 Build artifacts: `build/libs/`; JUnit reports: `build/reports/tests/test/`.
-The current suite has **171 unit tests**. They check bindings, scheduling, collections
+The current suite has **144 unit tests**. They check bindings, scheduling, collections
 and config without applying mixins. The separate live test mod exercises block
 breaking/update packets, concurrent dirty notifications, scheduled-tick state,
 passenger rules, event deduplication, random-position transitions, navigation,

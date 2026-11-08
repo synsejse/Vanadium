@@ -31,8 +31,8 @@ public abstract class PathTypeCacheMixin {
         long key = pos.asLong();
         int index = vanadium$index(key);
         PathTypeEntry entry = vanadium$entries[index];
-        if (entry != null && entry.key() == key) {
-            return entry.type();
+        if (entry != null && entry.key == key) {
+            return entry.type;
         }
         PathType type = WalkNodeEvaluator.getPathTypeFromState(level, pos);
         vanadium$entries[index] = new PathTypeEntry(key, type);
@@ -48,7 +48,7 @@ public abstract class PathTypeCacheMixin {
         long key = pos.asLong();
         int index = vanadium$index(key);
         PathTypeEntry entry = vanadium$entries[index];
-        if (entry != null && entry.key() == key) {
+        if (entry != null && entry.key == key) {
             vanadium$entries[index] = null;
         }
     }

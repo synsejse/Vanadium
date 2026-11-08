@@ -1,0 +1,11 @@
+package com.synsenetwork.vanadium.tick
+
+/** The sequential parts of a world tick, in vanilla order. */
+enum class Stage {
+    SCHEDULED_TICK,
+    SPAWNING,
+    CHUNK,
+    TRACKING,
+    ENTITY,
+    BLOCK_ENTITY,
+}
