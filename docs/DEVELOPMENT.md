@@ -42,11 +42,12 @@ cleans up only its own processes. An isolated interactive run is also supported:
 `./gradlew -PvanadiumRunDir=/absolute/path runServer --args=nogui`.
 
 Build artifacts: `build/libs/`; JUnit reports: `build/reports/tests/test/`.
-The current suite has **147 unit tests**. They check bindings, scheduling, collections,
+The current suite has **140 unit tests**. They check bindings, scheduling, collections,
 config, live options and JFR events without applying mixins. The separate live test mod exercises block
 breaking/update packets, concurrent dirty notifications, scheduled-tick state,
 passenger rules, event deduplication, random-position transitions, navigation,
-tracking diffs, spawn counting, item conservation and chunk packet encoding/sending.
+tracking diffs, spawn counting, item conservation, loaded-chunk publication/lookups in both
+lock modes and disabled mode, and chunk packet encoding/sending.
 These fixtures complement gameplay testing; they do not certify a modpack.
 
 For IDE/CLI cache contention, let the other import finish. Use a separate

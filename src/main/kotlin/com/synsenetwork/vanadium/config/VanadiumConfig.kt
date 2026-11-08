@@ -11,7 +11,7 @@ import kotlin.math.sqrt
 /** TOML-backed options (`config/vanadium.toml`). Fields are public for AutoConfig and the Java mixins. */
 @Config(name = "vanadium")
 class VanadiumConfig : ConfigData {
-    @field:Comment("Master switch: false = fully vanilla ticking (all parallelism off)")
+    @field:Comment("Master switch: false disables parallel ticking and optional optimizations; structural mixins, locks and loaded-chunk lookups remain active")
     @JvmField var enabled = true
 
     @field:Comment("Worker threads for parallel ticking. <= 0 = available logical processors. Positive values "
@@ -51,9 +51,6 @@ class VanadiumConfig : ConfigData {
 
     @field:Comment("Batch each connection's packets into one flush per tick instead of one per packet")
     @JvmField var consolidateFlushes = true
-
-    @field:Comment("Lock-free lookups of loaded full chunks for worker threads (getChunk, getChunkNow, hasChunk)")
-    @JvmField var chunkCache = true
 
     @field:Comment("Per-chunk load locks so different chunks can load in parallel; false = one global lock")
     @JvmField var parallelChunkLoads = true

@@ -38,6 +38,7 @@ class BlockUpdateChecks : ModInitializer {
             checkBlocks(server)
             checkDirty(server)
             val level = server.overworld()
+            ChunkLookupChecks.run(level)
             TickSafetyChecks.run(level)
             NavigationChecks.run(level)
             TrackingChecks.run(level)

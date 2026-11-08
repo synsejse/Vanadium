@@ -4,7 +4,7 @@ import com.mojang.datafixers.DataFixer;
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.synsenetwork.vanadium.Vanadium;
-import com.synsenetwork.vanadium.chunk.ParallelChunkManager;
+import com.synsenetwork.vanadium.chunk.ParallelChunkCache;
 import com.synsenetwork.vanadium.tick.Stage;
 import com.synsenetwork.vanadium.tick.ScheduledTickAccess;
 import com.synsenetwork.vanadium.tick.EntityBatch;
@@ -73,8 +73,8 @@ public abstract class ServerLevelMixin implements NavigationAccess {
     private ObjectLinkedOpenHashSet<BlockEventData> blockEvents;
 
     @Redirect(method = "<init>", at = @At(value = "NEW", target = "(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/level/storage/LevelStorageSource$LevelStorageAccess;Lcom/mojang/datafixers/DataFixer;Lnet/minecraft/world/level/levelgen/structure/templatesystem/StructureTemplateManager;Ljava/util/concurrent/Executor;Lnet/minecraft/world/level/chunk/ChunkGenerator;IIZLnet/minecraft/world/level/entity/ChunkStatusUpdateListener;Ljava/util/function/Supplier;)Lnet/minecraft/server/level/ServerChunkCache;"))
-    private ServerChunkCache createChunkManager(ServerLevel world, LevelStorageSource.LevelStorageAccess session, DataFixer dataFixer, StructureTemplateManager structureTemplateManager, Executor workerExecutor, ChunkGenerator chunkGenerator, int viewDistance, int simulationDistance, boolean dsync, ChunkStatusUpdateListener chunkStatusChangeListener, Supplier<SavedDataStorage> savedDataStorageFactory) {
-        return new ParallelChunkManager(world, session, dataFixer, structureTemplateManager, workerExecutor, chunkGenerator, viewDistance, simulationDistance, dsync, chunkStatusChangeListener, savedDataStorageFactory);
+    private ServerChunkCache createChunkCache(ServerLevel world, LevelStorageSource.LevelStorageAccess session, DataFixer dataFixer, StructureTemplateManager structureTemplateManager, Executor workerExecutor, ChunkGenerator chunkGenerator, int viewDistance, int simulationDistance, boolean dsync, ChunkStatusUpdateListener chunkStatusChangeListener, Supplier<SavedDataStorage> savedDataStorageFactory) {
+        return new ParallelChunkCache(world, session, dataFixer, structureTemplateManager, workerExecutor, chunkGenerator, viewDistance, simulationDistance, dsync, chunkStatusChangeListener, savedDataStorageFactory);
     }
 
     /** Keep pending/executed ticks visible until the wave finishes, outside the scheduler monitor. */
