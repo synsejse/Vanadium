@@ -80,6 +80,13 @@ CPU for idle and zombie workloads; `variants:` compares configurations in ABBA o
 JVM, `--numactl` constrains placement and `jfr` records lock/park events. See the Xeon section of
 the benchmark report for results and caveats.
 
+The harness also records `profile_cpu_s`, `profile_wall`, and `profile_cpu_cores` during
+normal-rate profiles (process CPU seconds divided by elapsed wall time, including helpers,
+GC and compiler threads). Those captures include profiling overhead and are separate from
+uncapped benchmark CPU. Worker idle spin defaults to 2ms; pass
+`--jvm=-Dvanadium.workerSpinMicros=100` to compare the lower-CPU 100µs setting.
+The caller's tail spin remains 200µs (`vanadium.callerSpinMicros`). Both are JVM-start settings.
+
 `./gradlew benchScheduler`, `benchWorkerPool` and `benchAreaMap` isolate scheduler,
 worker and index overhead. `scripts/bench-server.sh 30` exercises a normal ticking
 server with 200 clustered zombies; it is a smoke workload, not an all-feature A/B

@@ -5,12 +5,7 @@ import net.minecraft.commands.CommandSourceStack
 import net.minecraft.network.chat.Component
 import net.minecraft.server.MinecraftServer
 
-/**
- * An unlocked-TPS benchmark driven by vanilla's tick sprint: while sprinting the server loop does not
- * sleep between ticks, syncs clients, and suppresses overload warnings. This starts a sprint far larger
- * than the run can consume, counts ticks at END_SERVER_TICK, and stops when time runs out. The result is
- * published through [Results]. All state is confined to the server thread (commands and tick events).
- */
+/** Wall-time benchmark using vanilla tick sprint. State is confined to the server thread. */
 object TickBenchmark {
     const val DEFAULT_SECONDS = 30
     private const val WINDOW_NANOS = 1_000_000_000L
@@ -43,7 +38,6 @@ object TickBenchmark {
         return true
     }
 
-    /** Drop the command source so an interrupted benchmark cannot retain a stopped server. */
     fun onServerStopped() {
         isActive = false
         source = null
@@ -59,7 +53,6 @@ object TickBenchmark {
             windowStartNanos = now
             windowTicks = 0
         }
-        // Finish on time, or early if something else ended the sprint (e.g. /tick sprint stop).
         if (now - startNanos >= durationNanos || !server.tickRateManager().isSprinting) finish(server, now)
     }
 

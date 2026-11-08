@@ -42,7 +42,7 @@ internal class NeighborhoodWave(cells: List<Cell>, private val work: List<Runnab
         cells.forEachIndexed { i, cell ->
             for (k in 0 until 8) {
                 val neighbor = grid.cellAt(cell.cellX + OFFSET_X[k], cell.cellZ + OFFSET_Z[k])
-                neighbors[i * 8 + k] = if (neighbor != null && neighbor.hasTasks()) neighbor.waveIndex else -1
+                neighbors[i * 8 + k] = if (neighbor != null && neighbor.hasTasks) neighbor.waveIndex else -1
             }
         }
     }

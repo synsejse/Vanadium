@@ -326,3 +326,71 @@ average of 9–11). Wave shape looks like a better next target than the remainin
 Evidence (JFR files, console logs, `results.json`) was kept outside the repository with the run.
 Untested here: real players and packet load, redstone/hoppers/fluids, exploration and chunk
 generation, modpack content, and a server without Vanadium.
+
+### Worker wake-up follow-up (2026-11-08)
+
+On `9781c93` plus the experimental worker wake-up changes, six fresh JVMs ran in order
+100µs, 2ms, tick-warm, tick-warm, 2ms, 100µs. Temporary per-cell counters were removed
+before every reported run. The tick-warm arm woke all workers at tick start and kept them
+spinning until tick end, with a 100µs idle window otherwise; this experiment was removed.
+The retained change sets the bounded worker idle spin default to 2ms. The claim protocol,
+barriers, caller participation and 200µs caller tail spin are unchanged.
+
+Environment: dual E5-2699 v3 KVM guest, 72 vCPUs (currently exposed as 2 sockets × 18 cores ×
+2 threads), 2 NUMA nodes, unbound placement; OpenJDK 25.0.4.1 from `nix develop`, 32 helpers,
+cell size 2, all default stage flags enabled, C2ME parallelism 4, 4GiB fixed G1 heap.
+Minecraft 26.2, Loader 0.20.1, Fabric API 0.160.0+26.2, Kotlin runtime
+1.14.2+kotlin.2.4.21, Cloth Config 26.2.155, C2ME 0.4.2-alpha.0.52. Same seed-12345 flat
+world recipe as above: 1,024 forced chunks, no players, then 4,096 persistent AI zombies.
+Each JVM settled for 15s before the chunk-only measurement and 5s after summoning zombies.
+Each uncapped measurement lasted 30s, followed by a separate 10s profile at 20 TPS.
+
+| Worker idle policy | Zombie TPS, two JVMs | Mean TPS | Median tick work, two profiles | p95 tick work, two profiles |
+|---|---|---:|---|---|
+| 100µs | 86.3 / 84.6 | 85.5 | 11.719 / 11.970ms | 14.378 / 13.754ms |
+| 2ms | 102.3 / 98.7 | 100.5 | 11.135 / 10.469ms | 16.552 / 12.902ms |
+| Whole tick warm | 97.9 / 94.5 | 96.2 | 10.971 / 10.776ms | 13.432 / 13.318ms |
+
+The 2ms window increased mean zombie throughput **17.6%** over 100µs and was faster than
+tick-warm in both runs. This is a throughput result, not evidence of improved p95: tail
+results vary. Two JVMs per arm are insufficient to quantify confidence or modpack behavior.
+
+The harness now measures process CPU during normal-rate profiles. This instrumentation was
+added during the sweep, so only the second JVM per arm has these fields:
+
+| Policy | Chunk-only CPU cores at 20 TPS | Zombie CPU cores at 20 TPS |
+|---|---:|---:|
+| 100µs | 0.518 | 5.948 |
+| 2ms | 1.570 | 7.462 |
+| Whole tick warm | 1.099 | 7.278 |
+
+These are summed process CPU seconds divided by elapsed capture wall time (about 10.5s),
+including compiler and GC threads and profile overhead. The longer window costs about
+1.5 additional CPU cores at 20 TPS with zombies; during uncapped runs process CPU rose
+from about 25 to 32 cores. Use `-Dvanadium.workerSpinMicros=100` when CPU economy matters
+more than peak throughput. This setting does not change the number of workers.
+
+Second-JVM chunk-only throughput was 1,134 / 1,208 / 1,080 TPS for 100µs / 2ms / tick-warm.
+The first baseline chunk-only run overlapped test compilation and is excluded from this
+comparison; zombie runs and all other arms had no concurrent build/test job.
+Evidence is retained under `.vanadium/wake-study/{0-base,1-spin,2-warm,3-warm,4-spin,5-base}/`
+(`results.json`, console logs); isolated worlds and full server logs are under `.vanadium/runs/`.
+Reproduce the retained policies with separate invocations of:
+
+```sh
+nix develop -c python3 scripts/bench-sweep.py --workers 32 --radius 16 --settle 15 \
+  --workloads idle,mobs --jvm=-Dvanadium.workerSpinMicros=2000 --out .vanadium/spin-2000
+# Repeat with 100, reversing order in a second pair of JVMs.
+```
+
+The tick-warm API, JVM experiment switch, and always-on wave statistics daemon were removed.
+No entity/chunk/world locking or Minecraft injection targets changed. Real players, chunk
+generation, modpack load and performance on the Ryzen remain untested for this default.
+
+Validation of the retained default: `nix develop -c ./gradlew build --rerun-tasks` passed
+(140 tests, no failures; access widener validated), Python syntax compilation and
+`git diff --check` passed. `nix develop -c python3 scripts/dev-server.py smoke` passed
+startup, ticking, save and shutdown with the final sources; evidence remains in
+`.vanadium/runs/smoke-t24im3jr/`. The smoke used auto workers (72), not the 32-helper
+performance configuration. No JFR capture was taken in this sweep; the historical
+wake-latency counters motivated the experiment but are not retained as production instrumentation.

@@ -132,9 +132,16 @@ def bench(r, log, pid, label, results, extra, profile_after=True):
     if profile_after:
         # Profile at 20 TPS: per-tick work percentiles, tick split and stage utilization.
         offset = len(log.read_text(errors="replace"))
+        profile_cpu0 = thread_cpu(pid)
+        profile_start = time.monotonic()
         r("vanadium profile 10")
         try:
             row["profile"] = profile_summary(result(log, "profile", offset, 45)["profile"])
+            profile_wall = time.monotonic() - profile_start
+            profile_cpu = diff(profile_cpu0, thread_cpu(pid))
+            row["profile_cpu_s"] = profile_cpu
+            row["profile_wall"] = round(profile_wall, 2)
+            row["profile_cpu_cores"] = round(sum(profile_cpu.values()) / profile_wall, 3)
         except RuntimeError:
             row["profile"] = None
     results.append(row)

@@ -32,7 +32,6 @@ class EntityBatch : BatchEnqueue.Mapper<Entity> {
     override fun task(item: Entity): Runnable {
         val tick = body!!
         val task = Runnable { tick.accept(item) }
-        // Detailed slow-wave reports name the entity type of the running task.
         return if (labels) WaveDiagnostics.NamedTask(BuiltInRegistries.ENTITY_TYPE.getKey(item.type).toString(), task) else task
     }
 }

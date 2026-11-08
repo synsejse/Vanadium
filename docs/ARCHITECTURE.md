@@ -27,8 +27,9 @@ color, which provided the same exclusion but made every color wait for its slowe
 
 `WorkerPool.runWave()` claims tasks from an indexed list on both persistent pool threads
 and its caller. The caller publishes a private `Wave` through one volatile field; idle
-workers spin briefly (`vanadium.workerSpinMicros`, default 100) before parking, and a
+workers spin briefly (`vanadium.workerSpinMicros`, default 2,000) before parking, and a
 parked worker is unparked only when a wave needs it, using a Dekker-style parked flag.
+The longer spin trades additional CPU for lower wake-up latency; it is bounded even between ticks.
 Low-numbered workers take small waves. Tasks are claimed in chunks once they greatly
 outnumber participants, and each participant subtracts its completed count once, so
 per-task work does not bounce shared counters between sockets. The caller spins
