@@ -66,7 +66,10 @@ event. It records tick work at the end event and stage execution around each sch
 The pool reports the caller's tail wait after it finishes claiming work; this is distinct
 from total stage duration and is not a measurement of lock contention. Cell/task counts
 are read on the server thread while wave lists are stable. There are no worker-side profile
-counters or per-task timers in normal operation. Opt-in profiles time each cell into a
+counters or per-task timers in normal operation. The server thread emits JFR events per tick,
+stage wave and preparation run (`TickEvents.kt`); they are inert without a recording.
+Profiles also record each wave's wall time times its participants, so per-stage utilization is
+cell time over that capacity, and the tick split is stage waves, preparation and serial rest. Opt-in profiles time each cell into a
 separate array slot, then aggregate samples on the caller after the barrier. Per-world
 preparation intervals include collection and inline fallbacks, and world totals overlap
 stage timings. Spawning/thunder and random/precipitation work have separate stage entries.

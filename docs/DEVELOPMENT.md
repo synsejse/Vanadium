@@ -86,6 +86,8 @@ server with 200 clustered zombies; it is a smoke workload, not an all-feature A/
 comparison. For actual worlds use `/vanadium profile`, tick sprint for throughput,
 and [JFR](../scripts/PROFILING.md) for CPU, allocation and locks. World and stage
 profile times overlap: do not add them together. Caller tail wait is not lock time.
+Both the profile and `scripts/jfr-summary.py` split tick work into stage waves, preparation
+and the serial remainder; the serial share caps the speedup that more workers can give.
 
 ## Current limitations
 

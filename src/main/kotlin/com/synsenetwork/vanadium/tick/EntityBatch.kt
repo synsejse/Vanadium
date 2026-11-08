@@ -6,7 +6,7 @@ import java.util.function.Consumer
 
 /** Per-level ENTITY collection: vanilla's whole per-entity body runs as each entity's cell task. */
 class EntityBatch : BatchEnqueue.Mapper<Entity> {
-    private val batch = BatchEnqueue(this)
+    private val batch = BatchEnqueue(Preparation.ENTITY_BATCH, this)
     private var body: Consumer<Entity>? = null
     private var labels = false
 

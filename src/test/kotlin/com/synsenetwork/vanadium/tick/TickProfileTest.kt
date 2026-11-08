@@ -33,17 +33,32 @@ class TickProfileTest {
             scheduler.enqueue(Stage.ENTITY, 4, 0, { calls.incrementAndGet() }, null)
             scheduler.run(Stage.ENTITY)
             assertEquals(3, calls.get())
+            scheduler.prepare(Preparation.SPAWN_COUNTS, List(3) { Runnable { calls.incrementAndGet() } })
+            assertEquals(6, calls.get())
             scheduler.finishWorld()
+            profile.recordTick(1_000_000_000) // Longer than any fixture wave, so the serial share is positive.
             val report = profile.report()
             for (expected in listOf("waves=1 cells=2 tasks=3; tasks/cell avg=1.5 max=2", "cell execution n=2",
-                    "test:world / ENTITY preparation: n=1", "test:world / ENTITY execution: n=1", "test:world / world total: n=1")) {
+                    "participant utilization", "Preparation SPAWN_COUNTS: n=1", "jobs avg=3.0", "Parallel sections:",
+                    "cannot make ticks more than", "test:world / ENTITY preparation: n=1",
+                    "test:world / ENTITY execution: n=1", "test:world / world total: n=1")) {
                 assertTrue(expected in report, report)
             }
+            val json = profile.toJson()
+            assertEquals(1, json.getAsJsonObject("ticks").get("count").asInt)
+            val entity = json.getAsJsonObject("stages").getAsJsonObject("ENTITY")
+            assertEquals(3, entity.get("tasks").asInt)
+            assertTrue(entity.get("utilization").asDouble in 0.0..1.0)
+            assertEquals(3, json.getAsJsonObject("preparations").getAsJsonObject("SPAWN_COUNTS").get("jobs").asInt)
+            val split = json.getAsJsonObject("split")
+            val shares = listOf("stageWaves", "preparation", "serial").sumOf { split.get(it).asDouble }
+            assertEquals(1.0, shares, 1e-9)
             scheduler.profile = null
             scheduler.begin(Stage.ENTITY)
             scheduler.enqueue(Stage.ENTITY, 0, 0, { calls.incrementAndGet() }, null)
             scheduler.run(Stage.ENTITY)
-            assertEquals(4, calls.get())
+            scheduler.prepare(Preparation.SPAWN_COUNTS, List(2) { Runnable { calls.incrementAndGet() } })
+            assertEquals(9, calls.get())
             assertEquals(report, profile.report())
         } finally {
             pool.close()

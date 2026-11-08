@@ -1,6 +1,7 @@
 package com.synsenetwork.vanadium.featurebench
 
 import com.synsenetwork.vanadium.Vanadium
+import com.synsenetwork.vanadium.tick.Preparation
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.entity.item.ItemEntity
@@ -32,7 +33,7 @@ internal object LockBench {
             // Same safe merge implementation, but all pairs contend on one lock in the off arm.
             measurements.compare("item-locks-$pairs-pairs", { on ->
                 items.forEachIndexed { i, item -> lock.set(item, if (on) individual[i] else global) }
-            }) { Vanadium.scheduler.prepare(jobs) }
+            }) { Vanadium.scheduler.prepare(Preparation.TRACKING_DIFFS, jobs) }
         }
     }
 

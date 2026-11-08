@@ -46,7 +46,7 @@ object SpawnPreparation {
         val jobs = minOf(Vanadium.scheduler.workerCount + 1, (snapshot.size + TARGET_ENTITIES_PER_JOB - 1) / TARGET_ENTITIES_PER_JOB)
         val batchSize = (snapshot.size + jobs - 1) / jobs
         val partial = arrayOfNulls<NaturalSpawner.SpawnState>(jobs)
-        Vanadium.scheduler.prepare(List(jobs) { job ->
+        Vanadium.scheduler.prepare(Preparation.SPAWN_COUNTS, List(jobs) { job ->
             val batch = snapshot.subList(job * batchSize, minOf(snapshot.size, (job + 1) * batchSize))
             Runnable {
                 partial[job] = NaturalSpawner.createState(chunkCount, batch.filteredBy(filter), chunks, LocalMobCapCalculator(chunkMap))

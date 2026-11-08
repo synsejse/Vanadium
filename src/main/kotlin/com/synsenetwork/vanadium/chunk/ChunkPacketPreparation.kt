@@ -1,6 +1,7 @@
 package com.synsenetwork.vanadium.chunk
 
 import com.synsenetwork.vanadium.Vanadium
+import com.synsenetwork.vanadium.tick.Preparation
 import io.netty.buffer.Unpooled
 import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.network.protocol.game.ClientboundLevelChunkPacketData
@@ -35,7 +36,7 @@ class ChunkPacketPreparation : AutoCloseable {
             // C2ME may enlarge batches; cap retained buffers and let later chunks use the vanilla path.
             val count = minOf(MAX_PREPARED_CHUNKS, chunks.size)
             val payloads = arrayOfNulls<ByteArray>(count)
-            Vanadium.scheduler.prepare(List(count) { i -> Runnable { payloads[i] = serializeSections(chunks[i]) } })
+            Vanadium.scheduler.prepare(Preparation.CHUNK_PACKETS, List(count) { i -> Runnable { payloads[i] = serializeSections(chunks[i]) } })
             for (i in 0 until count) batch[chunks[i]] = payloads[i]!!
         }
 

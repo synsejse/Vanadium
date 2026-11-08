@@ -4,6 +4,7 @@ import com.synsenetwork.vanadium.commands.TickBenchmark
 import com.synsenetwork.vanadium.commands.TickProfiler
 import com.synsenetwork.vanadium.commands.VanadiumCommand
 import com.synsenetwork.vanadium.config.VanadiumConfig
+import com.synsenetwork.vanadium.tick.ServerTickEvent
 import com.synsenetwork.vanadium.tick.TickScheduler
 import com.synsenetwork.vanadium.tick.WaveDiagnostics
 import com.synsenetwork.vanadium.tick.WorkerPool
@@ -32,6 +33,7 @@ object Vanadium : ModInitializer {
 
     private var pool: WorkerPool? = null
     private var diagnostics: WaveDiagnostics? = null
+    private var tickEvent: ServerTickEvent? = null
 
     override fun onInitialize() {
         LOGGER.info("Initializing Vanadium...")
@@ -48,6 +50,8 @@ object Vanadium : ModInitializer {
         }
         ServerTickEvents.END_LEVEL_TICK.register { scheduler.finishWorld() }
         ServerTickEvents.END_SERVER_TICK.register { server ->
+            tickEvent?.commit()
+            tickEvent = null
             TickBenchmark.onTickEnd(server)
             TickProfiler.onTickEnd()
         }
@@ -65,6 +69,7 @@ object Vanadium : ModInitializer {
     }
 
     private fun onTickStart(server: MinecraftServer) {
+        tickEvent = ServerTickEvent().also { it.begin() }
         config.refreshSerialRules()
         TickProfiler.onTickStart()
         diagnostics?.configure(config.slowWaveMillis, config.detailedTickDiagnostics)
@@ -77,5 +82,6 @@ object Vanadium : ModInitializer {
         pool?.close()
         diagnostics = null
         pool = null
+        tickEvent = null
     }
 }
