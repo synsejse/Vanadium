@@ -237,12 +237,16 @@ def run_point(args, workers, cell, results, outdir):
                     r("vanadium reload")
                 elif wl == "jfr":
                     jfr = outdir / f"w{workers}-c{cell}.jfr"
-                    subprocess.run(["jcmd", str(pid), "JFR.start", "settings=profile", "name=sweep",
+                    started = subprocess.run(["jcmd", str(pid), "JFR.start", "settings=profile", "name=sweep",
                                     "jdk.JavaMonitorEnter#threshold=100us", "jdk.ThreadPark#threshold=100us",
                                     "jdk.ExecutionSample#period=5ms",
-                                    f"filename={jfr}"], check=True, capture_output=True)
+                                    f"filename={jfr}"], check=True, capture_output=True, text=True)
+                    if "Started recording" not in started.stdout:
+                        raise RuntimeError(f"JFR did not start: {started.stdout} {started.stderr}")
                     bench(r, log, pid, "mobs-jfr", results, extra)
                     subprocess.run(["jcmd", str(pid), "JFR.stop", "name=sweep"], check=True, capture_output=True)
+                    if not jfr.is_file():
+                        raise RuntimeError(f"JFR recording was not written: {jfr}")
             shutil.copy2(log, outdir / f"console-w{workers}-c{cell}.log")
             r("stop")
             process.wait(timeout=120)
@@ -276,7 +280,7 @@ def main():
     p.add_argument("--out", required=True, help="directory for results.json, console logs and JFR files")
     args = p.parse_args()
     args.workloads = args.workloads.split(";") if ";" in args.workloads else args.workloads.split(",")
-    outdir = Path(args.out)
+    outdir = Path(args.out).resolve()
     outdir.mkdir(parents=True, exist_ok=True)
     results = []
     for w in [int(x) for x in args.workers.split(",")]:

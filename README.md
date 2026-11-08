@@ -24,10 +24,11 @@ Vanadium handles parallel *ticking*; [C2ME](https://modrinth.com/mod/c2me-fabric
 
 Edit `config/vanadium.toml`, then run `/vanadium reload` to apply changes live.
 `workers` requires a server restart. Commands do not modify or save configuration values.
+Loaded-chunk lookups are unconditional infrastructure; the former `chunkCache` option has been removed.
 
 | Option | Default | Effect |
 |---|---|---|
-| `enabled` | `true` | Master switch; `false` uses serial ticking, with structural mixins and locks still installed |
+| `enabled` | `true` | Master switch; `false` uses serial ticking, with structural mixins, locks and loaded-chunk lookups still active |
 | `workers` | `0` | `<= 0` = available logical processors; positive values clamp to 2..max(2, available logical processors) (restart) |
 | `cellSize` | `0` | Cell width/height in chunks; `0` = auto from resolved worker count |
 | `parallelEntities` | `true` | Tick entities in parallel |
@@ -40,7 +41,6 @@ Edit `config/vanadium.toml`, then run `/vanadium reload` to apply changes live.
 | `parallelTracking` | `true` | Run entity tracking (movement/data packets to watching players) in parallel |
 | `parallelChunkPackets` | `true` | Prepare chunk section packet data in parallel between world ticks |
 | `consolidateFlushes` | `true` | Batch each connection's packets into one flush per tick instead of one per packet |
-| `chunkCache` | `true` | Lock-free lookups of loaded full chunks for worker threads |
 | `parallelChunkLoads` | `true` | Per-chunk load locks; `false` = one global lock |
 | `slowWaveMillis` | `0` | Warn when a wave exceeds this duration; `0` disables diagnostics |
 | `detailedTickDiagnostics` | `false` | Add current task/type labels while wave diagnostics are enabled |

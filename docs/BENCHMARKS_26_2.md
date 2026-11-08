@@ -394,3 +394,40 @@ startup, ticking, save and shutdown with the final sources; evidence remains in
 `.vanadium/runs/smoke-t24im3jr/`. The smoke used auto workers (72), not the 32-helper
 performance configuration. No JFR capture was taken in this sweep; the historical
 wake-latency counters motivated the experiment but are not retained as production instrumentation.
+
+
+### Chunk infrastructure clarification (2026-11-09)
+
+Loaded-FULL lookups are now unconditional, including with `enabled=false`; the optional
+`chunkCache` setting was removed. Earlier on/off measurements describe the older code and
+must not be interpreted as measurements of today's disabled mode. The renamed
+`ParallelChunkCache`, `ChunkTickBatch`/`ChunkTickSink`, and internal `WorkerPool.WorkBatch`
+are documented in [the chunk infrastructure ownership notes](ARCHITECTURE.md#chunk-infrastructure).
+
+Validation: focused tick/config/chunk tests with `--rerun-tasks` and the full build passed
+(140 tests, no failures). `scripts/check-block-updates.py` passed the live suite and its
+startup/tick/save/shutdown smoke, including new loaded-chunk checks for both lock policies,
+enabled/disabled modes, negative positions, status-specific misses, replacement publication,
+stale-instance unload, removal, and real synchronous loads. Evidence remains in
+`.vanadium/runs/smoke-0qd09gns/`. Bytecode inspection confirmed primitive-key loaded lookups;
+the release jar contains the renamed classes and no copies under their retired names.
+
+A JFR validation capture used the same dual Xeon E5-2699 v3 KVM guest (72 vCPUs), OpenJDK
+25.0.4.1, Minecraft 26.2, Loader 0.20.1, Fabric API 0.160.0+26.2, Kotlin runtime
+1.14.2+kotlin.2.4.21, Cloth Config 26.2.155, and pinned C2ME 0.4.2-alpha.0.52. It used
+32 helpers, cell size 2, 2ms worker idle spin, C2ME parallelism 4, unbound placement, a fixed
+4GiB G1 heap, and default enabled features. A fresh seed-12345 flat world had 256 forced
+chunks and 1,024 persistent zombies, no players, with spawning/daylight/weather cycles off.
+The recording covered a 30s tick sprint and a separate 10s profile at 20 TPS, with monitor
+and park thresholds of 100µs and execution sampling every 5ms. There were no monitor-enter
+events with chunk lookup/load frames; the only monitor-enter event was JFR's own
+`PlatformRecorder` (14.6ms). This is a contention check, not a before/after speedup result
+or evidence about cold concurrent generation, multiplayer, or modpack safety.
+
+The initial recording attempt exposed a harness bug: relative JFR filenames were resolved
+against the isolated server directory and recording failure was unchecked. The harness now
+resolves output directories absolutely, checks the start response, and verifies the recording
+file after stopping. The successful capture and monitor summary are in
+`.vanadium/chunk-infrastructure-jfr-verified/`; the server run is
+`.vanadium/runs/sweep-w32-c2-qx48qr3a/`. Pinned C2ME chunk-cache mixins were also inspected;
+the remaining vanilla four-entry cache path is still an explicit follow-up audit.

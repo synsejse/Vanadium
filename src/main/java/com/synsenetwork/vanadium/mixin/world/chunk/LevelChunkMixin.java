@@ -2,7 +2,7 @@ package com.synsenetwork.vanadium.mixin.world.chunk;
 
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
-import com.synsenetwork.vanadium.chunk.ParallelChunkManager;
+import com.synsenetwork.vanadium.chunk.ParallelChunkCache;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
@@ -40,8 +40,8 @@ public abstract class LevelChunkMixin {
     @Inject(method = "setLoaded", at = @At("TAIL"))
     private void publishLoaded(boolean loaded, CallbackInfo ci) {
         if (this.level instanceof ServerLevel serverLevel
-                && serverLevel.getChunkSource() instanceof ParallelChunkManager manager) {
-            manager.onChunkLoaded((LevelChunk) (Object) this, loaded);
+                && serverLevel.getChunkSource() instanceof ParallelChunkCache cache) {
+            cache.onChunkLoaded((LevelChunk) (Object) this, loaded);
         }
     }
 }

@@ -7,7 +7,7 @@ import java.util.concurrent.locks.ReentrantLock
 /**
  * Per-chunk reentrant load locks keyed by packed chunk position, so different chunks load in parallel.
  *
- * Locks are reference-counted, and the owning chunk manager evicts idle locks periodically, so the table
+ * Locks are reference-counted, and the owning chunk cache evicts idle locks periodically, so the table
  * stays bounded however much of the world is explored. The reservation count is incremented atomically
  * with the lock's presence in the map, so the evictor can never drop a lock another thread is about to
  * acquire; [unlock] releases the lock before dropping its reservation, so a freed lock is never handed

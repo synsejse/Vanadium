@@ -8,14 +8,14 @@ import java.util.function.LongConsumer
 
 /**
  * Persistent workers with caller participation and a full barrier per wave. Dispatch uses a volatile
- * wave and Dekker wake-ups; small waves use low-numbered workers. Claims and completion updates are
+ * work batch and Dekker wake-ups; small waves use low-numbered workers. Claims and completions are
  * batched to reduce contention. Tick-path locks must work on both the caller and workers.
  */
 class WorkerPool(threads: Int) : AutoCloseable {
     private val workers = Array(maxOf(1, threads)) { WorkerThread(this, it) }
 
     @Volatile
-    private var current: Wave? = null
+    private var current: WorkBatch? = null
 
     @Volatile
     private var closed = false
@@ -44,15 +44,15 @@ class WorkerPool(threads: Int) : AutoCloseable {
         val indexed = if (tasks is List<Runnable> && tasks is RandomAccess) tasks else tasks.toList()
         val rejected = closed
         val helpers = if (rejected) 0 else minOf(workers.size, n - 1) // At most n participants with the caller.
-        val wave = Wave(indexed, helpers + 1, Thread.currentThread())
+        val batch = WorkBatch(indexed, helpers + 1, Thread.currentThread())
         if (helpers > 0) {
-            current = wave
+            current = batch
             for (i in 0 until helpers) workers[i].wake()
         }
-        wave.participate()
+        batch.participate()
         val waitStart = if (callerWait != null) System.nanoTime() else 0
         try {
-            wave.awaitCompletion()
+            batch.awaitCompletion()
         } finally {
             callerWait?.accept(System.nanoTime() - waitStart)
         }
@@ -77,7 +77,7 @@ class WorkerPool(threads: Int) : AutoCloseable {
         if (interrupted) Thread.currentThread().interrupt()
     }
 
-    private class Wave(private val tasks: List<Runnable>, participants: Int, private val waiter: Thread) {
+    private class WorkBatch(private val tasks: List<Runnable>, participants: Int, private val waiter: Thread) {
         private val taskCount = tasks.size
         val helpers = participants - 1
 
@@ -141,20 +141,20 @@ class WorkerPool(threads: Int) : AutoCloseable {
             isDaemon = true
         }
 
-        /** Dekker pairing with [run]: the wave is published before [parked] is read. */
+        /** Dekker pairing with [run]: the batch is published before [parked] is read. */
         fun wake() {
             if (parked) LockSupport.unpark(this)
         }
 
         override fun run() {
-            var seen: Wave? = null
+            var seen: WorkBatch? = null
             var deadline = System.nanoTime() + WORKER_SPIN_NANOS
             while (true) {
-                val wave = pool.current
-                if (wave !== seen) {
-                    seen = wave
-                    if (wave != null && index < wave.helpers) {
-                        wave.participate()
+                val batch = pool.current
+                if (batch !== seen) {
+                    seen = batch
+                    if (batch != null && index < batch.helpers) {
+                        batch.participate()
                         deadline = System.nanoTime() + WORKER_SPIN_NANOS
                     }
                     continue

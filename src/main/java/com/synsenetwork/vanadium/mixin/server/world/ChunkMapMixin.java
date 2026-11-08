@@ -5,8 +5,8 @@ import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.concurrent.ConcurrentLongLinkedOpenHashSet;
 import com.synsenetwork.vanadium.concurrent.Int2ObjectConcurrentHashMap;
-import com.synsenetwork.vanadium.tick.RandomTickBatch;
-import com.synsenetwork.vanadium.tick.RandomTickSink;
+import com.synsenetwork.vanadium.tick.ChunkTickBatch;
+import com.synsenetwork.vanadium.tick.ChunkTickSink;
 import com.synsenetwork.vanadium.tick.Stage;
 import com.synsenetwork.vanadium.tracking.NearbyTrackers;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
@@ -38,20 +38,20 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(ChunkMap.class)
-public abstract class ChunkMapMixin implements RandomTickSink {
+public abstract class ChunkMapMixin implements ChunkTickSink {
     @Unique
-    private RandomTickBatch vanadium$randomTickSink;
+    private ChunkTickBatch vanadium$chunkTickSink;
 
     @Override
-    public void vanadium$setRandomTickSink(RandomTickBatch batch) {
-        vanadium$randomTickSink = batch;
+    public void vanadium$setChunkTickSink(ChunkTickBatch batch) {
+        vanadium$chunkTickSink = batch;
     }
 
-    /** During a parallel random-tick pass, record the holder; workers resolve its ticking chunk. */
+    /** During a parallel chunk-tick pass, record the holder; workers resolve its ticking chunk. */
     @Redirect(method = "lambda$forEachBlockTickingChunk$0", at = @At(value = "INVOKE",
             target = "Lnet/minecraft/server/level/ChunkHolder;getTickingChunk()Lnet/minecraft/world/level/chunk/LevelChunk;"))
     private LevelChunk vanadium$recordTickingHolder(ChunkHolder holder) {
-        RandomTickBatch sink = vanadium$randomTickSink;
+        ChunkTickBatch sink = vanadium$chunkTickSink;
         if (sink == null) return holder.getTickingChunk();
         sink.add(holder);
         return null;

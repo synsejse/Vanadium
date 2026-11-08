@@ -26,7 +26,7 @@ order that can change between ticks. This replaced a four-color schedule with a 
 color, which provided the same exclusion but made every color wait for its slowest cell.
 
 `WorkerPool.runWave()` claims tasks from an indexed list on both persistent pool threads
-and its caller. The caller publishes a private `Wave` through one volatile field; idle
+and its caller. The caller publishes a private `WorkBatch` through one volatile field; idle
 workers spin briefly (`vanadium.workerSpinMicros`, default 2,000) before parking, and a
 parked worker is unparked only when a wave needs it, using a Dekker-style parked flag.
 The longer spin trades additional CPU for lower wake-up latency; it is bounded even between ticks.
@@ -113,25 +113,47 @@ Vanadium also replaces collections, adds monitors, uses striped entity locks, an
 Changing a mixin ordinal, lock scope, or collection view can change correctness even when
 the scheduler tests pass.
 
-`ParallelChunkManager` keeps an exact map of full chunks, published from `LevelChunk.setLoaded`
-on whichever thread (server or C2ME) changes the state. It is a `ReadOptimizedLongMap`:
-lookups take no lock and allocate nothing; writers serialize. FULL `getChunk` hits and
-`getChunkNow` are answered from it, which avoids the vanilla four-entry cache (its parallel
-arrays tear across threads). `hasChunk` answers true from it for loaded chunks, avoiding C2ME's
-synchronized ticket-level map that every monster consulted each tick through `hasChunkAt`;
-other positions keep the ticket-level answer, which is true while a ticketed chunk still loads.
-`getChunkNow` treats a chunk as present between `setLoaded(true)` and `setLoaded(false)`, which
-can differ briefly from vanilla during promotion and unload.
+### Chunk infrastructure
 
-Misses and other statuses take vanilla's path. Loads use `ChunkLockTable` (one reentrant lock
-per chunk) or a global monitor, depending on configuration. The lock table reserves entries atomically before acquiring locks,
-then evicts unreserved entries periodically. Under its load lock a FULL request rechecks the
-loaded map, since the previous holder's chunk was published by `setLoaded` before its load
-completed. One maintenance executor per chunk manager handles thirty-second lock eviction.
-`ChunkLockTable` owns no threads. Closing the chunk manager finishes vanilla saving, then
-closes maintenance and clears the loaded map, including when vanilla close throws.
-`ParallelChunkManager` identifies Minecraft Main workers by comparing their owning pool
-with `Util.backgroundExecutor().service()`; chunk requests from those workers return to the server thread.
+| Component | Responsibility |
+| --- | --- |
+| `ParallelChunkCache` | Extends vanilla's `ServerChunkCache`; serves loaded full chunks and coordinates synchronous misses. |
+| `LevelChunkMixin` | Publishes/removes full chunks at `LevelChunk.setLoaded` on the server or C2ME thread. |
+| `ChunkLockTable` | Reserves per-position reentrant load locks; owns no executors or chunks. |
+| `ServerChunkCacheMixin` | Integrates tick stages and adapts vanilla lookup thread checks/cache writes. |
+| `ChunkTickBatch` / `ChunkTickSink` | Collect ticking holders for parallel random/precipitation work; own no loading policy. |
+| Vanilla / C2ME | Own holders, tickets, generation futures, promotion and unload decisions. |
+
+The loaded-chunk index is a `ReadOptimizedLongMap`: reads take no lock and allocate nothing;
+writes serialize. It is maintained unconditionally, including with `enabled=false`; there is
+no `chunkCache` switch. It indexes chunks between `setLoaded(true)` and `setLoaded(false)`,
+not requested statuses or cached load results. Conditional removal by instance prevents an
+old chunk's unload from removing its replacement. `getChunkNow` reads this index only, so
+its publication boundary can briefly differ from vanilla holder readiness.
+
+FULL `getChunk` hits use the index. Misses and other statuses use vanilla/C2ME under a load
+lock: `parallelChunkLoads=true` selects one lock per packed chunk position; false selects
+the cache instance monitor. Both modes recheck FULL publication after acquiring the lock,
+because `setLoaded` publishes before a load completes. Null and non-FULL results are never
+added to the index. `hasChunk` answers true for indexed full chunks and otherwise retains
+vanilla's ticket-level answer, which can be true before a full chunk is loaded.
+
+Minecraft Main-worker requests are sent to the server thread before any lookup. These
+workers are identified by their owning pool, `Util.backgroundExecutor().service()`, rather
+than thread names. Ordinary Vanadium helpers use the lookup/load path directly. The loaded
+index avoids vanilla's shared four-entry cache on FULL hits. The pinned C2ME chunk-system
+rewrite also shortcuts some off-thread holder hits; remaining misses and status requests can
+still enter vanilla's cache code. Per-position locks do not protect that cache across different
+positions, and synchronizing writes alone does not make its parallel-array reads atomic.
+Auditing/replacing that remaining cache path is separate follow-up work.
+
+Each `ParallelChunkCache` owns its load-lock maintenance executor, which evicts unreserved
+entries every thirty seconds. Reservations and eviction are atomic per key. Closing first
+finishes vanilla saving/close, then closes maintenance, clears the loaded index and evicts
+idle load locks, including when vanilla close throws. C2ME remains responsible for its own
+executors; this layer does not replace asynchronous generation or ticket scheduling.
+
+### Other shared state
 
 Server shutdown closes the watchdog and worker pool after the final wave and clears
 the scheduler, profiler, and benchmark command references. Starting another integrated
@@ -277,8 +299,6 @@ vanilla path. Arbitrary asynchronous chunk mutation by other mods is not support
 
 These are source-inspection leads, not a completed concurrency audit:
 
-- `ChunkLockTable` adds packed offsets to packed positions. Radius-zero loads are the
-  current caller; test coordinate-boundary behavior before using nonzero radii elsewhere.
 - Full integrated-server join/leave cycles still need interactive coverage. Lifecycle
   callback reinitialization and dedicated-server resource shutdown have automated coverage.
 - The 1.21.1 source audit in `TICK_COVERAGE.md` is historical. The scheduled-tick and

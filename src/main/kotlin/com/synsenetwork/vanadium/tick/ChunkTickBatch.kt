@@ -4,7 +4,7 @@ import net.minecraft.server.level.ChunkHolder
 import net.minecraft.server.level.ServerLevel
 
 /** Records holders on the caller; workers resolve ticking chunks and their cells. */
-class RandomTickBatch(private val level: ServerLevel) : BatchEnqueue.Mapper<ChunkHolder> {
+class ChunkTickBatch(private val level: ServerLevel) : BatchEnqueue.Mapper<ChunkHolder> {
     private val batch = BatchEnqueue(Preparation.CHUNK_BATCH, this)
     private var tickSpeed = 0
 
