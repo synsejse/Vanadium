@@ -4,7 +4,7 @@
 
 # Vanadium — Minecraft Multi-Threading Mod (Fabric)
 
-Vanadium parallelizes server ticking: entities, block entities, and chunk ticks run on a worker pool, partitioned into a 4-color grid of chunk cells so adjacent cells never tick at the same time. It is based on the amazing work of [JMT-MCMT](https://github.com/jediminer543/JMT-MCMT) and the [MCMTFabric](https://github.com/himekifee/MCMTFabric) port — much of the underlying engineering is documented there.
+Vanadium parallelizes server ticking: entities, block entities, and chunk ticks run on a worker pool, partitioned into a grid of chunk cells; a cell starts as soon as none of its neighbors is running, so adjacent cells never tick at the same time. It is based on the amazing work of [JMT-MCMT](https://github.com/jediminer543/JMT-MCMT) and the [MCMTFabric](https://github.com/himekifee/MCMTFabric) port — much of the underlying engineering is documented there.
 
 Vanadium handles parallel *ticking*; [C2ME](https://modrinth.com/mod/c2me-fabric) handles parallel *generation and loading*. They are designed to run together, and C2ME is required.
 
@@ -39,7 +39,7 @@ Edit `config/vanadium.toml`, then run `/vanadium reload` to apply changes live.
 | `parallelTracking` | `true` | Run entity tracking (movement/data packets to watching players) in parallel |
 | `parallelChunkPackets` | `true` | Prepare chunk section packet data in parallel between world ticks |
 | `consolidateFlushes` | `true` | Batch each connection's packets into one flush per tick instead of one per packet |
-| `chunkCache` | `true` | Thread-safe chunk lookup cache for worker threads |
+| `chunkCache` | `true` | Lock-free lookups of loaded full chunks for worker threads |
 | `parallelChunkLoads` | `true` | Per-chunk load locks; `false` = one global lock |
 | `slowWaveMillis` | `0` | Warn when a wave exceeds this duration; `0` disables diagnostics |
 | `detailedTickDiagnostics` | `false` | Add current task/type labels while wave diagnostics are enabled |
@@ -83,7 +83,7 @@ any lock waits; use JFR to distinguish waiting from CPU work.
 
 For a stall investigation, set `slowWaveMillis = 1000` and optionally
 `detailedTickDiagnostics = true` in TOML, then run `/vanadium reload`. A separate watchdog reports the stage,
-dimension, color, cell size, elapsed time, and active caller/worker stacks while the wave
+dimension, cell size, elapsed time, and active caller/worker stacks while the wave
 is still running. Cell coordinates are **cell units**, not chunks or blocks. Reports are
 limited to one per 30 seconds, with up to eight participant stacks and twelve frames each.
 Polling occurs every 100ms, so this is a diagnostic threshold, not a deadline.

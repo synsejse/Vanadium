@@ -12,7 +12,8 @@ public final class EntityTickRules {
     public static boolean requiresSerial(Entity entity) {
         if (entity instanceof Projectile
                 || entity.portalProcess != null && entity.portalProcess.isInsidePortalThisTick()
-                || Vanadium.config.isSerialEntity(BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()))) {
+                || Vanadium.config.hasSerialEntityRules()
+                && Vanadium.config.isSerialEntity(BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()))) {
             return true;
         }
         for (Entity passenger : entity.getPassengers()) {

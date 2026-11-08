@@ -16,6 +16,9 @@ public class SynchronisePlugin implements IMixinConfigPlugin {
     private static final Logger LOGGER = LogManager.getLogger();
 
     private static final String SYNC_ALL = "com.synsenetwork.vanadium.mixin.SyncAllMixin";
+    /** Methods that only read volatile state; locking them would serialize hot read paths. */
+    private static final Set<String> UNSYNCHRONIZED = Set.of(
+            "net.minecraft.world.level.lighting.DynamicGraphMinFixedPoint#hasWork");
 
     @Override
     public void onLoad(String mixinPackage) {
@@ -51,7 +54,9 @@ public class SynchronisePlugin implements IMixinConfigPlugin {
         }
         int excludedMethodFlags = Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC | Opcodes.ACC_NATIVE | Opcodes.ACC_ABSTRACT | Opcodes.ACC_BRIDGE;
         for (MethodNode method : targetClass.methods) {
-            if ((method.access & excludedMethodFlags) == 0 && !method.name.equals("<init>")) {
+            if ((method.access & excludedMethodFlags) == 0 && !method.name.equals("<init>")
+                    && !method.name.startsWith("vanadium$")
+                    && !UNSYNCHRONIZED.contains(targetClassName + "#" + method.name)) {
                 method.access |= Opcodes.ACC_SYNCHRONIZED;
                 LOGGER.info("Setting synchronize bit for {} in {}.", method.name, targetClassName);
             }

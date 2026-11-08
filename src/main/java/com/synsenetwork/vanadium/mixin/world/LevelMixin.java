@@ -1,21 +1,23 @@
 package com.synsenetwork.vanadium.mixin.world;
 
-import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
-import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.synsenetwork.vanadium.Vanadium;
+import com.synsenetwork.vanadium.concurrent.PerThreadRandomSource;
 import com.synsenetwork.vanadium.tick.Stage;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.TickingBlockEntity;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.levelgen.RandomSupport;
 import org.objectweb.asm.Opcodes;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -25,14 +27,27 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(Level.class)
 public abstract class LevelMixin {
-    @Unique
-    private final Object vanadium$randomPositionLock = new Object();
+    /** Every thread draws from its own stream; see {@link PerThreadRandomSource}. */
+    @Redirect(method = "<init>", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/RandomSource;create()Lnet/minecraft/util/RandomSource;"))
+    private RandomSource perThreadRandom() {
+        return new PerThreadRandomSource(RandomSupport.generateUniqueSeed());
+    }
 
-    @WrapMethod(method = "getBlockRandomPos")
-    private BlockPos randomBlockPosition(int x, int y, int z, int mask, Operation<BlockPos> original) {
-        synchronized (vanadium$randomPositionLock) {
-            return original.call(x, y, z, mask);
-        }
+    @Shadow
+    @Final
+    protected RandomSource random;
+
+    /**
+     * Vanilla advances one shared LCG field per random tick; a world-wide lock kept it consistent
+     * under parallel chunk ticks. The calling thread's own stream provides the same uniform bits.
+     *
+     * @author Vanadium
+     * @reason Lock-free random tick positions for parallel chunk ticking.
+     */
+    @Overwrite
+    public BlockPos getBlockRandomPos(int xo, int yo, int zo, int yMask) {
+        int val = ((PerThreadRandomSource) this.random).current().nextInt() >> 2;
+        return new BlockPos(xo + (val & 15), yo + (val >> 16 & yMask), zo + (val >> 8 & 15));
     }
 
     @Shadow
@@ -87,7 +102,8 @@ public abstract class LevelMixin {
             return;
         }
         BlockEntity blockEntity = direct.blockEntity;
-        if (Vanadium.config.isSerialBlockEntity(BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(blockEntity.getType()))) {
+        if (Vanadium.config.hasSerialBlockEntityRules()
+                && Vanadium.config.isSerialBlockEntity(BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(blockEntity.getType()))) {
             ticker.tick();
             return;
         }

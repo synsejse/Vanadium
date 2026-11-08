@@ -29,8 +29,16 @@ class MixinTargetsTest {
             ClassNode mixin = read(mixinName.replace('.', '/'));
             AnnotationNode annotation = annotations(mixin.visibleAnnotations, mixin.invisibleAnnotations).stream()
                     .filter(a -> a.desc.endsWith("/Mixin;")).findFirst().orElseThrow();
-            for (Object targetType : (List<?>) value(annotation, "value")) {
-                ClassNode target = read(((Type) targetType).getInternalName());
+            List<String> targets = new ArrayList<>();
+            if (value(annotation, "value") instanceof List<?> types) {
+                for (Object type : types) targets.add(((Type) type).getInternalName());
+            }
+            if (value(annotation, "targets") instanceof List<?> names) {
+                for (Object targetName : names) targets.add(((String) targetName).replace('.', '/'));
+            }
+            if (targets.isEmpty()) throw new IllegalStateException("No mixin targets: " + mixinName);
+            for (String targetName : targets) {
+                ClassNode target = read(targetName);
                 tests.add(DynamicTest.dynamicTest(mixinName + " -> " + target.name, () -> check(mixin, target)));
             }
         }
@@ -50,6 +58,9 @@ class MixinTargetsTest {
             for (var annotation : annotations(method.visibleAnnotations, method.invisibleAnnotations)) {
                 if (annotation.desc.endsWith("/Shadow;") && !hasMethod(target, method.name, method.desc)) {
                     missing.add("shadow " + method.name + method.desc);
+                }
+                if (annotation.desc.endsWith("/Overwrite;") && !hasMethod(target, method.name, method.desc)) {
+                    missing.add("overwrite " + method.name + method.desc);
                 }
                 if (annotation.desc.endsWith("/Accessor;")) {
                     String descriptor = Type.getReturnType(method.desc).getDescriptor();

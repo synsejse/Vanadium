@@ -7,20 +7,32 @@ thread gathers work and waits at explicit barriers.
 ## Scheduling
 
 Each server startup creates its own `WorkerPool` and `TickScheduler`. Each stage has
-a reusable `CellGrid`. Chunks map to cells using floor division; parity of the cell's
-X/Z coordinates chooses one of four colors. A stage runs colors 0 through 3 in order.
-Cells of one color may run concurrently; tasks inside a cell run in insertion order.
-The grid reuses cells and buckets and evicts cells idle for more than 100 stage begins.
+a reusable `CellGrid`. Chunks map to cells using floor division. Tasks inside a cell run
+in insertion order, and two neighboring cells (Chebyshev distance one) never run at the
+same time. The grid reuses cells and buckets and evicts cells idle for more than 100 stage begins.
 
-`WorkerPool.runWave()` claims tasks from an indexed list on both pool threads and its
-caller. A private `Wave` holds the claim index, fixed task count, remaining count, completion
-latch, and first failure. Only the last completed task signals the latch. The scheduler
-keeps the list stable until every task finishes; late helpers
-only check the saved count, allowing the caller to reuse the list after the barrier.
-Other collection types are copied to an array-backed list. An interrupted caller still
-waits for all tasks and restores its interrupt flag before returning or propagating a
-failure. A one-task wave runs directly on the caller. This is why unconditional tick-path
-synchronization matters.
+By default a stage is one `NeighborhoodWave`: every active cell, sorted largest-first, is
+claimed by whichever participant finds it free. A claimant moves the cell to TRYING, then
+inspects its active neighbors: a RUNNING neighbor makes it back off; between two TRYING
+neighbors the higher index backs off and the lower waits. All state accesses are volatile,
+so two adjacent claimants cannot both pass, and waits only point to higher indices. Cell
+failures are collected and rethrown after the wave. Adjacent cells therefore run in an
+order that can change between ticks. This replaced a four-color schedule with a barrier per
+color, which provided the same exclusion but made every color wait for its slowest cell.
+
+`WorkerPool.runWave()` claims tasks from an indexed list on both persistent pool threads
+and its caller. The caller publishes a private `Wave` through one volatile field; idle
+workers spin briefly (`vanadium.workerSpinMicros`, default 100) before parking, and a
+parked worker is unparked only when a wave needs it, using a Dekker-style parked flag.
+Low-numbered workers take small waves. Tasks are claimed in chunks once they greatly
+outnumber participants, and each participant subtracts its completed count once, so
+per-task work does not bounce shared counters between sockets. The caller spins
+(`vanadium.callerSpinMicros`, default 200) and then parks for the tail. The scheduler keeps the
+list stable until every task finishes; late helpers only check the saved count, allowing
+the caller to reuse the list after the barrier. Other collection types are copied to an
+array-backed list. An interrupted caller still waits for all tasks and restores its interrupt
+flag before returning or propagating a failure. A one-task wave runs directly on the caller.
+This is why unconditional tick-path synchronization matters.
 
 The actual stage timing comes from Minecraft mixin injection points, not the enum alone:
 
@@ -29,8 +41,14 @@ The actual stage timing comes from Minecraft mixin injection points, not the enu
 | Scheduled block/fluid ticks | `ServerLevelMixin.dispatchScheduledTicks` collects then drains each vanilla scheduler |
 | Natural spawning and random/weather chunk ticks | `ServerChunkCacheMixin` drains spawning before random ticks, then random ticks before custom spawning/broadcasts |
 | Entity tracking | `ChunkMapMixin` wraps tracking dispatch and its barrier |
-| Entities | `ServerLevelMixin` queues; `LevelMixin` drains before block-entity bookkeeping |
+| Entities | `ServerLevelMixin` queues vanilla's whole per-entity body (despawn check, range check, tick); `LevelMixin` drains before block-entity bookkeeping |
 | Block entities | `LevelMixin` queues supported tick invokers and drains at the end |
+
+Large populations are collected in two phases (`BatchEnqueue`): the server thread only records
+entities (or ticking chunk holders), workers map contiguous slices to a cell key and task, and
+the server thread then enqueues the results in recording order, so per-cell insertion order is
+unchanged. This keeps the server thread from dereferencing thousands of objects last written by
+workers on other cores. Serial-rule entities still run inline, in order, before the wave.
 
 Projectiles and entities currently in portals retain serial entity ticking. A serial rule
 on any passenger routes the entire vehicle tree through the serial path. Stage flags
@@ -71,25 +89,38 @@ Scheduled ticks remain in an ordered, identity-indexed pending queue until a cal
 them under the vanilla scheduler monitor. Pending queries and area copying retain their
 bookkeeping during the wave, and area clearing cancels unclaimed callbacks. Collection,
 claiming, and final cleanup hold the monitor; execution and the completion barrier do not.
-Block events retain vanilla's ordered deduplication under a separate set monitor. Random
-block-position seed transitions use a dedicated short-lived lock, preserving the vanilla
-sequence without locking the world during callbacks.
+Block events retain vanilla's ordered deduplication under a separate set monitor.
 
-Coloring separates neighboring cells; it does not bound every possible interaction.
+Each level's `random` is a `PerThreadRandomSource`: every thread draws from its own
+unsynchronized stream (seeded from the level seed and thread ID). Vanilla's single
+`LegacyRandomSource` became one contended monitor under parallel random ticks, scheduled ticks
+and AI. Random tick positions (`getBlockRandomPos`) also come from the calling thread's stream
+instead of the shared LCG field, so no world-wide lock remains on the random-tick path. The
+level random never offered a reproducible shared sequence (its seed is unique per instance).
+
+Neighbor exclusion separates neighboring cells; it does not bound every possible interaction.
 Vanadium also replaces collections, adds monitors, uses striped entity locks, and stamps
 `ACC_SYNCHRONIZED` on selected vanilla instance methods through `SynchronisePlugin`.
 Changing a mixin ordinal, lock scope, or collection view can change correctness even when
 the scheduler tests pass.
 
-`ParallelChunkManager` caches weak chunk references by packed position and required status.
-Loads use `ChunkLockTable` or a global monitor, depending on configuration. The lock table
-reserves entries atomically before acquiring locks, then evicts unreserved entries periodically.
-Both load paths recheck and publish through `loadAndCache` while holding their load lock;
-null results are not inserted. Keys remain immutable records allocated per lookup, and
-the existing ten-second cache clear remains in place. One maintenance executor per chunk
-manager handles cache clearing and thirty-second lock eviction. `ChunkLockTable` owns no
-threads. Closing the chunk manager finishes vanilla saving, then closes maintenance and
-clears cached references, including when vanilla close throws.
+`ParallelChunkManager` keeps an exact map of full chunks, published from `LevelChunk.setLoaded`
+on whichever thread (server or C2ME) changes the state. It is a `ReadOptimizedLongMap`:
+lookups take no lock and allocate nothing; writers serialize. FULL `getChunk` hits and
+`getChunkNow` are answered from it, which avoids the vanilla four-entry cache (its parallel
+arrays tear across threads). `hasChunk` answers true from it for loaded chunks, avoiding C2ME's
+synchronized ticket-level map that every monster consulted each tick through `hasChunkAt`;
+other positions keep the ticket-level answer, which is true while a ticketed chunk still loads.
+`getChunkNow` treats a chunk as present between `setLoaded(true)` and `setLoaded(false)`, which
+can differ briefly from vanilla during promotion and unload.
+
+Misses and other statuses take vanilla's path. Loads use `ChunkLockTable` or a global monitor,
+depending on configuration. The lock table reserves entries atomically before acquiring locks,
+then evicts unreserved entries periodically. Under its load lock a FULL request rechecks the
+loaded map, since the previous holder's chunk was published by `setLoaded` before its load
+completed. One maintenance executor per chunk manager handles thirty-second lock eviction.
+`ChunkLockTable` owns no threads. Closing the chunk manager finishes vanilla saving, then
+closes maintenance and clears the loaded map, including when vanilla close throws.
 `ParallelChunkManager` identifies Minecraft Main workers by comparing their owning pool
 with `Util.backgroundExecutor().service()`; chunk requests from those workers return to the server thread.
 
@@ -98,9 +129,24 @@ the scheduler, profiler, and benchmark command references. Starting another inte
 server creates fresh scheduling state and resolves the configured worker count again.
 
 In 26.2, `TicketStorage` owns the tickets formerly held by the simulation tracker and is
-synchronized through `SyncAllMixin`. `SavedDataStorageMixin` protects cache operations and
-save snapshot creation, while asynchronous disk writes and save completion waits remain outside
-that monitor. `ServerChunkCache` also has a concurrent set for pending chunk broadcasts.
+synchronized through `SyncAllMixin`. `SavedDataStorageMixin` makes the cache a
+`ConcurrentHashMap` with lock-free hits: `ServerLevel.getWorldBorder()` resolves saved data on
+every entity move. Misses, writes and save snapshot creation share one monitor, while
+asynchronous disk writes and save completion waits remain outside it. `WorldBorder` is no longer
+synchronized; its one-time `applyInitialSettings` is double-checked, and workers read border
+state that the server thread writes.
+
+`PathTypeCache` (one per level, used by every pathfinding mob) stores immutable
+`(position, type)` entries in a single slot array instead of vanilla's two parallel arrays, so
+readers see a complete entry or a miss without a lock. The POI village distance tracker's level
+map is concurrent, and `sectionsToVillage` skips the synchronized update pass when no update
+is pending. `SynchronisePlugin` leaves volatile-only readers such as
+`DynamicGraphMinFixedPoint.hasWork` unsynchronized.
+
+`Long2ObjectConcurrentHashMap` and `Long2ByteConcurrentHashMap` store packed position keys
+through murmur3's bijective finalizer (`MixedLongKeys`). Under `Long.hashCode`, packed chunk
+keys hash to `x ^ z`, so a 32×32 area collapsed onto 32 hashes and degraded the backing
+`ConcurrentHashMap` into tree bins; key and entry views invert the mixing. `ServerChunkCache` also has a concurrent set for pending chunk broadcasts.
 
 `ChunkHolder` keeps vanilla's section update sets. A per-holder monitor protects block/light
 update registration and broadcasting, including set creation, clearing, and pending flags.
@@ -113,7 +159,9 @@ preserves vanilla's ordered, deduplicated save set and C2ME's idle autosave iter
 workers never mutate that set or wait for disk work while marking a chunk dirty.
 
 The entity lookup exposes a live read-only Collection view, preserving membership and
-iteration semantics while allowing constant-time sizing. Spawn preparation counts views
+iteration semantics while allowing constant-time sizing. C2ME wraps that view in an unsized
+filter (entities in simulated chunks); spawn preparation unwraps it reflectively and applies
+the same predicate inside each parallel batch. Spawn preparation counts views
 below 1,024 entities inline without a snapshot. Larger views are copied directly into a
 sized snapshot; unsized iterables retain a single-pass snapshot fallback. Parallel work
 uses contiguous batches with independent vanilla spawn states and local-cap calculators.
@@ -134,7 +182,12 @@ remains architectural follow-up work.
 players for every entity. Fresh trackers stay in an identity-keyed linked map holding their
 arrival ticks; this preserves FIFO migration after 200 ticks while allowing direct removal.
 Area updates paint and erase the non-overlapping strips of the old and new squares, skipping
-unchanged coverage. Disjoint teleports still update both complete squares.
+unchanged coverage. Disjoint teleports still update both complete squares. Per-tracker state
+(previous position identity, painted chunk, moved flag, slot) lives on the tracker's task
+object; tasks keep stable slots in an array rebuilt after membership changes. Move detection
+scans contiguous slices of that array, in parallel above 1,024 trackers, and only trackers
+that crossed a chunk are repainted by the caller. Vanilla's `lastSectionPos` is updated
+without allocation unless the section changed.
 Tracking, chunk transitions, and packet flush consolidation need
 live multiplayer coverage; unit scheduler tests do not exercise them.
 
@@ -153,9 +206,13 @@ by the caller. The subsequent tracking wave owns all callback writes per tracker
 `NavigationIndex` conservatively indexes vanilla navigation invalidation ranges. Block
 changes still call vanilla's exact predicate on the candidates. Membership changes, movement,
 path replacement, recomputation and navigation ticks mark mobs dirty; dirty mobs remain
-candidates for every block change until the next world-tick boundary refresh. Refresh reads
-navigation state outside the index monitor and retains the fallback if concurrent changes
-occur. An unchanged generation clears the dirty set directly. If most paths keep changing
+candidates for every block change until the next world-tick boundary refresh. Marking is
+lock-free, since every moving mob does it every tick: a mob's first mark after a refresh flips
+its own dirty flag and appends it to one of 64 thread-striped lock-free queues; later marks
+only read the flag. Refresh processes only entries queued before it starts (it appends a
+marker to each non-empty stripe), clears each mob's flag before snapshotting its path, and
+reads navigation state outside the index monitor, so a concurrent change re-queues the mob
+and keeps its fallback. If most paths keep changing
 and the previous tick had fewer than two queries, refresh defers rebuilding and retains
 the full dirty fallback; frequent edits or stable pending paths resume indexing. Candidate
 queries copy the nearby set directly when no fallback entries need deduplication.

@@ -10,21 +10,17 @@ import java.util.function.Consumer;
  * the cell, and {@link #lastActiveTick()} drives idle eviction in {@link CellGrid}.
  */
 public final class Cell implements Runnable {
-    private final int color;
     private final int cellX;
     private final int cellZ;
     private final List<Runnable> tasks = new ArrayList<>();
     private long lastActiveTick;
+    /** Position in the current {@link NeighborhoodWave}; written by the server thread before the wave. */
+    int waveIndex;
 
-    /** Coordinates are in cell units. Cache their parity for the four-color grid. */
+    /** Coordinates are in cell units. */
     public Cell(int cellX, int cellZ) {
         this.cellX = cellX;
         this.cellZ = cellZ;
-        this.color = Math.floorMod(cellX, 2) + 2 * Math.floorMod(cellZ, 2);
-    }
-
-    public int color() {
-        return color;
     }
 
     public int cellX() { return cellX; }

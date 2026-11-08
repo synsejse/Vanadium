@@ -2,11 +2,9 @@ package com.synsenetwork.vanadium.chunk;
 
 import com.mojang.datafixers.DataFixer;
 import com.synsenetwork.vanadium.Vanadium;
-import it.unimi.dsi.fastutil.HashCommon;
+import com.synsenetwork.vanadium.concurrent.ReadOptimizedLongMap;
 import java.io.IOException;
-import java.lang.ref.WeakReference;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinWorkerThread;
@@ -20,6 +18,7 @@ import net.minecraft.util.Util;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkGenerator;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.entity.ChunkStatusUpdateListener;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
@@ -27,18 +26,19 @@ import net.minecraft.world.level.storage.LevelStorageSource;
 import net.minecraft.world.level.storage.SavedDataStorage;
 
 /**
- * A {@link ServerChunkCache} that serves chunk lookups from a thread-safe cache so worker threads
- * can read chunks in parallel. Cache entries are weak references (vanilla chunk storage remains the
- * real owner); a maintenance executor clears the cache and evicts idle load locks periodically.
- * Concurrent loads of the same chunk are serialised through a {@link ChunkLockTable}.
+ * A {@link ServerChunkCache} whose full-chunk lookups are lock-free for every thread. Loaded full
+ * chunks are published from {@code LevelChunk.setLoaded} into an exact map, so worker lookups never
+ * touch vanilla's four-entry cache (its parallel arrays tear across threads) or C2ME's synchronized
+ * ticket-level map. Misses and other statuses take vanilla's path, with concurrent loads of one
+ * position serialised through a {@link ChunkLockTable}; a maintenance thread evicts idle load locks.
  */
 public class ParallelChunkManager extends ServerChunkCache {
 
-    private static final long CACHE_CLEAR_SECONDS = 10;
     private static final long LOCK_EVICT_SECONDS = 30;
 
-    private final ConcurrentHashMap<CacheKey, WeakReference<ChunkAccess>> chunkCache = new ConcurrentHashMap<>();
     private final ChunkLockTable loadingLocks = new ChunkLockTable();
+    /** Chunks between LevelChunk.setLoaded(true) and setLoaded(false); exact, never stale. */
+    private final ReadOptimizedLongMap<LevelChunk> loadedChunks = new ReadOptimizedLongMap<>();
     private final ScheduledExecutorService maintenance;
 
     public ParallelChunkManager(ServerLevel world, LevelStorageSource.LevelStorageAccess session, DataFixer dataFixer,
@@ -56,8 +56,6 @@ public class ParallelChunkManager extends ServerChunkCache {
             thread.setDaemon(true);
             return thread;
         });
-        maintenance.scheduleWithFixedDelay(chunkCache::clear,
-                CACHE_CLEAR_SECONDS, CACHE_CLEAR_SECONDS, TimeUnit.SECONDS);
         maintenance.scheduleWithFixedDelay(loadingLocks::evictIdle,
                 LOCK_EVICT_SECONDS, LOCK_EVICT_SECONDS, TimeUnit.SECONDS);
     }
@@ -75,38 +73,72 @@ public class ParallelChunkManager extends ServerChunkCache {
         }
 
         long pos = ChunkPos.pack(chunkX, chunkZ);
-        ChunkAccess cached = lookup(pos, requiredStatus);
-        if (cached != null) {
-            return cached;
+        if (requiredStatus == ChunkStatus.FULL) {
+            LevelChunk loaded = loadedChunks.get(pos);
+            if (loaded != null) return loaded;
         }
 
         if (Vanadium.config.parallelChunkLoads) {
             // Serialise loads of this one chunk so only a single thread does the work.
             ChunkLockTable.Held held = loadingLocks.lock(pos, 0);
             try {
-                return loadAndCache(chunkX, chunkZ, pos, requiredStatus, load);
+                return load(chunkX, chunkZ, pos, requiredStatus, load);
             } finally {
                 loadingLocks.unlock(held);
             }
         } else {
             synchronized (this) {
-                return loadAndCache(chunkX, chunkZ, pos, requiredStatus, load);
+                return load(chunkX, chunkZ, pos, requiredStatus, load);
             }
         }
     }
 
-    /** Called under the load lock so the next acquirer can see the published chunk. */
+    /**
+     * Called under the load lock. A full chunk loaded by the previous holder of the lock was
+     * published by setLoaded before its load completed, so the recheck sees it.
+     */
     @Nullable
-    private ChunkAccess loadAndCache(int chunkX, int chunkZ, long pos, ChunkStatus status, boolean load) {
-        ChunkAccess cached = lookup(pos, status);
-        if (cached != null) {
-            return cached;
+    private ChunkAccess load(int chunkX, int chunkZ, long pos, ChunkStatus status, boolean load) {
+        if (status == ChunkStatus.FULL) {
+            LevelChunk loaded = loadedChunks.get(pos);
+            if (loaded != null) return loaded;
         }
-        ChunkAccess chunk = super.getChunk(chunkX, chunkZ, status, load);
-        if (chunk != null) {
-            chunkCache.put(new CacheKey(pos, status.getIndex()), new WeakReference<>(chunk));
+        return super.getChunk(chunkX, chunkZ, status, load);
+    }
+
+    /** A full chunk without the shared four-entry vanilla cache, which is unsafe across threads. */
+    @Override
+    @Nullable
+    public LevelChunk getChunkNow(int chunkX, int chunkZ) {
+        if (!Vanadium.config.enabled || !Vanadium.config.chunkCache) {
+            return super.getChunkNow(chunkX, chunkZ);
         }
-        return chunk;
+        return loadedChunks.get(ChunkPos.pack(chunkX, chunkZ));
+    }
+
+    /**
+     * Vanilla/C2ME resolve the holder's ticket level through a synchronized map, and every monster
+     * asks this every tick for its own (loaded) chunk. Loaded full chunks answer lock-free; other
+     * positions keep the ticket-level answer, which is already true while a ticketed chunk is
+     * still loading (commands rely on that before they block on the load).
+     */
+    @Override
+    public boolean hasChunk(int chunkX, int chunkZ) {
+        if (Vanadium.config.enabled && Vanadium.config.chunkCache
+                && loadedChunks.get(ChunkPos.pack(chunkX, chunkZ)) != null) {
+            return true;
+        }
+        return super.hasChunk(chunkX, chunkZ);
+    }
+
+    /** Called from LevelChunk.setLoaded on whichever thread (server or C2ME) changes the state. */
+    public void onChunkLoaded(LevelChunk chunk, boolean loaded) {
+        long pos = chunk.getPos().pack();
+        if (loaded) {
+            loadedChunks.put(pos, chunk);
+        } else {
+            loadedChunks.remove(pos, chunk);
+        }
     }
 
     @SuppressWarnings("resource") // Minecraft owns this shared executor; we only compare its identity.
@@ -115,28 +147,14 @@ public class ParallelChunkManager extends ServerChunkCache {
                 && worker.getPool() == Util.backgroundExecutor().service();
     }
 
-    @Nullable
-    private ChunkAccess lookup(long chunkPos, ChunkStatus status) {
-        WeakReference<ChunkAccess> ref = chunkCache.get(new CacheKey(chunkPos, status.getIndex()));
-        return ref != null ? ref.get() : null;
-    }
-
     @Override
     public void close() throws IOException {
         try {
             super.close();
         } finally {
             maintenance.close();
-            chunkCache.clear();
+            loadedChunks.clear();
             loadingLocks.evictIdle();
-        }
-    }
-
-    record CacheKey(long chunkPos, int statusIndex) {
-        @Override
-        public int hashCode() {
-            // Plain Long.hashCode folds packed X/Z together, clustering nearby chunk keys.
-            return 31 * Long.hashCode(HashCommon.mix(chunkPos)) + statusIndex;
         }
     }
 }

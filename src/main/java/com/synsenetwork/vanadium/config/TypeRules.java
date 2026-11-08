@@ -14,6 +14,11 @@ public final class TypeRules {
         return ids.contains(id);
     }
 
+    /** Lets per-ticker callers skip resolving registry IDs when no rule is configured. */
+    public boolean isEmpty() {
+        return ids.isEmpty();
+    }
+
     public void update(List<String> rules) {
         if (!source.equals(rules)) {
             Set<Identifier> parsed = parse(rules);

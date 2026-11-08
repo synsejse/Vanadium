@@ -5,6 +5,8 @@ import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.concurrent.ConcurrentLongLinkedOpenHashSet;
 import com.synsenetwork.vanadium.concurrent.Int2ObjectConcurrentHashMap;
+import com.synsenetwork.vanadium.tick.RandomTickBatch;
+import com.synsenetwork.vanadium.tick.RandomTickSink;
 import com.synsenetwork.vanadium.tick.Stage;
 import com.synsenetwork.vanadium.tracking.NearbyTrackers;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
@@ -16,6 +18,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.BooleanSupplier;
 import net.minecraft.server.level.ChunkGenerationTask;
+import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.DistanceManager;
 import net.minecraft.server.level.PlayerMap;
@@ -23,6 +26,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.chunk.LevelChunk;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Mutable;
@@ -34,7 +38,24 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(ChunkMap.class)
-public abstract class ChunkMapMixin {
+public abstract class ChunkMapMixin implements RandomTickSink {
+    @Unique
+    private RandomTickBatch vanadium$randomTickSink;
+
+    @Override
+    public void vanadium$setRandomTickSink(RandomTickBatch batch) {
+        vanadium$randomTickSink = batch;
+    }
+
+    /** During a parallel random-tick pass, record the holder; workers resolve its ticking chunk. */
+    @Redirect(method = "lambda$forEachBlockTickingChunk$0", at = @At(value = "INVOKE",
+            target = "Lnet/minecraft/server/level/ChunkHolder;getTickingChunk()Lnet/minecraft/world/level/chunk/LevelChunk;"))
+    private LevelChunk vanadium$recordTickingHolder(ChunkHolder holder) {
+        RandomTickBatch sink = vanadium$randomTickSink;
+        if (sink == null) return holder.getTickingChunk();
+        sink.add(holder);
+        return null;
+    }
 
 
     @Shadow

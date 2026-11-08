@@ -7,26 +7,20 @@ import java.util.List;
 
 /**
  * The cells for one stage of one world. Cells and their task lists are reused across ticks; each tick
- * the cells that receive work are recorded in four reusable color buckets, avoiding per-wave list copies.
+ * the cells that receive work are recorded in one reusable active list, avoiding per-wave copies.
  * Cells idle for {@link #IDLE_EVICT_TICKS} ticks are evicted. Single-threaded by contract — enqueue and
  * the tick boundaries run on the server thread; workers read cells only during a wave.
  */
 public final class CellGrid {
     static final int IDLE_EVICT_TICKS = 100;
-    private static final int COLORS = 4;
 
     private final int cellSize;
     private final Long2ObjectMap<Cell> cells = new Long2ObjectOpenHashMap<>();
-    private final List<Cell>[] buckets;
+    private final List<Cell> active = new ArrayList<>();
     private long tick;
 
-    @SuppressWarnings("unchecked")
     public CellGrid(int cellSize) {
         this.cellSize = cellSize;
-        this.buckets = new List[COLORS];
-        for (int i = 0; i < COLORS; i++) {
-            buckets[i] = new ArrayList<>();
-        }
     }
 
     /** The cell owning the chunk at (chunkX, chunkZ), created on first use. */
@@ -46,15 +40,20 @@ public final class CellGrid {
     public void enqueue(int chunkX, int chunkZ, Runnable task) {
         Cell cell = cellFor(chunkX, chunkZ);
         if (!cell.hasTasks()) {
-            buckets[cell.color()].add(cell);
+            active.add(cell);
         }
         cell.markActive(tick);
         cell.add(task);
     }
 
-    /** The cells of {@code color} that have work this tick. */
-    public List<Cell> cellsWithColor(int color) {
-        return buckets[color];
+    /** The existing cell at cell coordinates (cellX, cellZ), or null. */
+    Cell cellAt(int cellX, int cellZ) {
+        return cells.get(pack(cellX, cellZ));
+    }
+
+    /** The cells with work this tick, in first-enqueue order. The scheduler may reorder it in place. */
+    List<Cell> activeCells() {
+        return active;
     }
 
     /** Starts a new tick: ages and evicts idle cells, then clears per-tick state. */
@@ -64,19 +63,14 @@ public final class CellGrid {
         resetActive();
     }
 
-    /** Clears per-tick state after a stage's waves; keeps the cell objects for reuse. */
+    /** Clears per-tick state after a stage's wave; keeps the cell objects for reuse. */
     public void endTick() {
         resetActive();
     }
 
     /** True when no cell has work this tick. */
     public boolean isEmpty() {
-        for (List<Cell> bucket : buckets) {
-            if (!bucket.isEmpty()) {
-                return false;
-            }
-        }
-        return true;
+        return active.isEmpty();
     }
 
     /** Number of retained (live) cells. Visible for tests. */
@@ -85,12 +79,10 @@ public final class CellGrid {
     }
 
     private void resetActive() {
-        for (List<Cell> bucket : buckets) {
-            for (Cell cell : bucket) {
-                cell.clearTasks();
-            }
-            bucket.clear();
+        for (Cell cell : active) {
+            cell.clearTasks();
         }
+        active.clear();
     }
 
     private static long pack(int x, int z) {

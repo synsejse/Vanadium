@@ -15,19 +15,23 @@ import org.jetbrains.annotations.NotNull;
 public class Long2ByteConcurrentHashMap implements Long2ByteMap {
 
     private final Map<Long, Byte> backing;
+    /** Keys are stored mixed; see {@link MixedLongKeys}. */
+    private final Map<Long, Byte> unmixed;
     private byte defaultReturn = 0;
 
     public Long2ByteConcurrentHashMap() {
         backing = new ConcurrentHashMap<>();
+        unmixed = MixedLongKeys.unmixedView(backing);
     }
 
     public Long2ByteConcurrentHashMap(int initialCapacity, float loadFactor) {
         backing = new ConcurrentHashMap<>(initialCapacity, loadFactor);
+        unmixed = MixedLongKeys.unmixedView(backing);
     }
 
     @Override
     public byte get(long key) {
-        Byte out = backing.get(key);
+        Byte out = backing.get(MixedLongKeys.mix(key));
         return out == null ? defaultReturn : out;
     }
 
@@ -43,7 +47,7 @@ public class Long2ByteConcurrentHashMap implements Long2ByteMap {
 
     @Override
     public void putAll(@NotNull Map<? extends Long, ? extends Byte> m) {
-        backing.putAll(m);
+        m.forEach((k, v) -> backing.put(MixedLongKeys.mix(k), v));
     }
 
     @Override
@@ -63,12 +67,12 @@ public class Long2ByteConcurrentHashMap implements Long2ByteMap {
 
     @Override
     public ObjectSet<Entry> long2ByteEntrySet() {
-        return FastUtilViews.entrySetLongByteWrap(backing);
+        return FastUtilViews.entrySetLongByteWrap(unmixed);
     }
 
     @Override
     public @NotNull LongSet keySet() {
-        return FastUtilViews.wrapLongSet(backing.keySet());
+        return FastUtilViews.wrapLongSet(unmixed.keySet());
     }
 
     @Override
@@ -78,25 +82,35 @@ public class Long2ByteConcurrentHashMap implements Long2ByteMap {
 
     @Override
     public boolean containsKey(long key) {
-        return backing.containsKey(key);
+        return backing.containsKey(MixedLongKeys.mix(key));
     }
 
     @Override
     public byte put(long key, byte value) {
-        Byte out = backing.put(key, value);
+        Byte out = backing.put(MixedLongKeys.mix(key), value);
         return out == null ? defaultReturn : out;
     }
 
     @Override
     public Byte put(Long key, Byte value) {
-        Byte out = backing.put(key, value);
+        Byte out = backing.put(MixedLongKeys.mix(key), value);
         return out == null ? defaultReturn : out;
     }
 
     @Override
     public byte remove(long key) {
-        Byte out = backing.remove(key);
+        Byte out = backing.remove(MixedLongKeys.mix(key));
         return out == null ? defaultReturn : out;
+    }
+
+    /** Visits every mapping with original keys, without entry views or boxing of the visitor arguments. */
+    public void forEachEntry(EntryConsumer consumer) {
+        backing.forEach((key, value) -> consumer.accept(MixedLongKeys.unmix(key), value));
+    }
+
+    @FunctionalInterface
+    public interface EntryConsumer {
+        void accept(long key, byte value);
     }
 
     @Override

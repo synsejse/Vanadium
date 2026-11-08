@@ -225,3 +225,81 @@ single-pass iterables, live collection membership and rejected view mutations:
 `.vanadium/runs/smoke-8z1xd693`. Measured runs: `features-m8ict8ix` (JFR),
 `features-g49ks_8b`, `features-xez91_l4`; summary `.vanadium/spawn-fixed.json`.
 All three JVMs used `--filter 'spawn-count-.*'`; the short exploratory run is excluded.
+
+## Dual Xeon E5-2699 v3 development VM (2026-11-08)
+
+First measurements on the target hardware, using `scripts/bench-sweep.py`. These are whole-server
+uncapped TPS (`/vanadium benchmark`, 30s) and 20 TPS stage profiles, not subsystem ratios.
+
+### Method
+
+- KVM guest on the dual E5-2699 v3 host: 72 vCPUs reported as 2 sockets × 36 cores, one thread
+  per core, two NUMA nodes (7.9GB each), no guest `cpuidle` driver. NixOS, Linux 6.18.60.
+- OpenJDK 25.0.4.1, fixed 4GiB G1 heap; Minecraft 26.2, Fabric Loader 0.19.3, Fabric API
+  0.160.0+26.2, Cloth Config 26.2.155, C2ME 0.4.2-alpha.0.52 with `globalExecutorParallelism = 4`.
+- Fresh flat world per JVM, seed 12345, view/simulation distance 4, no players. 1,024 force-loaded
+  chunks (32×32); mob spawning, daylight and weather cycles off, midnight. `idle` measures those
+  chunks alone; `mobs` adds 4,096 persistent, invulnerable zombies with AI (four per chunk).
+- Cell size 2 unless stated. Each point is one server JVM; profiles are separate 10s captures.
+  Sequential measurements in one JVM drift upward (about +10%) as zombies spread out, so
+  design comparisons alternate variants in ABBA order inside one JVM.
+
+### Results
+
+Baseline is commit `7092c32` on the same VM topology. "Off" is `enabled = false`, which keeps
+structural mixins (not a no-Vanadium baseline).
+
+| Workers | Idle TPS before → after | Zombies TPS before → after |
+|---:|---:|---:|
+| 16 | – → 1,042 | – → 63.8 |
+| 24 | 514 → 1,027 | 32.0 → 71.7 |
+| 32 | – → 995 | – → 73.8 |
+| 36 | 276 → 977 | 27.5 → 76.3 |
+| 48 | – → 831 | – → 68.5 |
+| 72 (auto) | 314 → – | 27.6 → – |
+
+In one 32-worker JVM (same order effects): off 7.6, the former four-color schedule 65.4, neighborhood waves 81.3 TPS.
+The four-color schedule was removed afterwards.
+At 32 workers, tick work fell from roughly 31ms to 14–16ms; ENTITY execution is about 87% of
+ideal parallel time (cell CPU ÷ participants). Remaining serial preparation per tick: spawning
+0.5ms, chunk collection 0.6ms, tracking 0.5ms, entity collection 0.95ms.
+
+Interleaved scheduling comparison at 36 workers (two ABBA rounds, mean TPS): four-color barriers
+70.4 (cell 2) / 73.1 (cell 1); neighborhood waves 82.7 (cell 2) / 73.4 (cell 1).
+
+### What limited scaling, and what changed
+
+JFR at 24 workers on the baseline recorded about 122 thread-seconds of monitor blocking
+(events ≥100µs) in a 41s window. The largest monitors were the navigation index (61s, every
+moving mob), saved data via `getWorldBorder` (37s plus 3.8s on `WorldBorder`), C2ME's ticket-level
+map via `hasChunk` (13s), `PathTypeCache` (8.2s) and POI distance updates (3.8s). After the changes
+the same recording shows 1.4ms. Separately, `WorkerPool` woke helpers one `execute` at a time
+through a queue and bounced two shared counters per task, so small waves got slower with more
+workers; packed position keys degraded concurrent maps into tree bins.
+
+| Area | Change |
+|---|---|
+| Worker pool | Persistent spin-then-park workers, Dekker wake-ups, chunked claims, one completion update per participant |
+| Scheduling | One neighborhood-exclusion wave per stage, largest cells first (four-color barriers removed) |
+| Navigation index | Lock-free per-mob dirty flags with striped queues |
+| Saved data / border | Lock-free cached reads; border initialization double-checked |
+| Chunk lookups | Exact lock-free map of loaded full chunks for `getChunk(FULL)`, `getChunkNow`, `hasChunk` |
+| Path types, POI | Immutable cache entries; concurrent village distances without idle update passes |
+| Randomness | Per-thread level random streams and random tick positions |
+| Maps | murmur3-mixed packed keys in concurrent long maps |
+| Serial work | Batched entity and random-tick collection, parallel tracker move scans, C2ME spawn filter unwrapped |
+
+### Machine findings
+
+- **Usable compute is about 36 cores.** One CPU-bound process per vCPU runs at 83–84% of solo
+  speed with 18 or 36 busy vCPUs (turbo), but 42% (median) with 54 or 72, so total throughput
+  falls beyond 36 busy vCPUs. Barrier-synchronized waves suffer when a vCPU holding a cell is
+  descheduled. Pairwise probes found no shared cores between specific vCPUs, so the guest cannot
+  identify siblings; the host topology must be exposed to the guest.
+- **Binding the server to one NUMA node made no measurable difference** at 24 workers (72.1/70.7
+  unbound versus 74.6/70.8 bound), so cross-socket memory placement is not the current limit.
+- Configure `workers` explicitly on this VM (about 32); `0` resolves to 72 and oversubscribes.
+
+Evidence (JFR files, console logs, `results.json`) was kept outside the repository with the run.
+Untested here: real players and packet load, redstone/hoppers/fluids, exploration and chunk
+generation, modpack content, and a server without Vanadium.

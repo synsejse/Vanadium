@@ -39,8 +39,8 @@ The outer server loop also pumps queued server/chunk tasks between calls to
 
 ## Current coverage
 
-“Parallel” means independent cells of the same color can run concurrently.
-Each cell is serial, colors have completion barriers, and worlds and stages
+“Parallel” means cells that are not neighbors can run concurrently.
+Each cell is serial, stages have completion barriers, and worlds and stages
 do not overlap. The server thread participates; a one-cell wave runs inline.
 
 | Work | Current execution | Remaining serial work or limitation |
