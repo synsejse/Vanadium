@@ -37,6 +37,7 @@
     "server.world.PersistentEntitySectionManagerCallbackMixin",
     "server.world.ServerLevelMixin",
     "util.collection.ClassInstanceMultiMapMixin",
+    "util.profiling.ProfilerMixin",
     "util.thread.ThreadingDetectorMixin",
     "world.EntityTickListMixin",
     "world.SimulationChunkTrackerAccessor",
