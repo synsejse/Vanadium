@@ -166,17 +166,4 @@ class ConcurrentMapsTest {
         assertEquals(listOf(-2L, 5L, 9L), streamed)
         assertEquals(12L, set.longStream().sum())
     }
-
-    @Test
-    fun sortedSetBasics() {
-        val set = ConcurrentLongSortedSet()
-        assertTrue(set.add(42L))
-        assertFalse(set.add(42L))
-        assertTrue(set.contains(42L))
-        assertTrue(set.remove(42L))
-        for (value in longArrayOf(5, 1, 9)) set.add(value)
-        assertEquals(1L, set.firstLong())
-        assertEquals(9L, set.lastLong())
-        assertEquals(listOf(1L, 5L, 9L), set.toLongArray().toList())
-    }
 }

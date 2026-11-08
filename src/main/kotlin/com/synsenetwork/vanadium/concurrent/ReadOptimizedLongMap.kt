@@ -79,6 +79,33 @@ class ReadOptimizedLongMap<V : Any> {
         }
     }
 
+    /** Removes and returns the mapping for [key], if any. */
+    @Synchronized
+    fun remove(key: Long): V? {
+        val slots = table
+        val mask = slots.size - 1
+        var i = index(key, mask)
+        while (true) {
+            val slot = slots[i] ?: return null
+            if (slot is Entry && slot.key == key) {
+                SLOTS.setRelease(slots, i, TOMBSTONE)
+                size--
+                @Suppress("UNCHECKED_CAST")
+                return slot.value as V
+            }
+            i = (i + 1) and mask
+        }
+    }
+
+    /** Visits a snapshot of the keys without locking; concurrent writes may or may not be seen. */
+    fun forEachKey(action: java.util.function.LongConsumer) {
+        val slots = table
+        for (i in slots.indices) {
+            val slot = SLOTS.getAcquire(slots, i)
+            if (slot is Entry) action.accept(slot.key)
+        }
+    }
+
     @Synchronized
     fun size(): Int = size
 

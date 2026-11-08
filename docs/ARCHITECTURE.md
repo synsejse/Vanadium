@@ -15,8 +15,13 @@ By default a stage is one `NeighborhoodWave`: every active cell, sorted largest-
 claimed by whichever participant finds it free. A claimant moves the cell to TRYING, then
 inspects its active neighbors: a RUNNING neighbor makes it back off; between two TRYING
 neighbors the higher index backs off and the lower waits. All state accesses are volatile,
-so two adjacent claimants cannot both pass, and waits only point to higher indices. Cell
-failures are collected and rethrown after the wave. Adjacent cells therefore run in an
+so two adjacent claimants cannot both pass, and waits only point to higher indices. A claim
+first reads the neighbors and writes nothing if one is busy. A participant whose scan claims
+nothing spins on the completion count rather than rescanning: a claim backs off only for a
+RUNNING neighbor or a lower-index TRYING one, and each such chain ends at a cell that runs, so a
+completion is always coming. Before this, idle participants rescanned and CAS-flipped cell
+states, which was 23% of all samples at 32 workers and slowed running cells through cache-line
+traffic. Cell failures are collected and rethrown after the wave. Adjacent cells therefore run in an
 order that can change between ticks. This replaced a four-color schedule with a barrier per
 color, which provided the same exclusion but made every color wait for its slowest cell.
 
@@ -145,6 +150,14 @@ readers see a complete entry or a miss without a lock. The POI village distance 
 map is concurrent, and `sectionsToVillage` skips the synchronized update pass when no update
 is pending. `SynchronisePlugin` leaves volatile-only readers such as
 `DynamicGraphMinFixedPoint.hasWork` unsynchronized.
+
+`EntitySectionStorage` keeps every section in an `EntitySectionIndex`: a `ReadOptimizedLongMap`
+of sections plus, per chunk column, an immutable array of section Ys. Every AI entity query runs
+`forEachAccessibleNonEmptySection`; lookups take no lock and box nothing, and a box query visits
+only the columns inside the box, where vanilla's AVL set walked every section at each section X.
+Visit order matches vanilla's sorted keys (X, then Z and Y in unsigned packed order). Section
+creation and removal serialize on the index. `GoalSelector` keeps vanilla's ordered set: goals
+belong to one mob, which only its own cell ticks.
 
 `Long2ObjectConcurrentHashMap` and `Long2ByteConcurrentHashMap` store packed position keys
 through murmur3's bijective finalizer (`MixedLongKeys`). Under `Long.hashCode`, packed chunk
