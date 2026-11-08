@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Worker/cell sweep on a live Fabric+C2ME server: uncapped TPS via /vanadium benchmark,
-stage profile at 20 TPS, and per-thread CPU from /proc. Fresh flat world per server JVM.
+stage profile at 20 TPS (tick split and stage utilization, read from VANADIUM_RESULT log lines),
+and per-thread CPU from /proc. Fresh flat world per server JVM.
 
 Workloads (--workloads, comma separated; use ';' when a workload itself contains commas):
   idle                 forced chunks only
@@ -9,7 +10,7 @@ Workloads (--workloads, comma separated; use ';' when a workload itself contains
   cells:1,2,3          re-measure with each cell size (live reload)
   variants:R:a=toml|b=toml
                        R alternating rounds (ABBA order) of TOML variants; ',' separates lines,
-                       e.g. "mobs;variants:2:free=colorBarriers = false|colors=colorBarriers = true"
+                       e.g. "mobs;variants:2:on=parallelTracking = true|off=parallelTracking = false"
   jfr                  record a JFR profile (low lock/park thresholds) during one measurement
 Accepted .vanadium/eula.txt required; see docs/DEVELOPMENT.md. Run inside nix develop.
 """
@@ -102,37 +103,43 @@ def gamerule(r, names, value):
     return reply
 
 
+def result(log, kind, offset, timeout):
+    """The next VANADIUM_RESULT line of this kind after offset, parsed (see commands/Results.kt)."""
+    m, _ = wait_log(log, r'(?m)VANADIUM_RESULT (\{"kind":"' + kind + r'".*\})\s*$', offset, timeout)
+    return json.loads(m.group(1))
+
+
+def profile_summary(profile):
+    """The tick split and per-stage utilization of a profile result, rounded for the results table."""
+    stages = profile["stages"]
+    return {"split": {k: round(v, 3) for k, v in profile["split"].items()},
+            "utilization": {stage: round(row["utilization"], 3) for stage, row in stages.items() if "utilization" in row},
+            "tick_p50_ms": round(profile["ticks"].get("p50Ms", 0), 3),
+            "tick_p95_ms": round(profile["ticks"].get("p95Ms", 0), 3)}
+
+
 def bench(r, log, pid, label, results, extra, profile_after=True):
     offset = len(log.read_text(errors="replace"))
     cpu0 = thread_cpu(pid)
     t0 = time.monotonic()
     r("vanadium benchmark")
-    m, _ = wait_log(log, r"benchmark — ([\d,]+) ticks in ([\d.]+)s, avg ([\d.]+) TPS, peak ([\d,]+)", offset, 90)
+    benchmark = result(log, "benchmark", offset, 90)
     wall = time.monotonic() - t0
     cpu = diff(cpu0, thread_cpu(pid))
-    tps = float(m.group(3))
-    # Profile at 20 TPS: per-tick work percentiles and stage breakdown.
-    offset = len(log.read_text(errors="replace"))
-    if not profile_after:
-        row = {"label": label, "tps": tps, "ticks": int(m.group(1).replace(",", "")),
-               "peak": int(m.group(4).replace(",", "")), "wall": round(wall, 1),
-               "cpu_s": cpu, "cpu_total": round(sum(cpu.values()), 1), **extra}
-        results.append(row)
-        print(json.dumps(row), flush=True)
-        return row, ""
-    r("vanadium profile 10")
-    time.sleep(11)
-    try:
-        _, text = wait_log(log, r"(?s)Vanadium profile.*?(?=\n\[\d\d:\d\d:\d\d\][^\n]*(?:Rcon|Server thread/INFO\]: \[Not Secure\])|\Z)", offset, 30)
-    except RuntimeError:
-        text = ""
-    profile = log.read_text(errors="replace")[offset:]
-    row = {"label": label, "tps": tps, "ticks": int(m.group(1).replace(",", "")),
-           "peak": int(m.group(4).replace(",", "")), "wall": round(wall, 1),
+    row = {"label": label, "tps": round(benchmark["avgTps"], 1), "ticks": benchmark["ticks"],
+           "peak": benchmark["peakTps"], "wall": round(wall, 1),
            "cpu_s": cpu, "cpu_total": round(sum(cpu.values()), 1), **extra}
+    if profile_after:
+        # Profile at 20 TPS: per-tick work percentiles, tick split and stage utilization.
+        offset = len(log.read_text(errors="replace"))
+        r("vanadium profile 10")
+        try:
+            row["profile"] = profile_summary(result(log, "profile", offset, 45)["profile"])
+        except RuntimeError:
+            row["profile"] = None
     results.append(row)
     print(json.dumps(row), flush=True)
-    return row, profile
+    return row
 
 
 def run_point(args, workers, cell, results, outdir):
@@ -200,10 +207,8 @@ def run_point(args, workers, cell, results, outdir):
                     print(r("execute if entity @e[type=zombie]"), flush=True)
                     bench(r, log, pid, "mobs", results, {**extra, "mobs": per * (2 * half) ** 2})
                     if args.off:
-                        toml.write_text(f"enabled = false\nworkers = {workers}\ncellSize = {cell}\n")
-                        r("vanadium reload")
+                        r("vanadium set enabled off")  # Runtime only; reload restores the file.
                         bench(r, log, pid, "mobs-off", results, {**extra, "mobs": per * (2 * half) ** 2})
-                        toml.write_text(f"workers = {workers}\ncellSize = {cell}\n")
                         r("vanadium reload")
                 elif wl.startswith("cells:"):
                     for c in wl.split(":")[1].split(","):
@@ -219,7 +224,7 @@ def run_point(args, workers, cell, results, outdir):
                         for name, body in order:
                             toml.write_text(f"workers = {workers}\n" + body.replace(",", "\n") + "\n")
                             r("vanadium reload")
-                            row, _ = bench(r, log, pid, f"v-{name}", results, {**extra, "variant": name, "round": rnd},
+                            bench(r, log, pid, f"v-{name}", results, {**extra, "variant": name, "round": rnd},
                                            profile_after=False)
                     toml.write_text(f"workers = {workers}\ncellSize = {cell}\n")
                     r("vanadium reload")
