@@ -40,6 +40,7 @@ class ServerIntegrationChecks : ModInitializer {
             checkDirty(server)
             val level = server.overworld()
             ChunkLookupChecks.run(level)
+            ServerThreadChunkChecks.run(level)
             TickSafetyChecks.run(level)
             NavigationChecks.run(level)
             TrackingChecks.run(level)

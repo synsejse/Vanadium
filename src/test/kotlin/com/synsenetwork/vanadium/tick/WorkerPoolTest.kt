@@ -290,6 +290,70 @@ class WorkerPoolTest {
         pool.close()
     }
 
+    @Test
+    fun workersDeferTasksThatNeedTheServerThread() {
+        val outcomes = ConcurrentHashMap<String, Any>()
+        val workerDone = CountDownLatch(1)
+        // The caller takes one task and waits; the helper runs the other, so every check runs on a worker.
+        val task = Runnable {
+            if (!WorkerPool.isWorkerThread()) {
+                await(workerDone)
+                return@Runnable
+            }
+            try {
+                outcomes["outside"] = WorkerPool.deferToServerThread("outside") == null
+                outcomes["thrown"] = WorkerPool.runDeferrable {
+                    WorkerPool.deferToServerThread("chunk")?.let { throw it }
+                    outcomes["continued"] = true
+                }
+                outcomes["swallowed"] = WorkerPool.runDeferrable {
+                    try {
+                        WorkerPool.deferToServerThread("chunk")?.let { throw it }
+                    } catch (_: RuntimeException) {
+                        // A mod that catches broadly must not hide the deferral.
+                    }
+                }
+                outcomes["consequence"] = WorkerPool.runDeferrable {
+                    WorkerPool.deferToServerThread("chunk")
+                    error("null chunk after a swallowed signal")
+                }
+                outcomes["nested"] = WorkerPool.runDeferrable {
+                    outcomes["inner"] = WorkerPool.runDeferrable { WorkerPool.deferToServerThread("inner")?.let { throw it } }
+                }
+                outcomes["completed"] = WorkerPool.runDeferrable {}
+                outcomes["failure"] = assertFailsWith<IllegalStateException> {
+                    WorkerPool.runDeferrable { error("real failure") }
+                }.message!!
+                outcomes["after"] = WorkerPool.deferToServerThread("after") == null
+            } finally {
+                workerDone.countDown()
+            }
+        }
+        WorkerPool(1).use { pool ->
+            assertTimeoutPreemptively(Duration.ofSeconds(10)) { pool.runWave(listOf(task, task)) }
+        }
+        assertEquals(true, outcomes["outside"], "a plain worker task was offered deferral")
+        assertEquals(false, outcomes["thrown"])
+        assertNull(outcomes["continued"], "the task continued past the signal")
+        assertEquals(false, outcomes["swallowed"], "a swallowed signal lost the deferral")
+        assertEquals(false, outcomes["consequence"], "a failure caused by the deferral was not deferred")
+        assertEquals(false, outcomes["inner"])
+        assertEquals(true, outcomes["nested"], "an inner deferral leaked into its enclosing task")
+        assertEquals(true, outcomes["completed"])
+        assertEquals("real failure", outcomes["failure"])
+        assertEquals(true, outcomes["after"], "deferral stayed enabled after the task")
+    }
+
+    @Test
+    fun deferrableTasksRunDirectlyOffWorkers() {
+        var ran = false
+        assertTrue(WorkerPool.runDeferrable {
+            assertNull(WorkerPool.deferToServerThread("chunk"), "the server thread was offered deferral")
+            ran = true
+        })
+        assertTrue(ran)
+    }
+
     private fun await(latch: CountDownLatch) {
         assertTrue(latch.await(5, TimeUnit.SECONDS), "test gate timed out")
     }
