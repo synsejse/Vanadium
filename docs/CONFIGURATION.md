@@ -53,13 +53,30 @@ scheduled ticks, or tracking. Validate the actual modpack before deployment.
 | `/vanadium profile [seconds]` | op (2) | Capture tick/stage timings at the current tick rate; default 30s, range 1–300s |
 | `/vanadium profile stop` | op (2) | Finish the current capture early |
 | `/vanadium profile report` | op (2) | Show the last completed capture for this server |
+| `/vanadium profile report stages\|worlds\|details` | op (2) | Open one part of the last profile; also available by clicking its buttons |
+| `/vanadium benchmark report [details]` | op (2) | Show the last benchmark summary or its details |
+
+Reports are compact by default. Profile summaries show average/p95 tick work and the three
+most expensive queued stages, measured in **ms per server tick** across all dimensions.
+Hover a timing for percentiles, task/region counts, utilization and measurement definitions.
+Click **Stages**, **Worlds** or **Details** to print just that view; **Summary** returns to
+the short view. World rows have their phase breakdowns on hover. Click **JSON path** to
+copy the server-relative result-file path. Each capture replaces the previous report of
+its kind; buttons show that server's latest capture. Reports reset when the server stops.
+
+Green/gold/red tick timings indicate proximity to the 50ms budget at 20 TPS, not a
+comparison with another capture. Benchmark TPS is uncapped processing capacity;
+its elapsed time per tick is not profiled MSPT. The best-window count is approximately
+one second and is not normalized TPS. Console/RCON users can type the report subcommands
+directly; hover and click actions require an in-game chat client.
 
 Profiles report average/p50/p95/p99 tick work and queued stage execution, caller tail-wait
 time, region/task counts, and average/maximum tasks per region. They split tick work into stage
 waves, preparation waves and the serial remainder, which bounds what more workers can gain,
 and give each stage's participant utilization (region time over wave time × participants). Stage measurements exclude
 collection and serial fallbacks; whole-tick measurements include them but exclude idle
-time between ticks. Worlds are aggregated, and regions are re-planned every wave from where the work is. Keep configuration and workload fixed when comparing captures. Profiling
+time between ticks. Worlds are aggregated, and regions adapt to the work with stable plans reused.
+Keep configuration and workload fixed when comparing captures. Profiling
 adds measurement overhead and does not unlock TPS. Reports are also written to the server log.
 Per-world entries also report preparation (collection plus inline fallbacks), stage execution,
 and whole-world time. Region execution percentiles expose uneven work within waves. Spawning

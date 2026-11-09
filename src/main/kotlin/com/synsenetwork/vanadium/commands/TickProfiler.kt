@@ -18,7 +18,7 @@ object TickProfiler {
     private var deadline = 0L
     private var tickStart = 0L
     private var configuration = ""
-    private var lastReport: String? = null
+    private var lastReport: PerformanceReport? = null
 
     fun start(commandSource: CommandSourceStack, seconds: Int): Boolean {
         if (active != null) return false
@@ -52,25 +52,26 @@ object TickProfiler {
         val profile = active ?: return false
         Vanadium.scheduler.profile = null
         val recipient = source
-        val file = recipient?.let {
-            Results.publish(it.server, "profile", JsonObject().apply {
-                addProperty("requestedSeconds", requestedSeconds)
-                addProperty("seconds", (System.nanoTime() - startedAt) / 1e9)
-                add("profile", profile.toJson())
-            })
+        val result = JsonObject().apply {
+            addProperty("requestedSeconds", requestedSeconds)
+            addProperty("seconds", (System.nanoTime() - startedAt) / 1e9)
+            add("profile", profile.toJson())
         }
-        val saved = recipient?.let { "\nSaved ${Results.describe(it.server, file)}" } ?: ""
-        val report = "Vanadium profile — $configuration\n${profile.report()}$saved"
+        val file = recipient?.let { Results.publish(it.server, "profile", result) }
+        val report = PerformanceReport("profile", result, configuration,
+            if (file == null) null else Results.describe(recipient.server, file))
         lastReport = report
         active = null
         source = null
         tickStart = 0
-        Vanadium.LOGGER.info(report)
-        recipient?.sendSuccess({ Component.literal(report) }, false)
+        val summary = report.view()
+        Vanadium.LOGGER.info(summary.string)
+        recipient?.sendSuccess({ summary }, false)
         return true
     }
 
-    fun lastReport(): String = lastReport ?: "Vanadium: no completed profile for this server"
+    fun lastReport(section: String = "summary"): Component = lastReport?.view(section)
+        ?: Component.literal("Vanadium: no completed profile for this server")
 
     fun onServerStopped() {
         if (active != null) Vanadium.scheduler.profile = null

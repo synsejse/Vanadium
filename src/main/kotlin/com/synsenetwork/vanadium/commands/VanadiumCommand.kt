@@ -38,9 +38,11 @@ object VanadiumCommand {
                         if (TickProfiler.stop()) SUCCESS else fail(it, "no profile is running")
                     })
                     .then(literal("report").executes {
-                        it.source.sendSuccess({ Component.literal(TickProfiler.lastReport()) }, false)
+                        it.source.sendSuccess({ TickProfiler.lastReport() }, false)
                         SUCCESS
-                    }))
+                    }.then(literal("stages").executes { report(it, "stages") })
+                        .then(literal("worlds").executes { report(it, "worlds") })
+                        .then(literal("details").executes { report(it, "details") })))
                 .then(literal("set").requires(operator)
                     .then(argument("option", StringArgumentType.word())
                         .suggests { _, builder -> SharedSuggestionProvider.suggest(LiveOptions.names, builder) }
@@ -54,6 +56,8 @@ object VanadiumCommand {
                 .then(literal("reload").requires(operator).executes(::reload))
                 .then(literal("benchmark").requires(operator)
                     .executes { benchmark(it, TickBenchmark.DEFAULT_SECONDS) }
+                    .then(literal("report").executes { report(it, "summary", true) }
+                        .then(literal("details").executes { report(it, "details", true) }))
                     .then(argument("seconds", IntegerArgumentType.integer(5, 300))
                         .executes { benchmark(it, IntegerArgumentType.getInteger(it, "seconds")) })))
     }
@@ -117,7 +121,12 @@ object VanadiumCommand {
 
     private fun profile(ctx: CommandContext<CommandSourceStack>, seconds: Int): Int {
         if (!TickProfiler.start(ctx.source, seconds)) return fail(ctx, "a profile is already running")
-        feedback(ctx, "profiling for ${seconds}s at the current tick rate; /vanadium profile report shows the last result")
+        feedback(ctx, "profiling for ${seconds}s · tick rate unchanged")
+        return SUCCESS
+    }
+
+    private fun report(ctx: CommandContext<CommandSourceStack>, section: String, benchmark: Boolean = false): Int {
+        ctx.source.sendSuccess({ if (benchmark) TickBenchmark.lastReport(section) else TickProfiler.lastReport(section) }, false)
         return SUCCESS
     }
 
