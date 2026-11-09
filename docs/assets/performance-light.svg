@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="400" viewBox="0 0 960 400" role="img" aria-labelledby="title desc">
+<title id="title">Vanadium throughput and worker scaling (Minecraft 26.2)</title>
+<desc id="desc">Minecraft 26.2, dual Xeon E5-2699 v3 VM, 4096 AI zombies in 1024 chunks, no players. At 32 workers: off 7.6 TPS, on 81.3 TPS. Worker sweep: 16 workers 63.8, 24 workers 71.7, 32 workers 73.8, 36 workers 76.3, 48 workers 68.5 TPS. Separate experiments; off keeps structural changes.</desc>
+<rect x=".5" y=".5" width="959" height="399" rx="12" fill="#ffffff" stroke="#e4e4e7" stroke-opacity="1"/>
+<g font-family="Inter, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+<text x="32" y="44" fill="#18181b" font-size="17" font-weight="600">Throughput and worker scaling</text>
+<text x="32" y="68" fill="#71717a" font-size="13">Minecraft 26.2 · dual Xeon E5-2699 v3 VM · 4,096 AI zombies · 1,024 chunks · uncapped TPS</text>
+<text x="32" y="114" fill="#18181b" font-size="14" font-weight="600">Parallel ticking, 32 workers</text>
+<path d="M32 132V300" stroke="#18181b" stroke-opacity=".07"/>
+<text x="32" y="322" text-anchor="middle" fill="#71717a" font-size="12">0</text>
+<path d="M110.4 132V300" stroke="#18181b" stroke-opacity=".07"/>
+<text x="110.4" y="322" text-anchor="middle" fill="#71717a" font-size="12">20</text>
+<path d="M188.8 132V300" stroke="#18181b" stroke-opacity=".07"/>
+<text x="188.8" y="322" text-anchor="middle" fill="#71717a" font-size="12">40</text>
+<path d="M267.2 132V300" stroke="#18181b" stroke-opacity=".07"/>
+<text x="267.2" y="322" text-anchor="middle" fill="#71717a" font-size="12">60</text>
+<path d="M345.6 132V300" stroke="#18181b" stroke-opacity=".07"/>
+<text x="345.6" y="322" text-anchor="middle" fill="#71717a" font-size="12">80</text>
+<path d="M424 132V300" stroke="#18181b" stroke-opacity=".07"/>
+<text x="424" y="322" text-anchor="middle" fill="#71717a" font-size="12">100</text>
+<text x="32" y="150" fill="#71717a" font-size="13">Off</text>
+<rect x="32" y="160" width="29.8" height="26" rx="4" fill="#d4d4d8"/>
+<text x="71.8" y="178" fill="#18181b" font-size="14" font-weight="600">7.6</text>
+<text x="32" y="222" fill="#71717a" font-size="13">On</text>
+<rect x="32" y="232" width="318.7" height="26" rx="4" fill="#1b4ed8"/>
+<text x="360.7" y="250" fill="#18181b" font-size="14" font-weight="600">81.3</text>
+<text x="512" y="114" fill="#18181b" font-size="14" font-weight="600">Worker scaling</text>
+<path d="M536 300H920" stroke="#18181b" stroke-opacity=".07"/>
+<text x="524" y="304" text-anchor="end" fill="#71717a" font-size="12">0</text>
+<path d="M536 266.4H920" stroke="#18181b" stroke-opacity=".07"/>
+<text x="524" y="270.4" text-anchor="end" fill="#71717a" font-size="12">20</text>
+<path d="M536 232.8H920" stroke="#18181b" stroke-opacity=".07"/>
+<text x="524" y="236.8" text-anchor="end" fill="#71717a" font-size="12">40</text>
+<path d="M536 199.2H920" stroke="#18181b" stroke-opacity=".07"/>
+<text x="524" y="203.2" text-anchor="end" fill="#71717a" font-size="12">60</text>
+<path d="M536 165.6H920" stroke="#18181b" stroke-opacity=".07"/>
+<text x="524" y="169.6" text-anchor="end" fill="#71717a" font-size="12">80</text>
+<path d="M536 132H920" stroke="#18181b" stroke-opacity=".07"/>
+<text x="524" y="136" text-anchor="end" fill="#71717a" font-size="12">100</text>
+<path d="M536 266.4H920" stroke="#71717a" stroke-opacity=".6" stroke-dasharray="3 4"/>
+<text x="920" y="260.4" text-anchor="end" fill="#71717a" font-size="11">20 TPS</text>
+<path d="M536 192.8 L632 179.5 L728 176 L776 171.8 L920 184.9" fill="none" stroke="#1b4ed8" stroke-width="2.5" stroke-linejoin="round"/>
+<circle cx="536" cy="192.8" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"/>
+<text x="536" y="180.8" text-anchor="middle" fill="#18181b" font-size="12" font-weight="600">63.8</text>
+<text x="536" y="322" text-anchor="middle" fill="#71717a" font-size="12">16</text>
+<circle cx="632" cy="179.5" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"/>
+<text x="632" y="167.5" text-anchor="middle" fill="#18181b" font-size="12" font-weight="600">71.7</text>
+<text x="632" y="322" text-anchor="middle" fill="#71717a" font-size="12">24</text>
+<circle cx="728" cy="176" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"/>
+<text x="728" y="164" text-anchor="middle" fill="#18181b" font-size="12" font-weight="600">73.8</text>
+<text x="728" y="322" text-anchor="middle" fill="#71717a" font-size="12">32</text>
+<circle cx="776" cy="171.8" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"/>
+<text x="776" y="159.8" text-anchor="middle" fill="#18181b" font-size="12" font-weight="600">76.3</text>
+<text x="776" y="322" text-anchor="middle" fill="#71717a" font-size="12">36</text>
+<circle cx="920" cy="184.9" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"/>
+<text x="920" y="172.9" text-anchor="middle" fill="#18181b" font-size="12" font-weight="600">68.5</text>
+<text x="920" y="322" text-anchor="middle" fill="#71717a" font-size="12">48</text>
+<text x="728" y="342" text-anchor="middle" fill="#71717a" font-size="12">workers</text>
+<text x="32" y="376" fill="#71717a" font-size="12">Historical single runs from separate experiments; “off” keeps Vanadium’s structural changes. Not a vanilla comparison.</text>
+</g></svg>

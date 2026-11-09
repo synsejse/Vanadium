@@ -1,6 +1,6 @@
 # Performance evidence
 
-The [README figure](assets/performance.svg) visualizes existing **Minecraft 26.2**
+The README figure ([light](assets/performance-light.svg), [dark](assets/performance-dark.svg)) visualizes existing **Minecraft 26.2**
 measurements from 2026-11-08. It does not present the 26.3 port as benchmarked.
 Its editable source is SVG; exact plotted values are in [performance.csv](assets/performance.csv).
 Only straight segments join measurements; there is no smoothing or extrapolation.

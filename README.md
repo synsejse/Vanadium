@@ -1,16 +1,17 @@
 <p align="center">
-  <img src="docs/assets/vanadium-header.svg" alt="Vanadium — Parallel server ticking" width="640">
+  <img src="docs/assets/vanadium.svg" alt="" width="96">
 </p>
 
+<h1 align="center">Vanadium</h1>
+
 <p align="center">
-  <strong>Put more of your CPU to work.</strong><br>
-  A Fabric mod that spreads Minecraft server simulation across cores.
+  Parallel server ticking for Minecraft. Put more of your CPU to work.
 </p>
 
 <p align="center">
   <a href="https://github.com/synsejse/Vanadium/actions/workflows/gradle.yml"><img src="https://img.shields.io/github/actions/workflow/status/synsejse/Vanadium/gradle.yml?label=build&style=flat-square" alt="Build status"></a>
-  <img src="https://img.shields.io/badge/Minecraft-26.3-93dec2?style=flat-square" alt="Minecraft 26.3">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPLv3-b6a2ff?style=flat-square" alt="GPLv3 license"></a>
+  <img src="https://img.shields.io/badge/Minecraft-26.3-3f3f46?style=flat-square" alt="Minecraft 26.3">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPLv3-3f3f46?style=flat-square" alt="GPLv3 license"></a>
 </p>
 
 Vanadium parallelizes entity, block-entity, scheduled and chunk ticking, natural spawning,
@@ -20,12 +21,12 @@ It also optimizes chunk lookups, nearby-player indexing and packet preparation.
 
 ### Performance
 
-![Historical Minecraft 26.2 results: 7.6 TPS with parallel ticking off and 81.3 TPS on at 32 workers. A separate worker sweep peaks at 76.3 TPS at 36 workers, falling to 68.5 at 48.](docs/assets/performance.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/performance-dark.svg">
+  <img src="docs/assets/performance-light.svg" alt="Historical Minecraft 26.2 results: 7.6 TPS with parallel ticking off and 81.3 TPS on at 32 workers. A separate worker sweep peaks at 76.3 TPS at 36 workers, falling to 68.5 at 48.">
+</picture>
 
-**Historical 26.2 measurements, not a 26.3 performance claim.** Dual Xeon E5-2699 v3 VM,
-4,096 AI zombies, 1,024 loaded chunks, no players. Uncapped throughput; higher is better.
-“Off” keeps Vanadium's structural changes installed. The comparison and scaling sweep
-are separate experiments. [Data, method and limits →](docs/PERFORMANCE.md)
+Historical Minecraft 26.2 measurements, not a claim about 26.3. [Data, method and limits →](docs/PERFORMANCE.md)
 
 ### Getting started
 
