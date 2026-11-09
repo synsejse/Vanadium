@@ -13,7 +13,6 @@ import net.minecraft.server.level.ChunkMap.TrackedEntity
 import net.minecraft.server.level.DistanceManager
 import net.minecraft.server.level.ServerEntity
 import net.minecraft.server.level.ServerPlayer
-import net.minecraft.util.Mth
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.phys.Vec3
 import kotlin.math.ceil
@@ -302,7 +301,7 @@ class NearbyTrackers {
         @JvmStatic
         fun forceResync(entry: ServerEntity) {
             val access = entry as ServerEntityAccessor
-            access.`vanadium$setTrackingTick`(Mth.roundToward(access.`vanadium$trackingTick`(), access.`vanadium$tickInterval`()))
+            access.`vanadium$entity`().syncPosition = true
             access.`vanadium$setUpdatesWithoutVehicle`(1 shl 16)
             access.`vanadium$entity`().needsSync = true
             entry.sendChanges()

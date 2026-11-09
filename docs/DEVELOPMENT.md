@@ -1,143 +1,98 @@
 # Development and testing
 
-## Setup
+Minecraft **26.3**, official unobfuscated names, Java **25**. Versions and the C2ME release
+URL/checksum are pinned in `gradle.properties`; Loom/Kotlin are in `build.gradle.kts` and
+Gradle is pinned by the wrapper. Use `nix develop` and the checked-in `./gradlew`.
+Initial dependency resolution needs network access.
 
-Minecraft **26.2**, official unobfuscated names, Java **25**. Use the checked-in
-Gradle wrapper. Versions live in `gradle.properties`, `build.gradle.kts` and
-`gradle/wrapper/gradle-wrapper.properties`; do not upgrade them incidentally.
+## Build and unit tests
 
 ```sh
-nix develop
 ./gradlew build
-./gradlew genSources
-python3 scripts/dev-server.py prepare
-```
-
-The pinned Nix shell supplies the JDK, `jcmd`/`jfr`, Python and development tools.
-It also exposes Linux Vulkan/OpenGL loaders for `./gradlew runClient`; a working
-host display/driver is still required. Re-enter the shell after changing the flake.
-Without Nix, install Java 25 and Python 3. Initial builds need network access.
-
-C2ME is a verified release jar in `.vanadium/mods/`, pinned by
-`scripts/runtime-mods.json`; Gradle must not flatten its nested mods. For interactive
-clients/servers, copy that jar into `run/mods/`, avoiding duplicate versions.
-Fabric API and Cloth Config are Gradle-managed. Preserve personal `run/` data.
-
-## Checks
-
-```sh
 ./gradlew test --tests 'com.synsenetwork.vanadium.tick.*' --rerun-tasks
-./gradlew build
-python3 scripts/check-block-updates.py
+./gradlew genSources
 nix flake check
 git diff --check
 ```
 
-Before running Minecraft, read the [EULA](https://aka.ms/MinecraftEULA). If accepted,
-put `eula=true` in `.vanadium/eula.txt`, or reuse an existing accepted file.
-`python3 scripts/dev-server.py smoke` runs startup/ticking/save/shutdown alone.
-Both harnesses use fresh `.vanadium/runs/` worlds, loopback ports and random RCON
-passwords. Logs and worlds remain there, including after failure; the harness
-cleans up only its own processes. An isolated interactive run is also supported:
-`./gradlew -PvanadiumRunDir=/absolute/path runServer --args=nogui`.
+`build` compiles Kotlin/Java, validates the access widener, runs JUnit 5 tests, and produces
+release/source jars in `build/libs/`. Test reports are in `build/reports/tests/test/`.
+Unit tests inspect vanilla bindings without booting Minecraft or applying mixins.
+They are necessary but insufficient to validate a port.
 
-Build artifacts: `build/libs/`; JUnit reports: `build/reports/tests/test/`.
-The current suite has **140 unit tests**. They check bindings, scheduling, collections,
-config, live options and JFR events without applying mixins. The separate live test mod exercises block
-breaking/update packets, concurrent dirty notifications, scheduled-tick state,
-passenger rules, event deduplication, random-position transitions, navigation,
-tracking diffs, spawn counting, item conservation, loaded-chunk publication/lookups in both
-lock modes and disabled mode, and chunk packet encoding/sending.
-These fixtures complement gameplay testing; they do not certify a modpack.
+## Live server integration tests
 
-For IDE/CLI cache contention, let the other import finish. Use a separate
-`GRADLE_USER_HOME` for isolated jobs if needed; do not delete live cache lock files.
-`nix flake check` checks development files, not Minecraft. Only native x86_64 Linux
-execution has been validated here.
-
-## Benchmarks and profiles
-
-[26.2 feature results](BENCHMARKS_26_2.md) contains measured on/off timings, allocation,
-server-thread CPU costs and JFR findings. Reproduce inside `nix develop`:
+Read the [Minecraft EULA](https://aka.ms/MinecraftEULA). If accepted, create
+`.vanadium/eula.txt` containing `eula=true`, or copy your existing accepted file.
+Then run:
 
 ```sh
-python3 scripts/bench-features.py
-python3 scripts/report-feature-bench.py .vanadium/runs/features-FIRST \
-  .vanadium/runs/features-SECOND .vanadium/runs/features-THIRD \
-  --output .vanadium/feature-results.json
+./gradlew prepareRuntimeMods
+./gradlew runIntegration
+./gradlew runIntegration -Plive.jfr=true
 ```
 
-The default suite uses three fresh JVMs, four helpers plus the participating server
-thread, cell size two, C2ME parallelism four, and a fixed 2GiB G1 heap. Each workload
-warms both arms, alternates their order for 12 paired samples per JVM, then records
-separate on/off JFR profiles in the first JVM. Timing samples exclude active JFR.
-`--workers N` changes helpers; `--filter 'spawn-.*'` selects cases; `--no-jfr` skips
-recordings. Reduced `--scale`/`--rounds` are for harness checks, not reported results.
-The benchmark mod and its switches are excluded from release jars.
+`prepareRuntimeMods` downloads and SHA-512-verifies the pinned C2ME release into
+`.vanadium/mods/`. C2ME is never flattened into Loom's development classpath. Fabric API,
+Fabric Language Kotlin and Cloth Config are normal Gradle dependencies.
 
-For whole-server scaling, `scripts/bench-sweep.py --workers 16,24,32 --out DIR` starts one
-fresh server per worker count and records uncapped TPS, a 20 TPS stage profile and per-thread
-CPU for idle and zombie workloads; `variants:` compares configurations in ABBA order inside one
-JVM, `--numactl` constrains placement and `jfr` records lock/park events. See the Xeon section of
-the benchmark report for results and caveats.
+`runIntegration` builds a test-only Fabric mod from `src/test/kotlin/`, starts a dedicated
+server through Loom, and runs the live assertions in-process. It also executes the mod's
+status command through the server dispatcher. The fixture then advances
+20 real server ticks, flush-saves, requests normal shutdown, and writes a completion marker
+only after the server stops. The Gradle task checks that marker and has a five-minute timeout.
+There is no nested Gradle process, RCON client, Python launcher, or process-scanning cleanup.
+Loom finalizes launch paths before task execution, so live runs require configuration caching
+to be off (the repository default). Use `--no-configuration-cache` if you enable it globally;
+normal Gradle compilation/test up-to-date checks remain available.
 
-The harness also records `profile_cpu_s`, `profile_wall`, and `profile_cpu_cores` during
-normal-rate profiles (process CPU seconds divided by elapsed wall time, including helpers,
-GC and compiler threads). Those captures include profiling overhead and are separate from
-uncapped benchmark CPU. Worker idle spin defaults to 2ms; pass
-`--jvm=-Dvanadium.workerSpinMicros=100` to compare the lower-CPU 100µs setting.
-The caller's tail spin remains 200µs (`vanadium.callerSpinMicros`). Both are JVM-start settings.
+Each invocation uses a fresh `.vanadium/runs/integration-UUID/` directory with a loopback-only
+port, seed 12345, flat world, four helpers, cell size two, C2ME parallelism four, and a fixed
+2GiB G1 heap. Personal `run/` state is never copied over or deleted. Worlds, `logs/latest.log`
+and failure evidence stay in that directory. Test classes and the completion helper are
+packaged only in `build/test-mods/integration-checks.jar`, never the release jar.
 
-`./gradlew benchScheduler`, `benchWorkerPool` and `benchAreaMap` isolate scheduler,
-worker and index overhead. `scripts/bench-server.sh 30` exercises a normal ticking
-server with 200 clustered zombies; it is a smoke workload, not an all-feature A/B
-comparison. For actual worlds use `/vanadium profile`, tick sprint for throughput,
-and [JFR](../scripts/PROFILING.md) for CPU, allocation and locks. World and stage
-profile times overlap: do not add them together. Caller tail wait is not lock time.
-Both the profile and `scripts/jfr-summary.py` split tick work into stage waves, preparation
-and the serial remainder; the serial share caps the speedup that more workers can give.
+The live suite covers block update packets, dirty-chunk notifications, loaded chunk
+publication/replacement/unload, both load-lock policies and disabled mode, scheduled ticks,
+passengers, events, navigation invalidation, tracking diffs, spawn-count reduction,
+item conservation and chunk packet encoding/sending. The JFR option records monitor/park
+events at 100µs plus execution/allocation samples into the run's `live.jfr`.
 
-## Current limitations
+Manual coverage is still needed for real multiplayer, portals/dimensions, exploration and
+concurrent cold loads, interacting redstone/fluid machines, custom environment-driven spawn
+costs, modpacks and integrated-server reopen. A passing build/live fixture is not a general
+world-safety or performance claim.
 
-- **Hardware and scope:** subsystem measurements use a Ryzen 5 9600X; whole-server sweeps
-  now exist for a 72-vCPU KVM guest on the dual E5-2699 v3, whose usable compute is about 36
-  cores (see the benchmark report). Neither covers modpack TPS with real players, p95/p99
-  tick latency under load, exploration, or every older config flag.
-  Timing batches and JFR samples are not individual-tick latency distributions.
-- **Parallelism:** worlds and stages still have barriers; one cell's
-  tasks execute serially. Player simulation, tracking dispatch, packet sending and
-  several world bookkeeping paths remain on the server thread. Auto workers can
-  oversubscribe the CPU alongside C2ME, GC and networking; on the 72-vCPU VM, set about
-  32. Node binding showed no gain at 24 workers; NUMA effects at higher counts are unmeasured.
-- **Navigation:** the quadratic cleanup and redundant candidate copying are fixed.
-  When most paths keep changing but edits are rare, refresh defers rebuilding and
-  queries use the full dirty fallback. That avoids maintenance overhead but cannot
-  reduce candidate scans until paths settle or edits become frequent.
-  Custom predicates use conservative fallbacks; mods bypassing invalidation hooks
-  require integration. The benchmark includes refresh but not pathfinding itself.
-- **Tracking/spawning:** tracking uses reusable player-owned action rows and one task
-  per tracker; caller-side dispatch/index maintenance remain. Rows retain capacity
-  for peak tracker counts until the player leaves. Small sized entity views now count
-  without copying; unsized mod-provided iterables still require a snapshot. Fixtures
-  omit real network callbacks; spawn fixtures omit real player caps and charged-biome
-  populations.
-  The spawn check/accounting sequence is not made atomic by preparation parallelism.
-- **Shared locks:** neighbor chains still hold one world monitor. Removing list
-  copies does not parallelize redstone. Per-item locks cover known vanilla paths;
-  arbitrary modded inventory writes are not coordinated. The item benchmark changes
-  lock granularity on candidate checks, not the complete old merge implementation.
-- **Chunk packets:** only section serialization is parallel; selection, heightmaps,
-  block-entity callbacks, lighting and sending remain on the caller. Preparation
-  starts at four chunks, caps at 64, and adds buffers/copies. Arbitrary asynchronous
-  chunk mutations are unsupported. Packet timings exclude compression and clients.
-- **Safety/compatibility:** `enabled=false` retains structural mixins and locks; it
-  is not a no-Vanadium baseline. C2ME is required; Lithium and VMP are incompatible.
-  The four correctness fixes remain enabled in every benchmark arm.
+## Benchmarks and profiling
 
-Before deployment, test the intended modpack with real players: tracking-range and
-cell crossings, joining/leaving, portals/dimensions, redstone/fluid chains, inventories,
-chunk unload/reload, save/restart and integrated-server reopen. On the Xeons, sweep
-worker counts with cell size and C2ME budget fixed, then vary cell size and socket
-placement. Keep a no-Vanadium baseline separate from disabled and enabled Vanadium.
-Historical setup/port validation is available in Git history; current measurements
-and reproducible commands take precedence over those older smoke timings.
+```sh
+./gradlew benchScheduler
+./gradlew benchWorkerPool
+./gradlew benchAreaMap
+./gradlew runFeatureBench
+./gradlew runFeatureBench -Pbench.filter='spawn-.*' -Pbench.rounds=2 -Pbench.scale=0.1 -Pbench.jfr=false
+```
+
+`runFeatureBench` uses another fresh isolated server and a test-only mod. It runs paired
+on/off workloads with warmup and alternating order, writing CSV and optional per-arm JFR
+files under `feature-bench/` in that server directory, then ticks/saves/shuts down normally.
+Defaults are four helpers, cell size two, 12 paired rounds, scale 1 and JFR enabled.
+`bench.workers`, `bench.rounds`, `bench.scale`, `bench.filter` and `bench.jfr` are Gradle
+properties. Reduced scale/rounds only check the harness; they are not performance evidence.
+For independent JVM samples, invoke the task again; each run gets a new world and JVM.
+
+For whole-server measurements use `/vanadium benchmark`, `/vanadium profile`, and the
+JDK's `jcmd`/`jfr` tools; see [profiling](PROFILING.md). The retired ad-hoc Python sweeps and
+report generators are not maintained replacements for these tools. Historical measurements
+are kept under [archive/](archive/) and describe the old 26.2 code and harnesses.
+Record hardware, worker/cell/C2ME settings, heap, flags, mod versions and workload whenever
+publishing new measurements. Stage and world profile intervals overlap; do not add them.
+
+## Interactive development
+
+`./gradlew runServer` and `runClient` retain their normal Loom behavior. For interactive
+use, place the verified C2ME release in that run directory's `mods/`, avoiding duplicate
+versions. `-PvanadiumRunDir=/absolute/path` selects a separate interactive server directory.
+The Nix shell supplies JDK diagnostic tools and Linux Vulkan/OpenGL loaders; graphical
+clients still require a working host display/driver. Do not delete live Gradle cache locks
+if IDE imports contend with the CLI; let the other operation finish instead.

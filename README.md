@@ -10,7 +10,7 @@ Vanadium handles parallel *ticking*; [C2ME](https://modrinth.com/mod/c2me-fabric
 
 ## Requirements
 
-- Minecraft 26.2, Fabric Loader 0.20.1+, Java 25+
+- Minecraft 26.3, Fabric Loader 0.20.1+, Java 25+
 - [Fabric API](https://modrinth.com/mod/fabric-api)
 - [Fabric Language Kotlin](https://modrinth.com/mod/fabric-language-kotlin) 1.14.2+ (Kotlin 2.4.21)
 - [Cloth Config](https://modrinth.com/mod/cloth-config)
@@ -112,9 +112,11 @@ nix develop               # pinned Java 25 + development tools (optional)
 ./gradlew test             # unit tests
 ./gradlew runServer        # dev server
 ./gradlew benchScheduler   # scheduler micro-benchmark
-python3 scripts/dev-server.py prepare  # verified C2ME runtime jar
-python3 scripts/dev-server.py smoke    # isolated server test; see EULA setup below
+./gradlew prepareRuntimeMods # verified C2ME release jar
+./gradlew runIntegration    # isolated live tests + tick/save/shutdown
 ```
+
+The [26.3 port notes](docs/PORT_26_3.md) record binding changes, validation and remaining manual checks.
 
 See [development and testing](docs/DEVELOPMENT.md) for setup, EULA handling, isolated server
 checks, reports, and troubleshooting; [architecture notes](docs/ARCHITECTURE.md) describe
@@ -122,11 +124,10 @@ the concurrency model and follow-up investigation areas. [AGENTS.md](AGENTS.md) 
 repository guidance for coding agents.
 
 Measured on/off costs for the recent optimizations are in
-[the 26.2 benchmark report](docs/BENCHMARKS_26_2.md), including regressions and workload limits.
+[the historical 26.2 benchmark report](docs/archive/BENCHMARKS_26_2.md), including regressions and workload limits.
 
-The interactive dev server loads runtime mods from `run/mods`. The setup helper downloads
+The interactive dev server loads runtime mods from `run/mods`. The `prepareRuntimeMods` task downloads
 a pinned, checksum-verified C2ME jar to `.vanadium/mods/`; copy it to `run/mods` for interactive
-use. Automated smoke tests and benchmarks use fresh `.vanadium/runs/` worlds. Gradle does
-not manage C2ME's runtime jar.
+use. Gradle live tests and feature benchmarks use fresh `.vanadium/runs/` worlds. C2ME remains a release jar in `mods/`, never a flattened development dependency.
 
 Happy playing!

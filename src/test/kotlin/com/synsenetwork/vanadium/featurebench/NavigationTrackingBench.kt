@@ -89,7 +89,7 @@ internal object NavigationTrackingBench {
     }
 
     private fun tracker(level: ServerLevel, entity: Entity): ChunkMap.TrackedEntity = with(level.chunkSource.chunkMap) {
-        object : ChunkMap.TrackedEntity(entity, 64, 3, true) {
+        object : ChunkMap.TrackedEntity(entity, 64, net.minecraft.world.entity.UpdateInterval.periodic(3), true) {
             override fun updatePlayer(player: ServerPlayer) = Unit
             override fun removePlayer(player: ServerPlayer) = Unit
             override fun sendToTrackingPlayersAndSelf(packet: Packet<in ClientGamePacketListener>) = Unit

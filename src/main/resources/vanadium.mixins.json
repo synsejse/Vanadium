@@ -34,6 +34,7 @@
     "server.world.TrackedEntityMixin",
     "server.world.ChunkMapMixin",
     "server.world.ServerChunkCacheMixin",
+    "world.NaturalSpawnerMixin",
     "server.world.PersistentEntitySectionManagerCallbackMixin",
     "server.world.ServerLevelMixin",
     "util.collection.ClassInstanceMultiMapMixin",

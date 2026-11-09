@@ -1,6 +1,7 @@
 package com.synsenetwork.vanadium.tick
 
 import com.synsenetwork.vanadium.Vanadium
+import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ChunkMap
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.level.LocalMobCapCalculator
@@ -14,16 +15,41 @@ object SpawnPreparation {
     private const val TARGET_ENTITIES_PER_JOB = 256
     private val C2ME_FILTER = FilteredSource.find("com.ishland.c2me.base.common.util.FilteringIterable")
 
+    private class SourceCapture {
+        var entities: Iterable<Entity>? = null
+    }
+
+    private val sourceCapture = ThreadLocal<SourceCapture?>()
+
+    @JvmStatic
+    fun count(chunkCount: Int, level: ServerLevel, chunks: NaturalSpawner.ChunkGetter,
+              localCaps: LocalMobCapCalculator, chunkMap: ChunkMap): NaturalSpawner.SpawnState {
+        if (!Vanadium.config.enabled || !Vanadium.config.parallelSpawning) {
+            return NaturalSpawner.createState(chunkCount, level, chunks, localCaps)
+        }
+        // Capture the final input after other mods' wrappers (notably C2ME's simulated-chunk filter).
+        // This empty pass creates only an empty state; per-entity work stays in the worker slices.
+        val capture = SourceCapture()
+        sourceCapture.set(capture)
+        try {
+            NaturalSpawner.createState(chunkCount, level, chunks, localCaps)
+        } finally {
+            sourceCapture.remove()
+        }
+        return count(chunkCount, level, checkNotNull(capture.entities), chunks, localCaps, chunkMap)
+    }
+
     @JvmStatic
     fun count(
         chunkCount: Int,
+        level: ServerLevel,
         entities: Iterable<Entity>,
         chunks: NaturalSpawner.ChunkGetter,
         localCaps: LocalMobCapCalculator,
         chunkMap: ChunkMap,
     ): NaturalSpawner.SpawnState {
         if (!Vanadium.config.enabled || !Vanadium.config.parallelSpawning) {
-            return NaturalSpawner.createState(chunkCount, entities, chunks, localCaps)
+            return createState(chunkCount, level, entities, chunks, localCaps)
         }
         // C2ME restricts counting to simulated chunks through an unsized filtering wrapper; unwrap it so
         // the per-entity chunk lookup runs inside the parallel batches instead of a serial copy.
@@ -35,12 +61,12 @@ object SpawnPreparation {
             source = unwrapped
         }
         if (source is Collection<Entity> && source.size < MIN_PARALLEL_ENTITIES) {
-            return NaturalSpawner.createState(chunkCount, source.filteredBy(filter), chunks, localCaps)
+            return createState(chunkCount, level, source.filteredBy(filter), chunks, localCaps)
         }
         // Unsized, possibly single-pass iterables from other mods are copied once.
         val snapshot = if (source is Collection<Entity>) ArrayList(source) else source.toCollection(ArrayList())
         if (snapshot.size < MIN_PARALLEL_ENTITIES) {
-            return NaturalSpawner.createState(chunkCount, snapshot.filteredBy(filter), chunks, localCaps)
+            return createState(chunkCount, level, snapshot.filteredBy(filter), chunks, localCaps)
         }
 
         val jobs = minOf(Vanadium.scheduler.workerCount + 1, (snapshot.size + TARGET_ENTITIES_PER_JOB - 1) / TARGET_ENTITIES_PER_JOB)
@@ -49,13 +75,36 @@ object SpawnPreparation {
         Vanadium.scheduler.prepare(Preparation.SPAWN_COUNTS, List(jobs) { job ->
             val batch = snapshot.subList(job * batchSize, minOf(snapshot.size, (job + 1) * batchSize))
             Runnable {
-                partial[job] = NaturalSpawner.createState(chunkCount, batch.filteredBy(filter), chunks, LocalMobCapCalculator(chunkMap))
+                partial[job] = createState(chunkCount, level, batch.filteredBy(filter), chunks, LocalMobCapCalculator(chunkMap))
             }
         })
         // Merge contiguous batches in source order, including charge order for floating-point sums.
         val result = partial[0]!!
         for (i in 1 until jobs) merge(result, partial[i]!!)
         return result
+    }
+
+    private val countingEntities = ThreadLocal<Iterable<Entity>?>()
+
+    /** Use vanilla's level-aware 26.3 counting logic on one stable slice. */
+    fun createState(chunkCount: Int, level: ServerLevel, entities: Iterable<Entity>,
+                    chunks: NaturalSpawner.ChunkGetter, localCaps: LocalMobCapCalculator): NaturalSpawner.SpawnState {
+        val previous = countingEntities.get()
+        countingEntities.set(entities)
+        try {
+            return NaturalSpawner.createState(chunkCount, level, chunks, localCaps)
+        } finally {
+            if (previous == null) countingEntities.remove() else countingEntities.set(previous)
+        }
+    }
+
+    @JvmStatic
+    fun entitiesForCount(original: Iterable<Entity>): Iterable<Entity> {
+        sourceCapture.get()?.let {
+            it.entities = original
+            return emptyList()
+        }
+        return countingEntities.get() ?: original
     }
 
     internal fun merge(result: NaturalSpawner.SpawnState, state: NaturalSpawner.SpawnState) {

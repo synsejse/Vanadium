@@ -1,3 +1,6 @@
+> Historical evidence from the 26.2 development cycle. Commands and source paths below
+> describe that revision; current workflows are in [DEVELOPMENT.md](../DEVELOPMENT.md).
+
 # Minecraft 26.2 feature benchmarks
 
 Measured 2026-09-19 using the checked-in feature benchmark harness. The baseline

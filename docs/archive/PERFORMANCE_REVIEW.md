@@ -1,3 +1,6 @@
+> Historical evidence from the 26.2 development cycle. Commands and source paths below
+> describe that revision; current workflows are in [DEVELOPMENT.md](../DEVELOPMENT.md).
+
 # Performance and refactoring review — 2026-09-12
 
 The first targets should be chunk-cache lookup and entity-section range queries.

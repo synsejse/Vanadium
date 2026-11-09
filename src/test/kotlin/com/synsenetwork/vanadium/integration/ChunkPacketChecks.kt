@@ -105,7 +105,7 @@ internal object ChunkPacketChecks {
     private fun bytes(level: ServerLevel, data: ClientboundLevelChunkPacketData): ByteArray {
         val buffer = RegistryFriendlyByteBuf(Unpooled.buffer(), level.registryAccess())
         try {
-            data.write(buffer)
+            ClientboundLevelChunkPacketData.STREAM_CODEC.encode(buffer, data)
             return ByteArray(buffer.readableBytes()).also { buffer.readBytes(it) }
         } finally {
             buffer.release()

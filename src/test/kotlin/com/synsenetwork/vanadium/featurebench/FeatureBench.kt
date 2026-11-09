@@ -13,6 +13,7 @@ import java.nio.file.Path
 /** Paired feature benchmarks at server start; packaged only by featureBenchJar. */
 class FeatureBench : ModInitializer {
     override fun onInitialize() {
+        com.synsenetwork.vanadium.live.LiveServer.start()
         ServerLifecycleEvents.SERVER_STARTED.register { server ->
             val previous = Vanadium.scheduler
             val workers = Integer.getInteger("vanadium.bench.workers", 4)
@@ -23,7 +24,15 @@ class FeatureBench : ModInitializer {
                         Vanadium.config.enabled = true
                         Files.writeString(Path.of("feature-bench/environment.txt"),
                             "java=${System.getProperty("java.runtime.version")}\nworkers=$workers\ncellSize=2\n" +
-                                    "processors=${Runtime.getRuntime().availableProcessors()}\nmaxHeap=${Runtime.getRuntime().maxMemory()}\n")
+                                    "processors=${Runtime.getRuntime().availableProcessors()}\nmaxHeap=${Runtime.getRuntime().maxMemory()}\n" +
+                                    "os=${System.getProperty("os.name")} ${System.getProperty("os.arch")}\n" +
+                                    "jvmArgs=${java.lang.management.ManagementFactory.getRuntimeMXBean().inputArguments}\n" +
+                                    "filter=${System.getProperty("vanadium.bench.filter", "")}\n" +
+                                    "rounds=${System.getProperty("vanadium.bench.rounds", "12")}\n" +
+                                    "scale=${System.getProperty("vanadium.bench.scale", "1")}\n" +
+                                    net.fabricmc.loader.api.FabricLoader.getInstance().allMods.joinToString("\n") {
+                                        "${it.metadata.id}=${it.metadata.version.friendlyString}"
+                                    } + "\n")
                         val level = server.overworld()
                         NavigationTrackingBench.navigation(level, measurements)
                         NavigationTrackingBench.tracking(level, measurements, 256)
@@ -35,6 +44,7 @@ class FeatureBench : ModInitializer {
                         profile(measurements, 0)
                         profile(measurements, 2000)
                         println("FEATURE_BENCH_PASSED")
+                        com.synsenetwork.vanadium.live.LiveServer.finish(server, "featureBench")
                     }
                 }
             } catch (e: Exception) {

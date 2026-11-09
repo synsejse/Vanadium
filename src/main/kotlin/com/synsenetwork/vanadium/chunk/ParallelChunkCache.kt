@@ -14,13 +14,11 @@ import net.minecraft.world.level.chunk.status.ChunkStatus
 import net.minecraft.world.level.entity.ChunkStatusUpdateListener
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager
 import net.minecraft.world.level.storage.LevelStorageSource
-import net.minecraft.world.level.storage.SavedDataStorage
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.ForkJoinWorkerThread
 import java.util.concurrent.TimeUnit
-import java.util.function.Supplier
 
 /** Unconditional loaded-FULL lookups and load locking around vanilla/C2ME synchronous misses. */
 class ParallelChunkCache(
@@ -34,9 +32,8 @@ class ParallelChunkCache(
     simulationDistance: Int,
     syncWrites: Boolean,
     statusListener: ChunkStatusUpdateListener,
-    savedData: Supplier<SavedDataStorage>,
 ) : ServerChunkCache(level, storage, dataFixer, structureManager, workerExecutor, generator, viewDistance,
-    simulationDistance, syncWrites, statusListener, savedData) {
+    simulationDistance, syncWrites, statusListener) {
 
     private val loadingLocks = ChunkLockTable()
 

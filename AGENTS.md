@@ -1,6 +1,6 @@
 # Working on Vanadium
 
-Vanadium is a Kotlin Fabric mod (Java 25 bytecode) targeting **Minecraft 26.2 with official unobfuscated
+Vanadium is a Kotlin Fabric mod (Java 25 bytecode) targeting **Minecraft 26.3 with official unobfuscated
 names**. Mixins stay in Java; everything else is Kotlin, loaded through Fabric Language Kotlin.
 Read `README.md`, `docs/DEVELOPMENT.md`, and `docs/ARCHITECTURE.md` before changing tick paths.
 Version sources are `gradle.properties`, `build.gradle.kts`, and `gradle/wrapper/gradle-wrapper.properties`.
@@ -9,7 +9,7 @@ Do not upgrade Minecraft, mappings, Loom, Gradle, Kotlin, or runtime mods as inc
 ## Environment and commands
 
 - Enter `nix develop` (or `nix develop path:.` while new Nix files are untracked).
-  The shell supplies Java 25, Python 3, shellcheck, nixfmt, and common CLI tools.
+  The shell supplies Java 25, nixfmt, and common CLI tools.
 - Always use `./gradlew`, not a system Gradle. Kotlin and Java compile with a Java 25 toolchain.
 - `./gradlew genSources`: generate Minecraft sources for reviewing injection targets.
 - `./gradlew build`: compile, validate the access widener, test, and produce distributable jars.
@@ -18,13 +18,14 @@ Do not upgrade Minecraft, mappings, Loom, Gradle, Kotlin, or runtime mods as inc
 - `./gradlew benchScheduler`: synthetic scheduler overhead/allocation benchmark.
 - `./gradlew benchWorkerPool`: small/large, balanced/uneven wave timing and allocation benchmark.
 - `./gradlew benchAreaMap`: tracking-index movement, resize, and teleport microbenchmark.
-- `python3 scripts/bench-features.py`: paired live on/off feature workloads; separate JFR recordings.
-  See `docs/BENCHMARKS_26_2.md` for control definitions and measurement limits.
-- `nix flake check`: Nix environment and development-script checks; does **not** build Minecraft.
-- `python3 scripts/dev-server.py prepare`: download and verify pinned C2ME into `.vanadium/mods`.
-- `python3 scripts/dev-server.py smoke`: isolated server startup/tick/save/shutdown test.
-  Requires an accepted `.vanadium/eula.txt`; see the development guide.
-- `scripts/bench-server.sh 30`: isolated server profiler workload.
+- `./gradlew prepareRuntimeMods`: download and verify pinned C2ME into `.vanadium/mods`.
+- `./gradlew runIntegration`: live Kotlin/Java tests plus startup/tick/save/shutdown in a fresh
+  `.vanadium/runs/` directory. Requires accepted `.vanadium/eula.txt`; never touches personal `run/`.
+  Live runs require configuration caching off (the repository default); use `--no-configuration-cache` if overriding it.
+- `./gradlew runFeatureBench`: paired on/off fixture benchmarks in a fresh server JVM;
+  `-Pbench.filter=...`, `-Pbench.rounds=...`, `-Pbench.scale=...` configure cases.
+- `./gradlew runIntegration -Plive.jfr=true`: include a JFR capture with 100µs monitor thresholds.
+- `nix flake check`: checks Nix development files; does **not** build Minecraft.
 
 MixinTargetsTest checks vanilla member bindings without initializing Minecraft; live tests
 are still required to validate injection points and callback signatures.
@@ -88,7 +89,7 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
   and packed positions are distinct; verify conversions at zero and negative boundaries.
 - Neighbor exclusion does not protect every cross-cell interaction. Preserve explicit
   entity locks, world synchronization, and collection semantics, including fastutil views.
-- SavedDataStorage has asynchronous writes in 26.2: never synchronize saveAndJoin/close
+- SavedDataStorage has asynchronous writes in 26.3: never synchronize saveAndJoin/close
   across their completion wait. Keep cache/snapshot locks separate from disk IO.
 - Preserve disabled-stage fallback paths and the serial exceptions for projectiles/portals.
 - C2ME is required; Lithium and VMP are declared incompatible. Recheck compatibility

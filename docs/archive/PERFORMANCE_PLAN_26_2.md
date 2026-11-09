@@ -1,3 +1,6 @@
+> Historical evidence from the 26.2 development cycle. Commands and source paths below
+> describe that revision; current workflows are in [DEVELOPMENT.md](../DEVELOPMENT.md).
+
 # Minecraft 26.2 performance work
 
 Target: a modpack server on two Xeon E5-2699 v3 CPUs. Prioritize measured reductions

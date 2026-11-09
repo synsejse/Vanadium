@@ -2,7 +2,7 @@ package com.synsenetwork.vanadium.entity
 
 import it.unimi.dsi.fastutil.longs.LongAVLTreeSet
 import net.minecraft.core.SectionPos
-import net.minecraft.util.AbortableIterationConsumer
+import net.minecraft.util.Continuation
 import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.entity.EntityAccess
 import net.minecraft.world.level.entity.EntitySection
@@ -48,7 +48,7 @@ class EntitySectionIndexTest {
             val actual = ArrayList<Long>()
             index.forEachAccessibleNonEmpty(box[0], box[1], box[2], box[3], box[4], box[5]) {
                 actual.add(keyOf.getValue(it))
-                AbortableIterationConsumer.Continuation.CONTINUE
+                Continuation.CONTINUE
             }
             assertEquals(expected, actual, "box ${box.toList()}")
         }
@@ -79,7 +79,7 @@ class EntitySectionIndexTest {
         var visited = 0
         index.forEachAccessibleNonEmpty(0, 0, 0, 3, 0, 0) {
             visited++
-            if (visited == 2) AbortableIterationConsumer.Continuation.ABORT else AbortableIterationConsumer.Continuation.CONTINUE
+            if (visited == 2) Continuation.ABORT else Continuation.CONTINUE
         }
         assertEquals(2, visited)
     }

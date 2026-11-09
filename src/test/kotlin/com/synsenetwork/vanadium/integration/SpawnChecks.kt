@@ -34,16 +34,18 @@ internal object SpawnChecks {
         check(level.allEntities is Collection<*>, "world entity view does not expose its size")
         for (size in intArrayOf(0, 256, 1023, 1024, 1025, 2048)) {
             val input = entities.subList(0, size)
-            val expected = NaturalSpawner.createState(289, input, chunks, caps())
-            val counted = SpawnPreparation.count(289, input, chunks, caps(), map)
+            val expected = SpawnPreparation.createState(289, level, input, chunks, caps())
+            val counted = SpawnPreparation.count(289, level, input, chunks, caps(), map)
             check(expected.mobCategoryCounts == counted.mobCategoryCounts, "sized count differs at $size")
+            check(counted.mobCategoryCounts.values.sum() == input.count { !(it as net.minecraft.world.entity.Mob).isPersistenceRequired },
+                "slice was not used at $size")
             var iterated = false
             val singlePass = Iterable {
                 check(!iterated, "unsized input iterated twice")
                 iterated = true
                 input.iterator()
             }
-            val unsized = SpawnPreparation.count(289, singlePass, chunks, caps(), map)
+            val unsized = SpawnPreparation.count(289, level, singlePass, chunks, caps(), map)
             check(expected.mobCategoryCounts == unsized.mobCategoryCounts, "unsized count differs at $size")
         }
         val lookup = EntityLookup<Entity>()
@@ -58,8 +60,12 @@ internal object SpawnChecks {
         lookup.remove(entities.first())
         check(view.isEmpty(), "entity view retained a removed entity")
 
-        val reference = NaturalSpawner.createState(289, entities, chunks, caps())
-        val parallel = SpawnPreparation.count(289, entities, chunks, caps(), map)
+        val worldReference = NaturalSpawner.createState(289, level, chunks, caps())
+        val worldCounted = SpawnPreparation.count(289, level, chunks, caps(), map)
+        check(worldReference.mobCategoryCounts == worldCounted.mobCategoryCounts, "world/C2ME filter changed counts")
+
+        val reference = SpawnPreparation.createState(289, level, entities, chunks, caps())
+        val parallel = SpawnPreparation.count(289, level, entities, chunks, caps(), map)
         check(reference.mobCategoryCounts == parallel.mobCategoryCounts, "parallel spawn counts differ")
         check(reference.spawnableChunkCount == parallel.spawnableChunkCount, "spawnable chunk count changed")
         check(reference.spawnPotential.getPotentialEnergyChange(BlockPos(0, 100, 0), 1.0) ==
@@ -67,7 +73,7 @@ internal object SpawnChecks {
         val previous = Vanadium.config.parallelSpawning
         try {
             Vanadium.config.parallelSpawning = false
-            val serial = SpawnPreparation.count(289, entities, chunks, caps(), map)
+            val serial = SpawnPreparation.count(289, level, entities, chunks, caps(), map)
             check(reference.mobCategoryCounts == serial.mobCategoryCounts, "spawn fallback changed counts")
         } finally {
             Vanadium.config.parallelSpawning = previous
@@ -75,13 +81,13 @@ internal object SpawnChecks {
 
         val player = ServerPlayer(level.server, level.server.overworld(), GameProfile(UUID.randomUUID(), "SpawnCaps"),
             ClientInformation.createDefault())
-        val combined = NaturalSpawner.createState(289, listOf(), chunks, caps())
+        val combined = SpawnPreparation.createState(289, level, listOf(), chunks, caps())
         val density = PotentialCalculator()
         for (i in 0 until 4) {
             val partCaps = caps()
             partCaps.playersNearChunk.put(ChunkPos.pack(0, 0), listOf(player))
             repeat(20) { partCaps.addMob(ChunkPos(0, 0), MobCategory.MONSTER) }
-            val part = NaturalSpawner.createState(289, listOf(), chunks, partCaps)
+            val part = SpawnPreparation.createState(289, level, listOf(), chunks, partCaps)
             part.mobCategoryCounts.put(MobCategory.MONSTER, 20)
             val pos = BlockPos(i + 1, 100, 0)
             part.spawnPotential.addCharge(pos, i + 0.25)
