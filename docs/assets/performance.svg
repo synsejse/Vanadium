@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="546" viewBox="0 0 960 546" role="img" aria-labelledby="title desc">
+<title id="title">Vanadium: historical throughput and worker scaling</title>
+<desc id="desc">Minecraft 26.2, dual Xeon E5-2699 v3 VM, 4096 AI zombies in 1024 chunks, no players. Separate experiments. At 32 helpers: off 7.6 TPS, on 81.3. Worker sweep: 16 helpers 63.8, 24 helpers 71.7, 32 helpers 73.8, 36 helpers 76.3, 48 helpers 68.5 TPS. Off retains structural changes. No 26.3 or vanilla comparison.</desc>
+<defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#93dec2" stop-opacity=".2"/><stop offset="1" stop-color="#93dec2" stop-opacity="0"/></linearGradient></defs>
+<rect width="960" height="546" rx="20" fill="#111724"/>
+<g font-family="DejaVu Sans, sans-serif">
+<text x="32" y="36" fill="#93dec2" font-size="12" font-weight="700" letter-spacing="2">VANADIUM / PERFORMANCE NOTES</text>
+<rect x="723" y="18" width="205" height="28" rx="14" fill="#2c2940"/>
+<text x="825" y="37" fill="#c8baff" text-anchor="middle" font-size="12" font-weight="700">HISTORICAL · MC 26.2</text>
+<text x="32" y="80" fill="#f0f3fa" font-size="30" font-weight="700" letter-spacing="-.8">More room for simulation.</text>
+<text x="32" y="110" fill="#a8b3c9" font-size="16">Dual Xeon E5-2699 v3 · 4,096 AI zombies · 1,024 loaded chunks · no players</text>
+<rect x="24" y="138" width="438" height="320" rx="14" fill="#182131"/>
+<rect x="478" y="138" width="458" height="320" rx="14" fill="#182131"/>
+<text x="46" y="168" fill="#f0f3fa" font-size="19" font-weight="700">Parallel ticking</text>
+<text x="46" y="192" fill="#a8b3c9" font-size="13">32 helpers + server thread · one JVM</text>
+<text x="46" y="235" fill="#c8baff" font-size="15">Off</text>
+<rect x="46" y="247" width="28.272" height="32" rx="4" fill="#b6a2ff"/>
+<text x="86" y="269" fill="#f0f3fa" font-size="19" font-weight="700">7.6</text>
+<text x="46" y="314" fill="#93dec2" font-size="15">On</text>
+<rect x="46" y="326" width="302.436" height="32" rx="4" fill="#93dec2"/>
+<text x="360" y="349" fill="#f0f3fa" font-size="19" font-weight="700">81.3</text>
+<path d="M46 390H418" stroke="#536078"/>
+<path d="M46 386v8" stroke="#536078"/><text x="46" y="416" text-anchor="middle" fill="#a8b3c9" font-size="14">0</text><path d="M120.4 386v8" stroke="#536078"/><text x="120.4" y="416" text-anchor="middle" fill="#a8b3c9" font-size="14">20</text><path d="M194.8 386v8" stroke="#536078"/><text x="194.8" y="416" text-anchor="middle" fill="#a8b3c9" font-size="14">40</text><path d="M269.20000000000005 386v8" stroke="#536078"/><text x="269.20000000000005" y="416" text-anchor="middle" fill="#a8b3c9" font-size="14">60</text><path d="M343.6 386v8" stroke="#536078"/><text x="343.6" y="416" text-anchor="middle" fill="#a8b3c9" font-size="14">80</text><path d="M418 386v8" stroke="#536078"/><text x="418" y="416" text-anchor="middle" fill="#a8b3c9" font-size="14">100</text>
+<text x="232" y="442" text-anchor="middle" fill="#a8b3c9" font-size="13">Uncapped TPS → higher is better</text>
+<text x="500" y="168" fill="#f0f3fa" font-size="19" font-weight="700">Worker scaling</text>
+<text x="500" y="189" fill="#a8b3c9" font-size="12">TPS · separate JVM per point</text>
+<path d="M548 390H904" stroke="#293345" /><text x="532" y="396" text-anchor="end" fill="#9aa9c0" font-size="14">0</text>
+<path d="M548 354H904" stroke="#667b99" stroke-dasharray="4 5"/><text x="532" y="360" text-anchor="end" fill="#9aa9c0" font-size="14">20</text>
+<path d="M548 318H904" stroke="#293345" /><text x="532" y="324" text-anchor="end" fill="#9aa9c0" font-size="14">40</text>
+<path d="M548 282H904" stroke="#293345" /><text x="532" y="288" text-anchor="end" fill="#9aa9c0" font-size="14">60</text>
+<path d="M548 246H904" stroke="#293345" /><text x="532" y="252" text-anchor="end" fill="#9aa9c0" font-size="14">80</text>
+<path d="M548 210H904" stroke="#293345" /><text x="532" y="216" text-anchor="end" fill="#9aa9c0" font-size="14">100</text>
+<path d="M548 275.15999999999997L637 260.94L726 257.15999999999997L770.5 252.66L904 266.7L904 390H548Z" fill="url(#area)"/>
+<path d="M548 275.15999999999997L637 260.94L726 257.15999999999997L770.5 252.66L904 266.7" fill="none" stroke="#93dec2" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="548" cy="275.15999999999997" r="5" fill="#93dec2" stroke="#182131" stroke-width="3"/><text x="558" y="259.15999999999997" text-anchor="start" fill="#eaf5f0" font-size="16" font-weight="700">63.8</text><text x="548" y="416" text-anchor="middle" fill="#a8b3c9" font-size="15">16</text>
+<circle cx="637" cy="260.94" r="5" fill="#93dec2" stroke="#182131" stroke-width="3"/><text x="637" y="244.94" text-anchor="middle" fill="#eaf5f0" font-size="16" font-weight="700">71.7</text><text x="637" y="416" text-anchor="middle" fill="#a8b3c9" font-size="15">24</text>
+<circle cx="726" cy="257.15999999999997" r="5" fill="#93dec2" stroke="#182131" stroke-width="3"/><text x="720" y="241.15999999999997" text-anchor="middle" fill="#eaf5f0" font-size="16" font-weight="700">73.8</text><text x="726" y="416" text-anchor="middle" fill="#a8b3c9" font-size="15">32</text>
+<circle cx="770.5" cy="252.66" r="5" fill="#93dec2" stroke="#182131" stroke-width="3"/><text x="782.5" y="228.66" text-anchor="middle" fill="#eaf5f0" font-size="16" font-weight="700">76.3</text><text x="770.5" y="416" text-anchor="middle" fill="#a8b3c9" font-size="15">36</text>
+<circle cx="904" cy="266.7" r="5" fill="#93dec2" stroke="#182131" stroke-width="3"/><text x="904" y="250.7" text-anchor="middle" fill="#eaf5f0" font-size="16" font-weight="700">68.5</text><text x="904" y="416" text-anchor="middle" fill="#a8b3c9" font-size="15">48</text>
+<text x="554" y="348" fill="#a8b3c9" font-size="12">20 TPS reference</text>
+<text x="726" y="442" text-anchor="middle" fill="#a8b3c9" font-size="13">Configured helpers (+ participating server thread)</text>
+<text x="32" y="488" fill="#c8d2e3" font-size="14">30-second tick sprints · cell size 2 · C2ME parallelism 4 · 4 GiB G1 heap</text>
+<text x="32" y="513" fill="#9aa9c0" font-size="12">Off retains structural changes. Separate experiments; single samples, no error estimates. Not a vanilla comparison.</text>
+<text x="32" y="533" fill="#9aa9c0" font-size="12">Measured November 8, 2026. Current 26.3 performance unmeasured. Source and limitations: docs/PERFORMANCE.md</text>
+</g></svg>

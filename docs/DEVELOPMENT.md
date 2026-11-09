@@ -5,6 +5,8 @@ URL/checksum are pinned in `gradle.properties`; Loom/Kotlin are in `build.gradle
 Gradle is pinned by the wrapper. Use `nix develop` and the checked-in `./gradlew`.
 Initial dependency resolution needs network access.
 
+Player-facing settings and commands are in [configuration](CONFIGURATION.md).
+
 ## Build and unit tests
 
 ```sh
