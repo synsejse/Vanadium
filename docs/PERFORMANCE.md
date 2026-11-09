@@ -90,5 +90,4 @@ values; generated worlds, logs and recordings remain untracked.
 There is no vanilla/no-Vanadium arm, real multiplayer, modpack, exploration or interacting
 redstone/fluid-machine measurement. Neither curve promises performance on another world
 or CPU. Current reproduction/profiling tools are in [development](DEVELOPMENT.md) and
-[profiling](PROFILING.md). The older [26.2 report](archive/BENCHMARKS_26_2.md) remains historical
-and is no longer the source of the README figure.
+[profiling](PROFILING.md).

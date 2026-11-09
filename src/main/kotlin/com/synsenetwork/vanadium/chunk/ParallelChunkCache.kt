@@ -2,7 +2,7 @@ package com.synsenetwork.vanadium.chunk
 
 import com.mojang.datafixers.DataFixer
 import com.synsenetwork.vanadium.Vanadium
-import com.synsenetwork.vanadium.concurrent.ReadOptimizedLongMap
+import org.jctools.maps.NonBlockingHashMapLong
 import net.minecraft.server.level.ServerChunkCache
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.util.Util
@@ -38,7 +38,7 @@ class ParallelChunkCache(
     private val loadingLocks = ChunkLockTable()
 
     /** Full chunks published by `LevelChunk.setLoaded`; removal matches the published instance. */
-    private val loadedChunks = ReadOptimizedLongMap<LevelChunk>()
+    private val loadedChunks = NonBlockingHashMapLong<LevelChunk>()
 
     private val loadLockMaintenance = Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "Vanadium-ChunkMaintenance-${level.dimension().identifier().path}").apply { isDaemon = true }
@@ -84,7 +84,10 @@ class ParallelChunkCache(
     /** Called from `LevelChunk.setLoaded` on whichever thread (server or C2ME) changes the state. */
     fun onChunkLoaded(chunk: LevelChunk, loaded: Boolean) {
         val pos = chunk.pos.pack()
-        if (loaded) loadedChunks.put(pos, chunk) else loadedChunks.remove(pos, chunk)
+        synchronized(loadedChunks) {
+            if (loaded) loadedChunks.put(pos, chunk)
+            else if (loadedChunks.get(pos) === chunk) loadedChunks.remove(pos)
+        }
     }
 
     override fun close() {
@@ -92,7 +95,7 @@ class ParallelChunkCache(
             super.close()
         } finally {
             loadLockMaintenance.close()
-            loadedChunks.clear()
+            synchronized(loadedChunks) { loadedChunks.clear() }
             loadingLocks.evictIdle()
         }
     }

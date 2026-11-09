@@ -1,4 +1,4 @@
-package com.synsenetwork.vanadium.concurrent
+package com.synsenetwork.vanadium.collections
 
 import it.unimi.dsi.fastutil.longs.Long2ByteMaps
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -15,7 +15,7 @@ import kotlin.test.assertTrue
 class ConcurrentMapsTest {
     @Test
     fun int2ObjectPutGetRemoveAndDefaults() {
-        val map = Int2ObjectConcurrentHashMap<String>()
+        val map = ConcurrentIntObjectMap<String>()
         assertNull(map.put(1, "a"), "first put: key absent → default (null)")
         assertEquals("a", map.put(1, "b"), "second put: key present → old value")
         assertEquals("b", map.get(1))
@@ -30,7 +30,7 @@ class ConcurrentMapsTest {
 
     @Test
     fun long2ObjectPutGetRemoveAndDefaults() {
-        val map = Long2ObjectConcurrentHashMap<String>()
+        val map = ConcurrentLongObjectMap<String>()
         assertNull(map.put(1L, "a"))
         assertEquals("a", map.put(1L, "b"))
         assertEquals("b", map.get(1L))
@@ -45,7 +45,7 @@ class ConcurrentMapsTest {
 
     @Test
     fun long2BytePutGetRemoveAndDefaults() {
-        val map = ConcurrentLong2ByteMap()
+        val map = ConcurrentLongByteMap()
         assertEquals(0, map.put(1L, 5))
         assertEquals(5, map.put(1L, 9))
         assertEquals(9, map.get(1L))
@@ -59,7 +59,7 @@ class ConcurrentMapsTest {
     @Test
     fun viewsExposeOriginalKeysAndWriteThrough() {
         val keys = setOf(-5L, 0L, 1L shl 40, Long.MIN_VALUE, Long.MAX_VALUE)
-        val objects = Long2ObjectConcurrentHashMap<String>()
+        val objects = ConcurrentLongObjectMap<String>()
         for (key in keys) objects.put(key, "v$key")
         assertEquals(keys, objects.keys.toSet())
         assertTrue(objects.keys.contains(1L shl 40))
@@ -73,7 +73,7 @@ class ConcurrentMapsTest {
         iterator.remove()
         assertEquals(keys.size - 1, objects.size)
 
-        val bytes = ConcurrentLong2ByteMap()
+        val bytes = ConcurrentLongByteMap()
         for (key in keys) bytes.put(key, 2)
         val visited = HashSet<Long>()
         Long2ByteMaps.fastForEach(bytes) { visited.add(it.longKey) }
@@ -89,7 +89,7 @@ class ConcurrentMapsTest {
     @Test
     fun long2ByteMatchesFastutilUnderChurn() {
         val random = java.util.Random(7)
-        val map = ConcurrentLong2ByteMap()
+        val map = ConcurrentLongByteMap()
         val reference = it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap()
         map.defaultReturnValue(33)
         reference.defaultReturnValue(33)
@@ -118,7 +118,7 @@ class ConcurrentMapsTest {
 
     @Test
     fun long2ByteReadersSeeStableKeysWhileWritersChurn() {
-        val map = ConcurrentLong2ByteMap()
+        val map = ConcurrentLongByteMap()
         val stable = LongArray(256) { it * 31L - 4000 }
         for (key in stable) map.put(key, (key and 0x3F).toByte())
         val stop = java.util.concurrent.atomic.AtomicBoolean()
@@ -143,7 +143,7 @@ class ConcurrentMapsTest {
 
     @Test
     fun long2ObjectComputeFamily() {
-        val map = Long2ObjectConcurrentHashMap<String>()
+        val map = ConcurrentLongObjectMap<String>()
         assertEquals("v1", map.computeIfAbsent(1L) { k: Long -> "v$k" })
         assertEquals("v1", map.computeIfAbsent(1L) { _: Long -> "should-not-run" })
         assertEquals("v1!", map.computeIfPresent(1L) { _, v -> "$v!" })
@@ -156,8 +156,8 @@ class ConcurrentMapsTest {
     /** Vanilla's section storage relies on this: under contention the factory runs at most once per key. */
     @Test
     fun computeIfAbsentIsAtomic() {
-        val longs = Long2ObjectConcurrentHashMap<String>()
-        val ints = Int2ObjectConcurrentHashMap<String>()
+        val longs = ConcurrentLongObjectMap<String>()
+        val ints = ConcurrentIntObjectMap<String>()
         val factoryCalls = AtomicInteger()
         val results = ConcurrentLinkedQueue<String>()
         race(16) {
@@ -189,7 +189,7 @@ class ConcurrentMapsTest {
 
     @Test
     fun linkedSetBasicsAndSnapshotClone() {
-        val set = ConcurrentLongLinkedOpenHashSet()
+        val set = ConcurrentLongSet()
         assertTrue(set.add(100L))
         assertFalse(set.add(100L), "duplicate → false")
         assertTrue(set.contains(100L))
@@ -211,7 +211,7 @@ class ConcurrentMapsTest {
      */
     @Test
     fun linkedSetForEachAndSpliteratorSeeBackingContents() {
-        val set = ConcurrentLongLinkedOpenHashSet()
+        val set = ConcurrentLongSet()
         for (value in longArrayOf(5, -2, 9)) set.add(value)
         val visited = ArrayList<Long>()
         set.forEach(java.util.function.LongConsumer { visited.add(it) })

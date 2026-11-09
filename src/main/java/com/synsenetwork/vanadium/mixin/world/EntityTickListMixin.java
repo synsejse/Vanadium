@@ -1,6 +1,6 @@
 package com.synsenetwork.vanadium.mixin.world;
 
-import com.synsenetwork.vanadium.concurrent.Int2ObjectConcurrentHashMap;
+import com.synsenetwork.vanadium.collections.ConcurrentIntObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.entity.EntityTickList;
@@ -13,10 +13,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(EntityTickList.class)
 public abstract class EntityTickListMixin {
     @Shadow
-    private Int2ObjectMap<Entity> active = new Int2ObjectConcurrentHashMap<>();
+    private Int2ObjectMap<Entity> active = new ConcurrentIntObjectMap<>();
 
     @Shadow
-    private Int2ObjectMap<Entity> passive = new Int2ObjectConcurrentHashMap<>();
+    private Int2ObjectMap<Entity> passive = new ConcurrentIntObjectMap<>();
 
     @Inject(method = "ensureActiveIsNotIterated", at = @At(value = "HEAD"), cancellable = true)
     private void notSafeAnyWay(CallbackInfo ci) {

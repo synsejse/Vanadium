@@ -120,19 +120,14 @@ class TickScheduler(private val pool: WorkerPool, isolation: Int) {
                     return
                 }
                 // Heavy regions pack best by dynamic claiming; cheap ones by dataflow, which never scans.
-                val failure: Throwable?
-                if (grid.nanosPerRegion >= CLAIM_MIN_REGION_NANOS) {
-                    val wave = ClaimWave(tasks, grid.neighborStart, grid.neighbors)
-                    pool.runWave(wave.participants(participants), waitRecorder)
-                    busy = wave.busyNanos
-                    failure = wave.failure()
+                val wave = if (grid.nanosPerRegion >= CLAIM_MIN_REGION_NANOS) {
+                    ClaimWave(tasks, grid.neighborStart, grid.neighbors)
                 } else {
-                    val wave = DataflowWave(tasks, grid.neighborStart, grid.neighbors, grid.colours)
-                    pool.runWave(wave.participants(participants), waitRecorder)
-                    busy = wave.busyNanos
-                    failure = wave.failure()
+                    DataflowWave(tasks, grid.neighborStart, grid.neighbors, grid.colours)
                 }
-                failure?.let { throw RuntimeException("Vanadium worker task failed", it) }
+                pool.runWave(wave.participants(participants), waitRecorder)
+                busy = wave.busyNanos
+                wave.failure?.let { throw RuntimeException("Vanadium worker task failed", it) }
             } finally {
                 val wall = System.nanoTime() - start
                 grid.recordWave(if (busy >= 0) busy else wall)

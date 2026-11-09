@@ -34,22 +34,22 @@ internal class ClaimWave(
     private val work: List<Runnable>,
     private val neighborStart: IntArray,
     private val neighbors: IntArray,
-) {
+) : RegionWave {
     private val count = work.size
     private val states = AtomicIntegerArray(count * STRIDE)
     private val remaining = AtomicInteger(count)
     private val firstPending = AtomicInteger()
-    private val failure = AtomicReference<Throwable?>()
+    private val firstFailure = AtomicReference<Throwable?>()
     private val busy = AtomicLong()
 
     /** One loop per participant; each returns once every region has finished. */
-    fun participants(participants: Int): List<Runnable> = List(participants) { Runnable(::participate) }
+    override fun participants(participants: Int): List<Runnable> = List(participants) { Runnable(::participate) }
 
     /** The first region failure, rethrown by the caller after the wave. */
-    fun failure(): Throwable? = failure.get()
+    override val failure: Throwable? get() = firstFailure.get()
 
     /** Time participants spent running regions, excluding waiting; valid after the wave. */
-    val busyNanos: Long get() = busy.get()
+    override val busyNanos: Long get() = busy.get()
 
     private fun participate() {
         var spent = 0L
@@ -85,7 +85,7 @@ internal class ClaimWave(
             try {
                 work[i].run()
             } catch (t: Throwable) {
-                failure.compareAndSet(null, t)
+                firstFailure.compareAndSet(null, t)
             } finally {
                 states.set(i * STRIDE, DONE)
                 remaining.decrementAndGet()

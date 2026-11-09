@@ -1,4 +1,4 @@
-package com.synsenetwork.vanadium.concurrent
+package com.synsenetwork.vanadium.collections
 
 import it.unimi.dsi.fastutil.ints.AbstractInt2ObjectMap
 import it.unimi.dsi.fastutil.ints.Int2ObjectFunction
@@ -14,7 +14,7 @@ import java.util.function.IntFunction
  * Thread-safe [Int2ObjectMap] over a [ConcurrentHashMap], replacing vanilla's entity-ID maps.
  * Sequential entity IDs hash well as-is. Single-key operations, including the compute family, are atomic.
  */
-class Int2ObjectConcurrentHashMap<V> : AbstractInt2ObjectMap<V>() {
+class ConcurrentIntObjectMap<V> : AbstractInt2ObjectMap<V>() {
     private val backing = ConcurrentHashMap<Int, V>()
 
     override val size: Int get() = backing.size

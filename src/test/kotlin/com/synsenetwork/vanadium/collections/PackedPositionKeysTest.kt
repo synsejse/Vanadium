@@ -1,18 +1,18 @@
-package com.synsenetwork.vanadium.concurrent
+package com.synsenetwork.vanadium.collections
 
 import java.util.SplittableRandom
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-class MixedLongKeysTest {
+class PackedPositionKeysTest {
     @Test
     fun mixIsInvertible() {
-        for (key in longArrayOf(0, 1, -1, Long.MIN_VALUE, Long.MAX_VALUE)) assertEquals(key, MixedLongKeys.unmix(MixedLongKeys.mix(key)))
+        for (key in longArrayOf(0, 1, -1, Long.MIN_VALUE, Long.MAX_VALUE)) assertEquals(key, PackedPositionKeys.unmix(PackedPositionKeys.mix(key)))
         val random = SplittableRandom(42)
         repeat(100_000) {
             val key = random.nextLong()
-            assertEquals(key, MixedLongKeys.unmix(MixedLongKeys.mix(key)))
+            assertEquals(key, PackedPositionKeys.unmix(PackedPositionKeys.mix(key)))
         }
     }
 
@@ -23,7 +23,7 @@ class MixedLongKeysTest {
         val bins = IntArray(table)
         for (x in -32 until 32) for (z in -32 until 32) {
             val packed = (x.toLong() and 0xFFFFFFFFL) or ((z.toLong() and 0xFFFFFFFFL) shl 32)
-            val h = MixedLongKeys.mix(packed).hashCode()
+            val h = PackedPositionKeys.mix(packed).hashCode()
             bins[(h xor (h ushr 16)) and (table - 1)]++
         }
         assertTrue(bins.max() < 8, "packed chunk keys clustered: ${bins.max()}")
