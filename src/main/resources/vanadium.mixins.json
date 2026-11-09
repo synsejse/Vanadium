@@ -56,7 +56,10 @@
     "world.poi.PoiDistanceTrackerMixin",
     "world.poi.PoiManagerMixin",
     "world.storage.SectionStorageMixin",
-    "world.storage.SavedDataStorageMixin"
+    "world.storage.SavedDataStorageMixin",
+    "compat.lithium.GameEventDispatcherStorageMixin",
+    "compat.lithium.LithiumDataMixin",
+    "compat.lithium.LithiumInternerMixin"
   ],
   "client": [],
   "server": [],

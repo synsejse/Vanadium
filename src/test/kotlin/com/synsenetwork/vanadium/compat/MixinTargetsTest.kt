@@ -10,7 +10,10 @@ import org.objectweb.asm.tree.ClassNode
 import java.io.IOException
 import kotlin.test.assertTrue
 
-/** Checks vanilla member bindings without initializing Minecraft or applying mixins. */
+/**
+ * Checks member bindings without initializing Minecraft or applying mixins: vanilla targets, and the optional
+ * Lithium targets against the pinned Lithium jar on the test classpath.
+ */
 class MixinTargetsTest {
     @TestFactory
     fun vanillaBindings(): List<DynamicTest> {

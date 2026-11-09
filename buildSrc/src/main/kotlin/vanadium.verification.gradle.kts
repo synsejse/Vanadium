@@ -71,6 +71,12 @@ val prepareLithium = registerRuntimeMod("lithium", "lithium-fabric-${property("l
 val liveLithium = providers.gradleProperty("live.lithium").getOrElse("true").toBoolean()
 val runtimeMods = listOfNotNull(prepareC2me, prepareLithium.takeIf { liveLithium })
 
+// The verified Lithium jar lets MixinTargetsTest check Vanadium's optional Lithium compatibility mixins.
+tasks.named<Test>("test") {
+    dependsOn(prepareLithium)
+    classpath += files(prepareLithium.flatMap { it.destination })
+}
+
 val prepareRuntimeMods = tasks.register("prepareRuntimeMods") {
     group = "fabric"
     description = "Downloads and verifies pinned C2ME and Lithium without adding them to the dev classpath"

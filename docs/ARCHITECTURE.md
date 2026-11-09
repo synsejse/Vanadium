@@ -112,6 +112,9 @@ conservative fallback. It does not run pathfinding asynchronously.
   reservation; maintenance must not evict a held or pending lock.
 - Per-holder synchronization protects chunk block/light updates. Dirty notifications queue
   to the server thread; workers never mutate the ordered eager-save set or wait for disk IO.
+- Section storage (POI) gets its concurrent map and dirty set when constructed. Callers loading the
+  same column wait for its first loader, which reads off the server thread; vanilla let a second
+  caller read the column before its sections were stored.
 - Saved-data cache hits are concurrent; misses and snapshot creation synchronize separately
   from asynchronous disk writes. Never hold that monitor across `saveAndJoin` or close waits.
 - Immutable path-type entries prevent torn key/type reads. POI and simulation levels use
@@ -134,8 +137,22 @@ in player order. Chunk packet preparation runs between simulation ticks, keeps s
 batch order and vanilla packet contents, and falls back inline for small batches.
 
 C2ME owns generation, holder promotion and ticket scheduling. It is required. Two named
-thread-detection mixins are cancelled by the Java bootstrap integration. Lithium and VMP
-are incompatible.
+thread-detection mixins are cancelled by the Java bootstrap integration. VMP is incompatible.
+
+Lithium 0.26.3+ is optional. `fabric.mod.json` disables, through `lithium:options`, the Lithium
+options that rewrite paths Vanadium owns: chunk access, entity-section collections and retrieval,
+the entity tick list, navigation tracking and the profiler; Lithium then turns off the cramming and
+projectile-collision options that depend on them. The rest stay enabled. Lithium state that parallel
+stages share is made safe:
+
+- POI section storage keeps Lithium's per-column index on a concurrent listening map; writes to one
+  column and their index updates hold a column stripe lock, and reads take none.
+- Game-event dispatcher storage takes a write lock for its rare updates; reads are optimistic and
+  retry under a read lock only if a write overlapped them.
+- Tracker interning and chunk-section callback registration (hoppers) are synchronized; both are rare.
+
+These compatibility mixins are `@Pseudo` and inert without Lithium. `MixinTargetsTest` checks their
+bindings against the pinned Lithium jar, and live runs include Lithium unless `-Plive.lithium=false`.
 
 ## Validation boundaries
 

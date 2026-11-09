@@ -20,13 +20,14 @@ Do not upgrade Minecraft, mappings, Loom, Gradle, Kotlin, or runtime mods as inc
 - `./gradlew benchScheduler`: synthetic scheduler overhead/allocation benchmark.
 - `./gradlew benchWorkerPool`: small/large, balanced/uneven wave timing and allocation benchmark.
 - `./gradlew benchAreaMap`: tracking-index movement, resize, and teleport microbenchmark.
-- `./gradlew prepareRuntimeMods`: download and verify pinned C2ME into `.vanadium/mods`.
+- `./gradlew prepareRuntimeMods`: download and verify pinned C2ME and Lithium into `.vanadium/mods`.
 - `./gradlew runIntegration`: live Kotlin/Java tests plus startup/tick/save/shutdown in a fresh
   `.vanadium/runs/` directory. Requires accepted `.vanadium/eula.txt`; never touches personal `run/`.
   Live runs require configuration caching off (the repository default); use `--no-configuration-cache` if overriding it.
 - `./gradlew runFeatureBench`: paired on/off fixture benchmarks in a fresh server JVM;
   `-Pbench.filter=...`, `-Pbench.rounds=...`, `-Pbench.scale=...` configure cases.
 - `./gradlew runIntegration -Plive.jfr=true`: include a JFR capture with 100µs monitor thresholds.
+- `./gradlew runIntegration -Plive.lithium=false`: live checks without Lithium (included by default).
 - `nix flake check`: checks Nix development files; does **not** build Minecraft.
 
 MixinTargetsTest checks vanilla member bindings without initializing Minecraft; live tests
@@ -59,6 +60,8 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - Remaining `mixin/` packages: synchronization and concurrent collection replacements.
 - `mixin/SynchronisePlugin.java`: ASM synchronization applied to `SyncAllMixin` targets.
 - `compat/C2ME.java`: MixinSquared cancellation of two C2ME thread-detection mixins.
+- `compat/LithiumCompat.kt`, `mixin/compat/lithium/`: optional Lithium support (`@Pseudo`, inert without it);
+  `lithium:options` in `fabric.mod.json` disables the Lithium options that rewrite Vanadium's paths.
 - `config/`, `commands/`: TOML config, status, live reload, tick benchmark.
 - `src/main/resources/vanadium.mixins.json`: required mixin registration.
 - `src/main/resources/vanadium.accesswidener`: access required by mixins.
@@ -99,8 +102,13 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - SavedDataStorage has asynchronous writes in 26.3: never synchronize saveAndJoin/close
   across their completion wait. Keep cache/snapshot locks separate from disk IO.
 - Preserve disabled-stage fallback paths and the serial exceptions for projectiles/portals.
-- C2ME is required; Lithium and VMP are declared incompatible. Recheck compatibility
+- C2ME is required; VMP is declared incompatible. Recheck compatibility
   against the pinned C2ME jar when touching cancellation or Minecraft method injections.
+- Lithium is supported. When a change touches a method or shared structure Lithium also rewrites,
+  either disable that Lithium option in `lithium:options` or make both compose and keep Lithium's
+  shared state thread-safe; run live checks with and without Lithium.
+- Do not rely on `@Shadow` field initializers to replace vanilla collections: once a mixin adds other
+  initialized fields, Mixin may drop them. Install replacements explicitly at `<init>` RETURN.
 
 ## Change and validation discipline
 

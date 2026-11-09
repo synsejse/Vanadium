@@ -38,7 +38,9 @@ Use **Minecraft 26.3**, **Fabric Loader 0.20.1+** and **Java 25+**. Build with `
 - [Cloth Config](https://modrinth.com/mod/cloth-config) and [C2ME](https://modrinth.com/mod/c2me-fabric)
 
 **C2ME is required:** it handles parallel generation/loading while Vanadium handles ticking.
-**Lithium and VMP are incompatible.** Test your world and modpack before deployment.
+**[Lithium](https://modrinth.com/mod/lithium) 0.26.3+ is supported and recommended:** Vanadium turns off
+the few Lithium options that rewrite its own paths and keeps the rest safe for parallel ticks.
+**VMP is incompatible.** Test your world and modpack before deployment.
 
 Configure `config/vanadium.toml`; use `/vanadium reload` to apply changes and
 `/vanadium status` to inspect them. Worker-count changes require a restart.
