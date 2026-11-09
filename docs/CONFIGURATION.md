@@ -10,7 +10,7 @@ Loaded-chunk lookups are unconditional infrastructure; the former `chunkCache` o
 |---|---|---|
 | `enabled` | `true` | Master switch; `false` uses serial ticking, with structural mixins, locks and loaded-chunk lookups still active |
 | `workers` | `0` | `<= 0` = available logical processors; positive values clamp to 2..max(2, available logical processors) (restart) |
-| `cellSize` | `0` | Cell width/height in chunks; `0` = auto from resolved worker count |
+| `isolation` | `2` | Exclusion radius in chunks (1–16, Chebyshev distance). Work at or within this distance never runs concurrently. Region sizes adapt automatically |
 | `parallelEntities` | `true` | Tick entities in parallel |
 | `parallelBlockEntities` | `true` | Tick block entities in parallel |
 | `serialEntityTypes` | `[]` | Entity type IDs that tick serially |
@@ -26,6 +26,9 @@ Loaded-chunk lookups are unconditional infrastructure; the former `chunkCache` o
 | `detailedTickDiagnostics` | `false` | Add current task/type labels while wave diagnostics are enabled |
 
 ## Commands
+
+`cellSize` has been removed; remove it from existing configuration files. `isolation`
+sets the spatial exclusion distance independently of worker count, not the size of a region.
 
 Serial rules match exact registry IDs. Set them as TOML string arrays:
 
@@ -43,7 +46,7 @@ scheduled ticks, or tracking. Validate the actual modpack before deployment.
 
 | Command | Permission | Effect |
 |---|---|---|
-| `/vanadium` or `/vanadium status` | everyone | Version, enabled state, workers (with restart-pending detection), cell size, all stage flags |
+| `/vanadium` or `/vanadium status` | everyone | Version, enabled state, workers (with restart-pending detection), isolation, all stage flags |
 | `/vanadium set <option> <value>` | op (2) | Change a boolean or integer option live (not `workers`); not saved, `/vanadium reload` restores the file |
 | `/vanadium reload` | op (2) | Re-read `vanadium.toml` and apply live |
 | `/vanadium benchmark [seconds]` | op (2) | Unlock TPS (via vanilla tick-sprint; default 30s, range 5–300s) and report ticks run, average and peak TPS |
@@ -52,35 +55,34 @@ scheduled ticks, or tracking. Validate the actual modpack before deployment.
 | `/vanadium profile report` | op (2) | Show the last completed capture for this server |
 
 Profiles report average/p50/p95/p99 tick work and queued stage execution, caller tail-wait
-time, cell/task counts, and average/maximum tasks per cell. They split tick work into stage
+time, region/task counts, and average/maximum tasks per region. They split tick work into stage
 waves, preparation waves and the serial remainder, which bounds what more workers can gain,
-and give each stage's participant utilization (cell time over wave time × participants). Stage measurements exclude
+and give each stage's participant utilization (region time over wave time × participants). Stage measurements exclude
 collection and serial fallbacks; whole-tick measurements include them but exclude idle
-time between ticks. Worlds are aggregated, and cell counts count executions rather than
-unique locations. Keep configuration and workload fixed when comparing captures. Profiling
+time between ticks. Worlds are aggregated, and regions are re-planned every wave from where the work is. Keep configuration and workload fixed when comparing captures. Profiling
 adds measurement overhead and does not unlock TPS. Reports are also written to the server log.
 Per-world entries also report preparation (collection plus inline fallbacks), stage execution,
-and whole-world time. Cell execution percentiles expose uneven work within waves. Spawning
+and whole-world time. Region execution percentiles expose uneven work within waves. Spawning
 and thunder use `SPAWNING`; random/precipitation ticks use `CHUNK`. World totals include stage
-work, so these overlapping measurements must not be added together. Cell durations include
+work, so these overlapping measurements must not be added together. Region durations include
 any lock waits; use JFR to distinguish waiting from CPU work.
 
 Benchmarks and profiles are also published as JSON: one `VANADIUM_RESULT {...}` log line and a
 file under `vanadium/results/` in the server directory. Each result records the active
-configuration, worker count, cell size, CPU count, heap and mod versions it was measured with.
+configuration, worker count, isolation, CPU count, heap and mod versions it was measured with.
 `/vanadium set` is meant for A/B runs in one JVM: for example `/vanadium set parallelTracking off`,
 `/vanadium benchmark`, then `/vanadium reload`.
 
 For a stall investigation, set `slowWaveMillis = 1000` and optionally
 `detailedTickDiagnostics = true` in TOML, then run `/vanadium reload`. A separate watchdog reports the stage,
-dimension, cell size, elapsed time, and active caller/worker stacks while the wave
-is still running. Cell coordinates are **cell units**, not chunks or blocks. Reports are
+dimension, isolation, elapsed time, and active caller/worker stacks while the wave
+is still running, with each running region given as a chunk rectangle. Reports are
 limited to one per 30 seconds, with up to eight participant stacks and twelve frames each.
 Polling occurs every 100ms, so this is a diagnostic threshold, not a deadline.
 
 Detailed mode labels queued entity and block-entity ticks with registry type IDs; other
 tasks show their runnable class. It adds wrappers and per-task progress updates. Basic
-mode tracks progress once per cell; disabled mode starts no watchdog thread. Diagnostics
+mode tracks progress once per region; disabled mode starts no watchdog thread. Diagnostics
 never cancel, retry, or interrupt tick work. Set `slowWaveMillis = 0` and reload after
 investigating; inline serial fallbacks outside scheduler waves are not monitored.
 

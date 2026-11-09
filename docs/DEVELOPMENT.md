@@ -49,7 +49,7 @@ to be off (the repository default). Use `--no-configuration-cache` if you enable
 normal Gradle compilation/test up-to-date checks remain available.
 
 Each invocation uses a fresh `.vanadium/runs/integration-UUID/` directory with a loopback-only
-port, seed 12345, flat world, four helpers, cell size two, C2ME parallelism four, and a fixed
+port, seed 12345, flat world, four helpers, isolation two, C2ME parallelism four, and a fixed
 2GiB G1 heap. Personal `run/` state is never copied over or deleted. Worlds, `logs/latest.log`
 and failure evidence stay in that directory. Test classes and the completion helper are
 packaged only in `build/test-mods/integration-checks.jar`, never the release jar.
@@ -78,7 +78,7 @@ world-safety or performance claim.
 `runFeatureBench` uses another fresh isolated server and a test-only mod. It runs paired
 on/off workloads with warmup and alternating order, writing CSV and optional per-arm JFR
 files under `feature-bench/` in that server directory, then ticks/saves/shuts down normally.
-Defaults are four helpers, cell size two, 12 paired rounds, scale 1 and JFR enabled.
+Defaults are four helpers, isolation two, 12 paired rounds, scale 1 and JFR enabled.
 `bench.workers`, `bench.rounds`, `bench.scale`, `bench.filter` and `bench.jfr` are Gradle
 properties. Reduced scale/rounds only check the harness; they are not performance evidence.
 For independent JVM samples, invoke the task again; each run gets a new world and JVM.
@@ -87,7 +87,7 @@ For whole-server measurements use `/vanadium benchmark`, `/vanadium profile`, an
 JDK's `jcmd`/`jfr` tools; see [profiling](PROFILING.md). The retired ad-hoc Python sweeps and
 report generators are not maintained replacements for these tools. Historical measurements
 are kept under [archive/](archive/) and describe the old 26.2 code and harnesses.
-Record hardware, worker/cell/C2ME settings, heap, flags, mod versions and workload whenever
+Record hardware, worker/isolation/C2ME settings, heap, flags, mod versions and workload whenever
 publishing new measurements. Stage and world profile intervals overlap; do not add them.
 
 ## Interactive development

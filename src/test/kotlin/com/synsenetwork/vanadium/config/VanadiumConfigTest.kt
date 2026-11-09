@@ -20,9 +20,11 @@ class VanadiumConfigTest {
     }
 
     @Test
-    fun autoCellSizeShrinksWithWorkersWithinRange() {
-        assertTrue(VanadiumConfig.autoCellSize(16) <= VanadiumConfig.autoCellSize(4))
-        for (parallelism in -1..256) assertTrue(VanadiumConfig.autoCellSize(parallelism) in 2..8, "at $parallelism")
+    fun isolationMustBePositive() {
+        val config = VanadiumConfig()
+        assertEquals(2, config.isolation)
+        config.isolation = 0
+        assertFailsWith<me.shedaniel.autoconfig.ConfigData.ValidationException> { config.validatePostLoad() }
     }
 
     @Test

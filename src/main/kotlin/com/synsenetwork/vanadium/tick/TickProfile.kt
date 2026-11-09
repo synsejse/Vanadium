@@ -21,16 +21,16 @@ class TickProfile {
     fun recordPhase(dimension: String, phase: String, nanos: Long) =
         phases.getOrPut("$dimension / $phase") { Samples() }.add(nanos)
 
-    fun recordCells(stage: Stage, durations: LongArray) {
-        val cells = stats(stage).cellDurations
-        for (duration in durations) cells.add(duration)
+    fun recordRegions(stage: Stage, durations: LongArray) {
+        val regions = stats(stage).regionDurations
+        for (duration in durations) regions.add(duration)
     }
 
     fun recordWait(stage: Stage, nanos: Long) {
         stats(stage).waitNanos += nanos
     }
 
-    /** Wall time of one wave and the threads able to claim its cells; the denominator of utilization. */
+    /** Wall time of one wave and the threads able to claim its regions; the denominator of utilization. */
     fun recordWaveCapacity(stage: Stage, nanos: Long, participants: Int) {
         stats(stage).capacityNanos += nanos * participants
     }
@@ -41,14 +41,14 @@ class TickProfile {
         stats.jobs += jobs
     }
 
-    fun recordWave(stage: Stage, cells: List<Cell>) {
-        if (cells.isEmpty()) return
+    fun recordWave(stage: Stage, regions: List<Region>) {
+        if (regions.isEmpty()) return
         val stats = stats(stage)
         stats.waves++
-        stats.cells += cells.size
-        for (cell in cells) {
-            stats.tasks += cell.taskCount
-            stats.maxTasksPerCell = maxOf(stats.maxTasksPerCell, cell.taskCount)
+        stats.regions += regions.size
+        for (region in regions) {
+            stats.tasks += region.taskCount
+            stats.maxTasksPerRegion = maxOf(stats.maxTasksPerRegion, region.taskCount)
         }
     }
 
@@ -78,10 +78,10 @@ class TickProfile {
         append("\nQueued stage execution across all worlds; collection and serial fallbacks excluded.")
         for ((stage, stats) in stages) {
             append(String.format(Locale.ROOT,
-                "\n%s: %s; caller tail wait %.2fms total; waves=%d cells=%d tasks=%d; tasks/cell avg=%.1f max=%d",
-                stage, stats.durations.summary(), stats.waitNanos / 1e6, stats.waves, stats.cells, stats.tasks,
-                if (stats.cells == 0L) 0.0 else stats.tasks.toDouble() / stats.cells, stats.maxTasksPerCell))
-            append("; cell execution ").append(stats.cellDurations.summary())
+                "\n%s: %s; caller tail wait %.2fms total; waves=%d regions=%d tasks=%d; tasks/region avg=%.1f max=%d",
+                stage, stats.durations.summary(), stats.waitNanos / 1e6, stats.waves, stats.regions, stats.tasks,
+                if (stats.regions == 0L) 0.0 else stats.tasks.toDouble() / stats.regions, stats.maxTasksPerRegion))
+            append("; region execution ").append(stats.regionDurations.summary())
             stats.utilization()?.let { append(String.format(Locale.ROOT, "; participant utilization %.0f%%", 100 * it)) }
         }
         for ((kind, stats) in preparations) {
@@ -91,8 +91,8 @@ class TickProfile {
         }
         phases.forEach { (phase, samples) -> append('\n').append(phase).append(": ").append(samples.summary()) }
         append("\nPreparation includes collection and inline fallbacks; world totals include waves. Do not add overlapping totals.")
-        append("\nUtilization is cell time over wave time x participants; it excludes claim and barrier overhead.")
-        append("\nCells count executions, not unique positions. Timings include profiling overhead.")
+        append("\nUtilization is region time over wave time x participants; it excludes claim and barrier overhead.")
+        append("\nRegions adapt to where the work is; stable plans are reused. Timings include profiling overhead.")
     }
 
     /** The same measurements as [report], for scripts. Times are milliseconds; shares are fractions. */
@@ -107,12 +107,12 @@ class TickProfile {
         add("stages", JsonObject().apply {
             for ((stage, stats) in stages) add(stage.name, JsonObject().apply {
                 add("execution", stats.durations.toJson())
-                add("cellExecution", stats.cellDurations.toJson())
+                add("regionExecution", stats.regionDurations.toJson())
                 addProperty("callerTailWaitMs", stats.waitNanos / 1e6)
                 addProperty("waves", stats.waves)
-                addProperty("cells", stats.cells)
+                addProperty("regions", stats.regions)
                 addProperty("tasks", stats.tasks)
-                addProperty("maxTasksPerCell", stats.maxTasksPerCell)
+                addProperty("maxTasksPerRegion", stats.maxTasksPerRegion)
                 stats.utilization()?.let { addProperty("utilization", it) }
             })
         })
@@ -129,16 +129,16 @@ class TickProfile {
 
     private class StageStats {
         val durations = Samples()
-        val cellDurations = Samples()
+        val regionDurations = Samples()
         var waitNanos = 0L
         var capacityNanos = 0L
         var waves = 0L
-        var cells = 0L
+        var regions = 0L
         var tasks = 0L
-        var maxTasksPerCell = 0
+        var maxTasksPerRegion = 0
 
         fun utilization(): Double? =
-            if (capacityNanos == 0L) null else minOf(1.0, cellDurations.totalNanos.toDouble() / capacityNanos)
+            if (capacityNanos == 0L) null else minOf(1.0, regionDurations.totalNanos.toDouble() / capacityNanos)
     }
 
     private class PreparationStats {

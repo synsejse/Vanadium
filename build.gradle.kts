@@ -222,7 +222,7 @@ class PrepareLiveRun(
             spawn-protection=0
             pause-when-empty-seconds=-1
         """.trimIndent() + "\n")
-        run.resolve("config/vanadium.toml").writeText("workers = 4\ncellSize = 2\n")
+        run.resolve("config/vanadium.toml").writeText("workers = 4\nisolation = 2\n")
         run.resolve("config/c2me.toml").writeText("version = 3\nglobalExecutorParallelism = 4\n")
         task.logger.lifecycle("Isolated live run: $run")
     }

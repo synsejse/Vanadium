@@ -74,8 +74,7 @@ object VanadiumCommand {
                     message.append("$active active (config ${config.workers} → $resolved)")
                     if (resolved != active) message.append(Component.literal(" restart pending").withStyle(ChatFormatting.YELLOW))
                 }
-                "cellSize" -> message.append(config.cellSize.toString() +
-                        if (config.cellSize == 0) " (auto → ${VanadiumConfig.resolveCellSize()})" else "")
+                "isolation" -> message.append("${config.isolation} chunks")
                 else -> when (val value = field.get(config)) {
                     is Boolean -> message.append(onOff(value, "on", "off"))
                     is List<*> -> message.append(if (value.isEmpty()) "none" else value.joinToString(", "))

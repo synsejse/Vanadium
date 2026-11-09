@@ -43,8 +43,8 @@ class WaveDiagnosticsTest {
                     if (!release.await(5, TimeUnit.SECONDS)) throw AssertionError("fixture timeout")
                     completed.incrementAndGet()
                 }
-                val left = Cell(-2, 0).apply { add(WaveDiagnostics.NamedTask("example:machine", blocked)) }
-                val right = Cell(0, 0).apply { add(WaveDiagnostics.NamedTask("minecraft:pig", blocked)) }
+                val left = region(-2, 0, WaveDiagnostics.NamedTask("example:machine", blocked))
+                val right = region(0, 0, WaveDiagnostics.NamedTask("minecraft:pig", blocked))
                 val watch = diagnostics.watch(Stage.BLOCK_ENTITY, "test:dimension", 3)!!
                 val wave = caller.submit { watch.use { pool.runWave(watch.wrap(listOf(left, right))) } }
                 assertTrue(entered.await(5, TimeUnit.SECONDS))
@@ -55,7 +55,7 @@ class WaveDiagnosticsTest {
                 diagnostics.poll()
                 assertEquals(1, reports.size)
                 val report = reports.first()
-                for (expected in listOf("BLOCK_ENTITY", "test:dimension", "cell=(-2,0)", "cell=(0,0)", "example:machine",
+                for (expected in listOf("BLOCK_ENTITY", "test:dimension", "region=chunks (-2,0)..(-2,0)", "region=chunks (0,0)..(0,0)", "example:machine",
                         "minecraft:pig", "diagnostic-caller", "Vanadium-Worker-", "\n  at ")) {
                     assertTrue(expected in report, report)
                 }
@@ -82,7 +82,7 @@ class WaveDiagnosticsTest {
     }
 
     @Test
-    fun singleCellStillRunsInlineAndFailureClearsWatch() {
+    fun singleRegionStillRunsInlineAndFailureClearsWatch() {
         val clock = AtomicLong()
         val reports = ArrayList<String>()
         val pool = WorkerPool(1)
@@ -102,7 +102,7 @@ class WaveDiagnosticsTest {
                 }, null)
                 assertFailsWith<IllegalStateException> { scheduler.run(Stage.ENTITY) }
                 assertEquals(1, reports.size)
-                assertTrue("cell=(-1,-1)" in reports.first())
+                assertTrue("region=chunks (-1,-1)..(-1,-1)" in reports.first())
                 clock.addAndGet(TimeUnit.SECONDS.toNanos(31))
                 diagnostics.poll()
                 assertEquals(1, reports.size)
@@ -110,5 +110,13 @@ class WaveDiagnosticsTest {
         } finally {
             pool.close()
         }
+    }
+
+    private fun region(x: Int, z: Int, task: Runnable) = Region().apply {
+        minX = x
+        minZ = z
+        maxX = x
+        maxZ = z
+        tasks.add(task)
     }
 }

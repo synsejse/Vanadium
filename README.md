@@ -15,8 +15,8 @@
 </p>
 
 Vanadium parallelizes entity, block-entity, scheduled and chunk ticking, natural spawning,
-and entity tracking. A shared worker pool runs independent chunk cells concurrently,
-keeping neighboring cells apart and completing each stage before the next begins.
+and entity tracking. A shared worker pool runs work in separate parts of the world concurrently:
+regions adapt to where the work is, nearby work never overlaps, and each stage completes before the next.
 It also optimizes chunk lookups, nearby-player indexing and packet preparation.
 
 ### Performance

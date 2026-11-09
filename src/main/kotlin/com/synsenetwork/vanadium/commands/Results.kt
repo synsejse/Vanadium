@@ -3,7 +3,6 @@ package com.synsenetwork.vanadium.commands
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonObject
 import com.synsenetwork.vanadium.Vanadium
-import com.synsenetwork.vanadium.config.VanadiumConfig
 import net.fabricmc.loader.api.FabricLoader
 import net.minecraft.server.MinecraftServer
 import java.io.IOException
@@ -62,8 +61,7 @@ object Results {
         addProperty("availableProcessors", Runtime.getRuntime().availableProcessors())
         addProperty("maxHeapMiB", Runtime.getRuntime().maxMemory() / (1024 * 1024))
         addProperty("activeWorkers", Vanadium.scheduler.workerCount)
-        addProperty("activeCellSize", Vanadium.scheduler.cellSize)
-        addProperty("resolvedCellSize", VanadiumConfig.resolveCellSize())
+        addProperty("isolation", Vanadium.scheduler.isolation)
         add("config", COMPACT.toJsonTree(Vanadium.config))
     }
 }

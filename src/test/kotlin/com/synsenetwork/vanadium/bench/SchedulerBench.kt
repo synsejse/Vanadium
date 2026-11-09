@@ -12,9 +12,9 @@ object SchedulerBench {
     /** Consumed at the end so the loaded task's work isn't eliminated by the JIT. */
     private val SINK = LongAdder()
 
-    /** A few microseconds of CPU per cell, so loaded waves are barrier-bound. */
+    /** A few microseconds of CPU per chunk, so loaded waves are barrier-bound. */
     private const val SPIN = 200
-    private const val CELL_SIZE = 4
+    private const val ISOLATION = 2
     private const val RADIUS = 16 // ticking area is (2 * RADIUS)^2 chunks
     private const val WARMUP = 2000
     private const val MEASURED = 5000
@@ -23,7 +23,7 @@ object SchedulerBench {
     fun main(args: Array<String>) {
         val threads = Runtime.getRuntime().availableProcessors()
         val pool = WorkerPool(threads)
-        val scheduler = TickScheduler(pool, CELL_SIZE)
+        val scheduler = TickScheduler(pool, ISOLATION)
         val noop = Runnable {} // measures scheduler overhead, not task cost
         val loaded = Runnable(::burn)
         repeat(WARMUP) {
@@ -44,7 +44,7 @@ object SchedulerBench {
         repeat(MEASURED) { tick(scheduler, loaded) }
         val loadedNanos = System.nanoTime() - loadedStart
 
-        println("threads=$threads cellSize=$CELL_SIZE areaChunks=${4 * RADIUS * RADIUS} ticks=$MEASURED spin=$SPIN")
+        println("threads=$threads isolation=$ISOLATION areaChunks=${4 * RADIUS * RADIUS} ticks=$MEASURED spin=$SPIN")
         println("  noop   alloc/tick = ${allocBytes / MEASURED} bytes")
         println("  noop   time/tick  = %.1f us".format(noopNanos / 1000.0 / MEASURED))
         println("  loaded time/tick  = %.1f us  (sink=%d)".format(loadedNanos / 1000.0 / MEASURED, SINK.sum()))

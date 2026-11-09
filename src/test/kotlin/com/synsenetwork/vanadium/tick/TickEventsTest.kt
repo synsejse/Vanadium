@@ -32,10 +32,10 @@ class TickEventsTest {
             val wave = events.getValue("vanadium.Wave").single()
             assertEquals("ENTITY", wave.getString("stage"))
             assertEquals("test:world", wave.getString("dimension"))
-            assertEquals(3, wave.getInt("cells"))
+            assertEquals(3, wave.getInt("regions"))
             assertEquals(4, wave.getInt("tasks"))
             assertEquals(3, wave.getInt("participants")) // Two workers plus the calling thread.
-            assertEquals(2, wave.getInt("cellSize"))
+            assertEquals(2, wave.getInt("isolation"))
             val preparation = events.getValue("vanadium.Preparation").single()
             assertEquals("TRACKING_DIFFS", preparation.getString("kind"))
             assertEquals(5, preparation.getInt("jobs"))
