@@ -17,7 +17,6 @@ import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.profiling.ProfilerFiller;
 import net.minecraft.world.entity.MobCategory;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.LocalMobCapCalculator;
 import net.minecraft.world.level.gamerules.GameRules;
 import net.minecraft.world.level.NaturalSpawner;
@@ -39,11 +38,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public abstract class ServerChunkCacheMixin {
     @Shadow @Final public ChunkMap chunkMap;
 
-    @Redirect(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;J)V", at = @At(value = "INVOKE",
-            target = "Lnet/minecraft/world/level/NaturalSpawner;createState(ILjava/lang/Iterable;Lnet/minecraft/world/level/NaturalSpawner$ChunkGetter;Lnet/minecraft/world/level/LocalMobCapCalculator;)Lnet/minecraft/world/level/NaturalSpawner$SpawnState;"))
-    private NaturalSpawner.SpawnState prepareSpawning(int count, Iterable<Entity> entities,
+    @Redirect(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;)V", at = @At(value = "INVOKE",
+            target = "Lnet/minecraft/world/level/NaturalSpawner;createState(ILnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/level/NaturalSpawner$ChunkGetter;Lnet/minecraft/world/level/LocalMobCapCalculator;)Lnet/minecraft/world/level/NaturalSpawner$SpawnState;"))
+    private NaturalSpawner.SpawnState prepareSpawning(int count, ServerLevel level,
             NaturalSpawner.ChunkGetter chunks, LocalMobCapCalculator caps) {
-        return SpawnPreparation.count(count, entities, chunks, caps, chunkMap);
+        return SpawnPreparation.count(count, level, chunks, caps, chunkMap);
     }
 
     @Shadow
@@ -52,19 +51,19 @@ public abstract class ServerChunkCacheMixin {
     private Set<ChunkHolder> chunkHoldersToBroadcast =
             Collections.newSetFromMap(new ConcurrentHashMap<>());
 
-    @Inject(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;J)V", at = @At("HEAD"))
-    private void beginChunkTicks(ProfilerFiller profiler, long timeDiff, CallbackInfo ci) {
+    @Inject(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;)V", at = @At("HEAD"))
+    private void beginChunkTicks(ProfilerFiller profiler, CallbackInfo ci) {
         Vanadium.scheduler.begin(Stage.SPAWNING);
     }
 
     /**
-     * Ends spawning before 26.2's block-ticking pass. With parallel chunk ticks, ChunkMapMixin then
+     * Ends spawning before vanilla's block-ticking pass. With parallel chunk ticks, ChunkMapMixin then
      * records each ticking holder instead of invoking vanilla's per-chunk consumer; otherwise the
      * vanilla consumer ticks chunks inline.
      */
-    @Inject(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;J)V", at = @At(value = "INVOKE",
+    @Inject(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;)V", at = @At(value = "INVOKE",
             target = "Lnet/minecraft/server/level/ChunkMap;forEachBlockTickingChunk(Ljava/util/function/Consumer;)V"))
-    private void finishSpawning(ProfilerFiller profiler, long timeDiff, CallbackInfo ci) {
+    private void finishSpawning(ProfilerFiller profiler, CallbackInfo ci) {
         Vanadium.scheduler.run(Stage.SPAWNING);
         Vanadium.scheduler.begin(Stage.CHUNK);
         if (Vanadium.config.enabled && Vanadium.config.parallelChunkTicks) {
@@ -74,9 +73,9 @@ public abstract class ServerChunkCacheMixin {
         }
     }
 
-    @Inject(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;J)V", at = @At(value = "INVOKE",
+    @Inject(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;)V", at = @At(value = "INVOKE",
             target = "Lnet/minecraft/server/level/ChunkMap;forEachBlockTickingChunk(Ljava/util/function/Consumer;)V", shift = At.Shift.AFTER))
-    private void finishChunkTicks(ProfilerFiller profiler, long timeDiff, CallbackInfo ci) {
+    private void finishChunkTicks(ProfilerFiller profiler, CallbackInfo ci) {
         ((ChunkTickSink) chunkMap).vanadium$setChunkTickSink(null);
         vanadium$chunkTicks().dispatch(Vanadium.scheduler);
         Vanadium.scheduler.run(Stage.CHUNK);
@@ -93,7 +92,7 @@ public abstract class ServerChunkCacheMixin {
         return vanadium$chunkTickBatch;
     }
 
-    /** The spawning phase completes before 26.2's separate block-ticking phase begins. */
+    /** The spawning phase completes before vanilla's separate block-ticking phase begins. */
     @Redirect(method = "tickSpawningChunk", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/NaturalSpawner;spawnForChunk(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/level/chunk/LevelChunk;Lnet/minecraft/world/level/NaturalSpawner$SpawnState;Ljava/util/List;)V"))
     private void dispatchSpawning(ServerLevel level, LevelChunk chunk, NaturalSpawner.SpawnState info,
                                 List<MobCategory> categories) {

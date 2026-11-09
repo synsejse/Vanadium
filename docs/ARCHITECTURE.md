@@ -159,7 +159,7 @@ Server shutdown closes the watchdog and worker pool after the final wave and cle
 the scheduler, profiler, and benchmark command references. Starting another integrated
 server creates fresh scheduling state and resolves the configured worker count again.
 
-In 26.2, `TicketStorage` owns the tickets formerly held by the simulation tracker and is
+In 26.3, `TicketStorage` owns the tickets formerly held by the simulation tracker and is
 synchronized through `SyncAllMixin`. `SavedDataStorageMixin` makes the cache a
 `ConcurrentHashMap` with lock-free hits: `ServerLevel.getWorldBorder()` resolves saved data on
 every entity move. Misses, writes and save snapshot creation share one monitor, while
@@ -211,7 +211,7 @@ shutdown). Its iteration order is ascending, not insertion order.
 
 `ChunkHolder` keeps vanilla's section update sets. A per-holder monitor protects block/light
 update registration and broadcasting, including set creation, clearing, and pending flags.
-Replacing only an array entry is insufficient in 26.2: `blockChanged` adds the first position
+Replacing only an array entry is insufficient: `blockChanged` adds the first position
 through a local set reference, which must remain the same object that broadcasting reads.
 
 Chunk dirty notifications enter a concurrent queue. The server thread drains them into
@@ -226,6 +226,9 @@ the same predicate inside each parallel batch. Spawn preparation counts views
 below 1,024 entities inline without a snapshot. Larger views are copied directly into a
 sized snapshot; unsized iterables retain a single-pass snapshot fallback. Parallel work
 uses contiguous batches with independent vanilla spawn states and local-cap calculators.
+In 26.3, vanilla counting reads spawn costs from the level's environment attributes. A scoped
+thread-local entity slice replaces only `createState`'s input iteration; vanilla retains its
+level-aware counting and cost logic. The override is removed/restored in `finally`.
 The caller combines category counts, local player caps, and potential charges before
 spawning begins. Charge order follows the original
 entity order. This does not change the later shared spawn-attempt accounting policy.
@@ -283,8 +286,8 @@ integration. This is a candidate filter, not asynchronous pathfinding or delayed
 
 C2ME provides parallel generation/loading and bundles MixinSquared. `compat/C2ME.java`
 cancels two named C2ME thread-detection mixins. `fabric.mod.json` requires C2ME and rejects
-Lithium and VMP. The automated harness pins the C2ME release that was in this checkout's
-development mod directory; it does not include the optional ScalableLux jar found there.
+Lithium and VMP. The Gradle development tasks pin and checksum-verify a 26.3 C2ME release without
+flattening its nested mods into the compilation classpath.
 
 Chunk sending prepares section byte buffers on the shared pool after vanilla/C2ME select
 a player's batch, while simulation is at its between-ticks boundary. Batches below four
@@ -301,7 +304,7 @@ These are source-inspection leads, not a completed concurrency audit:
 
 - Full integrated-server join/leave cycles still need interactive coverage. Lifecycle
   callback reinitialization and dedicated-server resource shutdown have automated coverage.
-- The 1.21.1 source audit in `TICK_COVERAGE.md` is historical. The scheduled-tick and
+- The 1.21.1 source audit in `archive/TICK_COVERAGE.md` is historical. The scheduled-tick and
   passenger-rule fixes now have live checks; full interacting redstone machines, dynamically
   changing passenger trees, and modpack-specific cross-cell behavior still need coverage.
 

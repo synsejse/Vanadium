@@ -1,3 +1,6 @@
+> Historical evidence from the 26.2 development cycle. Commands and source paths below
+> describe that revision; current workflows are in [DEVELOPMENT.md](../DEVELOPMENT.md).
+
 # Server tick coverage and follow-up review
 
 Source review on 2026-09-13, against Vanadium `9ef37e0`, Minecraft 1.21.1,

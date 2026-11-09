@@ -31,9 +31,10 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.function.BooleanSupplier
 
-/** Live Fabric regression checks; packaged only by blockUpdateChecksJar. */
-class BlockUpdateChecks : ModInitializer {
+/** Live Fabric regression checks; packaged only by integrationChecksJar. */
+class ServerIntegrationChecks : ModInitializer {
     override fun onInitialize() {
+        com.synsenetwork.vanadium.live.LiveServer.start()
         ServerLifecycleEvents.SERVER_STARTED.register { server ->
             checkBlocks(server)
             checkDirty(server)
@@ -45,7 +46,8 @@ class BlockUpdateChecks : ModInitializer {
             SpawnChecks.run(level)
             ItemChecks.run(level)
             ChunkPacketChecks.run(level)
-            println("BLOCK_AND_DIRTY_CHECKS_PASSED")
+            println("INTEGRATION_CHECKS_PASSED")
+            com.synsenetwork.vanadium.live.LiveServer.finish(server, "integration")
         }
     }
 

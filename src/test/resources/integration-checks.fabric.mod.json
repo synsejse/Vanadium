@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "id": "vanadium_block_update_checks",
+  "id": "vanadium_integration_checks",
   "version": "1.0.0",
   "environment": "server",
   "entrypoints": {
-    "main": ["com.synsenetwork.vanadium.integration.BlockUpdateChecks"]
+    "main": ["com.synsenetwork.vanadium.integration.ServerIntegrationChecks"]
   },
   "depends": {
     "vanadium": "*",

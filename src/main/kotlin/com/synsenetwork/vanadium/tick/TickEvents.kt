@@ -10,7 +10,7 @@ import jdk.jfr.StackTrace
 /**
  * JFR events for Vanadium's parallel sections. They cost a branch when no recording is running, and
  * share a timeline with JFR's monitor, park and allocation events. Server-thread only.
- * Summarize with `python3 scripts/jfr-summary.py <recording.jfr>`.
+ * Inspect with JDK Mission Control or `jfr print --events vanadium.* <recording.jfr>`.
  */
 @Name("vanadium.ServerTick")
 @Label("Vanadium Server Tick")

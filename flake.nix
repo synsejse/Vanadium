@@ -31,8 +31,6 @@
               jq
               unzip
               zip
-              python3
-              shellcheck
               nixfmt
             ];
             JAVA_HOME = "${pkgs.jdk25}";
@@ -59,15 +57,10 @@
             pkgs.runCommand "vanadium-development-files"
               {
                 nativeBuildInputs = [
-                  pkgs.shellcheck
-                  pkgs.python3
                   pkgs.nixfmt
                 ];
               }
               ''
-                shellcheck ${./scripts/bench-server.sh}
-                python3 -c 'import pathlib; p = pathlib.Path("${./scripts/dev-server.py}"); compile(p.read_text(), str(p), "exec")'
-                python3 -m json.tool ${./scripts/runtime-mods.json} > /dev/null
                 nixfmt --check ${./flake.nix}
                 touch "$out"
               '';

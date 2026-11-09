@@ -1,3 +1,6 @@
+> Historical evidence from the 26.2 development cycle. Commands and source paths below
+> describe that revision; current workflows are in [DEVELOPMENT.md](../DEVELOPMENT.md).
+
 # Minecraft 26.2: disabled versus activated (2026-09-14)
 
 This benchmarks the uncommitted `port/minecraft-26.2` working tree based on

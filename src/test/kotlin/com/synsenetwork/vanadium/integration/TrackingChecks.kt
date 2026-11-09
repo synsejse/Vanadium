@@ -21,6 +21,16 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 internal object TrackingChecks {
     fun run(level: ServerLevel) {
+        val mob = Pig(EntityTypes.PIG, level)
+        for (interval in listOf(net.minecraft.world.entity.UpdateInterval.periodic(3), net.minecraft.world.entity.UpdateInterval.NEVER)) {
+            val tracked = with(level.chunkSource.chunkMap) { TrackedEntity(mob, 64, interval, true) }
+            val entry = (tracked as com.synsenetwork.vanadium.mixin.server.world.TrackedEntityAccessor).`vanadium$entry`()
+            mob.setPos(120.0, 100.0, -120.0)
+            NearbyTrackers.forceResync(entry)
+            check(entry.positionBase == mob.trackingPosition(), "resync did not refresh the position baseline")
+            check(!mob.syncPosition, "vanilla did not consume the forced resync")
+            mob.setPos(0.0, 100.0, 0.0)
+        }
         val previous = Vanadium.scheduler
         WorkerPool(4).use { pool ->
             try {
@@ -76,7 +86,7 @@ internal object TrackingChecks {
     /** A tracker that records watchers and fails if two threads ever write it at once. */
     private fun tracker(level: ServerLevel, entity: Entity, watchers: MutableSet<ServerPlayer>): ChunkMap.TrackedEntity =
         with(level.chunkSource.chunkMap) {
-            object : ChunkMap.TrackedEntity(entity, 64, 3, true) {
+            object : ChunkMap.TrackedEntity(entity, 64, net.minecraft.world.entity.UpdateInterval.periodic(3), true) {
                 private val updating = AtomicBoolean()
 
                 override fun updatePlayer(player: ServerPlayer) = exclusive("concurrent writes to one tracker") {
