@@ -46,6 +46,7 @@ class ServerIntegrationChecks : ModInitializer {
             SpawnChecks.run(level)
             ItemChecks.run(level)
             ChunkPacketChecks.run(level)
+            ReportChecks.start(server)
             println("INTEGRATION_CHECKS_PASSED")
             com.synsenetwork.vanadium.live.LiveServer.finish(server, "integration")
         }

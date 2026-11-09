@@ -1,6 +1,7 @@
 package com.synsenetwork.vanadium.commands
 
 import com.google.gson.JsonObject
+import com.synsenetwork.vanadium.Vanadium
 import net.minecraft.commands.CommandSourceStack
 import net.minecraft.network.chat.Component
 import net.minecraft.server.MinecraftServer
@@ -17,6 +18,7 @@ object TickBenchmark {
     private var totalTicks = 0
     private var windowTicks = 0
     private var peakWindowTicks = 0
+    private var lastReport: PerformanceReport? = null
 
     /** True while a benchmark runs; ServerTickRateManagerMixin mutes vanilla's sprint report then. */
     @JvmStatic
@@ -41,7 +43,11 @@ object TickBenchmark {
     fun onServerStopped() {
         isActive = false
         source = null
+        lastReport = null
     }
+
+    fun lastReport(section: String = "summary"): Component = lastReport?.view(section)
+        ?: Component.literal("Vanadium: no completed benchmark for this server")
 
     fun onTickEnd(server: MinecraftServer) {
         if (!isActive) return
@@ -61,17 +67,21 @@ object TickBenchmark {
         isActive = false
         val seconds = (now - startNanos) / 1.0e9
         val peak = maxOf(peakWindowTicks, windowTicks)
-        val file = Results.publish(server, "benchmark", JsonObject().apply {
+        val result = JsonObject().apply {
             addProperty("requestedSeconds", durationNanos / 1e9)
             addProperty("seconds", seconds)
             addProperty("ticks", totalTicks)
             addProperty("avgTps", totalTicks / seconds)
             addProperty("peakTps", peak)
-        })
-        val message = Component.literal(String.format(
-            "Vanadium: benchmark — %,d ticks in %.1fs, avg %.1f TPS, peak %,d TPS (best 1s window); saved %s",
-            totalTicks, seconds, totalTicks / seconds, peak, Results.describe(server, file)))
-        source?.sendSuccess({ message }, true)
+        }
+        val file = Results.publish(server, "benchmark", result)
+        val report = PerformanceReport("benchmark", result,
+            "${Vanadium.scheduler.workerCount} helpers + server thread · isolation ${Vanadium.scheduler.isolation}",
+            file?.let { Results.describe(server, it) })
+        lastReport = report
+        val message = report.view()
+        Vanadium.LOGGER.info(message.string)
+        source?.sendSuccess({ message }, false)
         source = null
     }
 }

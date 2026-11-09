@@ -37,17 +37,17 @@ class TickProfileTest {
             assertEquals(6, calls.get())
             scheduler.finishWorld()
             profile.recordTick(1_000_000_000) // Longer than any fixture wave, so the serial share is positive.
-            val report = profile.report()
-            for (expected in listOf("waves=1 regions=2 tasks=3; tasks/region avg=1.5 max=2", "region execution n=2",
-                    "participant utilization", "Preparation SPAWN_COUNTS: n=1", "jobs avg=3.0", "Parallel sections:",
-                    "cannot make ticks more than", "test:world / ENTITY preparation: n=1",
-                    "test:world / ENTITY execution: n=1", "test:world / world total: n=1")) {
-                assertTrue(expected in report, report)
-            }
             val json = profile.toJson()
             assertEquals(1, json.getAsJsonObject("ticks").get("count").asInt)
             val entity = json.getAsJsonObject("stages").getAsJsonObject("ENTITY")
             assertEquals(3, entity.get("tasks").asInt)
+            assertEquals(2, entity.get("regions").asInt)
+            assertEquals(1, entity.get("waves").asInt)
+            assertEquals(2, entity.get("maxTasksPerRegion").asInt)
+            assertEquals(2, entity.getAsJsonObject("regionExecution").get("count").asInt)
+            for (phase in listOf("ENTITY preparation", "ENTITY execution", "world total")) {
+                assertEquals(1, json.getAsJsonObject("phases").getAsJsonObject("test:world / $phase").get("count").asInt)
+            }
             assertTrue(entity.get("utilization").asDouble in 0.0..1.0)
             assertEquals(3, json.getAsJsonObject("preparations").getAsJsonObject("SPAWN_COUNTS").get("jobs").asInt)
             val split = json.getAsJsonObject("split")
@@ -59,7 +59,7 @@ class TickProfileTest {
             scheduler.run(Stage.ENTITY)
             scheduler.prepare(Preparation.SPAWN_COUNTS, List(2) { Runnable { calls.incrementAndGet() } })
             assertEquals(9, calls.get())
-            assertEquals(report, profile.report())
+            assertEquals(json, profile.toJson())
         } finally {
             pool.close()
         }
@@ -70,7 +70,9 @@ class TickProfileTest {
         val profile = TickProfile()
         repeat(TickProfile.MAX_SAMPLES + 1) { profile.recordTick(1_000_000) }
         assertTrue(profile.isFull())
-        assertTrue("percentiles limited to first 65536" in profile.report())
+        val ticks = profile.toJson().getAsJsonObject("ticks")
+        assertEquals(TickProfile.MAX_SAMPLES + 1, ticks.get("count").asInt)
+        assertEquals(TickProfile.MAX_SAMPLES, ticks.get("percentileSamples").asInt)
     }
 
     @Test

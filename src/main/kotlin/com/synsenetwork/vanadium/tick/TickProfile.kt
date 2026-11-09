@@ -2,7 +2,6 @@ package com.synsenetwork.vanadium.tick
 
 import com.google.gson.JsonObject
 import java.util.EnumMap
-import java.util.Locale
 import kotlin.math.ceil
 
 /** Bounded samples aggregated on the server thread after each completion barrier. */
@@ -62,40 +61,7 @@ class TickProfile {
     private fun tickSplit() = Split(ticks.totalNanos, stages.values.sumOf { it.durations.totalNanos },
         preparations.values.sumOf { it.durations.totalNanos })
 
-    fun report(): String = buildString {
-        append("Tick work (idle time excluded): ").append(ticks.summary())
-        val split = tickSplit()
-        if (split.tick > 0) {
-            append(String.format(Locale.ROOT,
-                "\nParallel sections: %.1f%% of tick work (stage waves %.1f%%, preparation %.1f%%); serial remainder %.1f%%",
-                100 * split.share(split.waves + split.preparation), 100 * split.share(split.waves),
-                100 * split.share(split.preparation), 100 * split.share(split.serial)))
-            if (split.serial > 0) {
-                append(String.format(Locale.ROOT, " — faster waves alone cannot make ticks more than %.1fx faster",
-                    1 / split.share(split.serial)))
-            }
-        }
-        append("\nQueued stage execution across all worlds; collection and serial fallbacks excluded.")
-        for ((stage, stats) in stages) {
-            append(String.format(Locale.ROOT,
-                "\n%s: %s; caller tail wait %.2fms total; waves=%d regions=%d tasks=%d; tasks/region avg=%.1f max=%d",
-                stage, stats.durations.summary(), stats.waitNanos / 1e6, stats.waves, stats.regions, stats.tasks,
-                if (stats.regions == 0L) 0.0 else stats.tasks.toDouble() / stats.regions, stats.maxTasksPerRegion))
-            append("; region execution ").append(stats.regionDurations.summary())
-            stats.utilization()?.let { append(String.format(Locale.ROOT, "; participant utilization %.0f%%", 100 * it)) }
-        }
-        for ((kind, stats) in preparations) {
-            append(String.format(Locale.ROOT, "\nPreparation %s: %s; total %.2fms; jobs avg=%.1f",
-                kind, stats.durations.summary(), stats.durations.totalNanos / 1e6,
-                stats.jobs.toDouble() / stats.durations.count))
-        }
-        phases.forEach { (phase, samples) -> append('\n').append(phase).append(": ").append(samples.summary()) }
-        append("\nPreparation includes collection and inline fallbacks; world totals include waves. Do not add overlapping totals.")
-        append("\nUtilization is region time over wave time x participants; it excludes claim and barrier overhead.")
-        append("\nRegions adapt to where the work is; stable plans are reused. Timings include profiling overhead.")
-    }
-
-    /** The same measurements as [report], for scripts. Times are milliseconds; shares are fractions. */
+    /** Complete capture data. Times are milliseconds; shares are fractions. */
     fun toJson(): JsonObject = JsonObject().apply {
         add("ticks", ticks.toJson())
         val split = tickSplit()
@@ -162,15 +128,6 @@ class TickProfile {
             if (size == MAX_SAMPLES) return
             if (size == values.size) values = values.copyOf(minOf(MAX_SAMPLES, size * 2))
             values[size++] = nanos
-        }
-
-        fun summary(): String {
-            if (size == 0) return "no samples"
-            val sorted = sorted()
-            return String.format(Locale.ROOT, "n=%d avg=%.3fms p50=%.3fms p95=%.3fms p99=%.3fms%s",
-                count, totalNanos / (count * 1e6), percentile(sorted, 50) / 1e6,
-                percentile(sorted, 95) / 1e6, percentile(sorted, 99) / 1e6,
-                if (count > size) " (percentiles limited to first $size)" else "")
         }
 
         fun toJson(): JsonObject = JsonObject().apply {
