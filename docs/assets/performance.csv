@@ -1,0 +1,8 @@
+experiment,workers,arm,tps
+toggle,32,off,7.6
+toggle,32,on,81.3
+scaling,16,on,63.8
+scaling,24,on,71.7
+scaling,32,on,73.8
+scaling,36,on,76.3
+scaling,48,on,68.5

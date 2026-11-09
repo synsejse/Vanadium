@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+<title id="title">Vanadium</title>
+<desc id="desc">Two sets of three parallel lanes meeting in a V on a dark square.</desc>
+<rect x=".5" y=".5" width="255" height="255" rx="56" fill="#111" stroke="#fff" stroke-opacity=".08"/>
+<g fill="#346bf1" transform="translate(128 128) scale(.8) translate(-128 -128)">
+  <path d="M24 56h16l40 144h-16z" fill-opacity=".35"/>
+  <path d="M48 56h16l40 144h-16z" fill-opacity=".65"/>
+  <path d="M72 56h16l40 144h-16z" fill-opacity="1"/>
+  <path d="M216 56h16l-40 144h-16z" fill-opacity=".35"/>
+  <path d="M192 56h16l-40 144h-16z" fill-opacity=".65"/>
+  <path d="M168 56h16l-40 144h-16z" fill-opacity="1"/>
+</g>
+</svg>

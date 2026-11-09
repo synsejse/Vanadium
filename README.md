@@ -1,133 +1,53 @@
-[![Issues](https://img.shields.io/github/issues/synsejse/Vanadium?style=for-the-badge)](https://github.com/synsejse/Vanadium/issues)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/synsejse/Vanadium/gradle.yml?style=for-the-badge)](https://github.com/synsejse/Vanadium/actions/workflows/gradle.yml)
-[![Shenanagins](https://forthebadge.com/images/badges/powered-by-black-magic.svg)](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+<p align="center">
+  <img src="docs/assets/vanadium.svg" alt="" width="96">
+</p>
 
-# Vanadium — Minecraft Multi-Threading Mod (Fabric)
+<h1 align="center">Vanadium</h1>
 
-Vanadium parallelizes server ticking: entities, block entities, and chunk ticks run on a worker pool, partitioned into a grid of chunk cells; a cell starts as soon as none of its neighbors is running, so adjacent cells never tick at the same time. It is based on the amazing work of [JMT-MCMT](https://github.com/jediminer543/JMT-MCMT) and the [MCMTFabric](https://github.com/himekifee/MCMTFabric) port — much of the underlying engineering is documented there.
+<p align="center">
+  Parallel server ticking for Minecraft. Put more of your CPU to work.
+</p>
 
-Vanadium handles parallel *ticking*; [C2ME](https://modrinth.com/mod/c2me-fabric) handles parallel *generation and loading*. They are designed to run together, and C2ME is required.
+<p align="center">
+  <a href="https://github.com/synsejse/Vanadium/actions/workflows/gradle.yml"><img src="https://img.shields.io/github/actions/workflow/status/synsejse/Vanadium/gradle.yml?label=build&style=flat-square" alt="Build status"></a>
+  <img src="https://img.shields.io/badge/Minecraft-26.3-3f3f46?style=flat-square" alt="Minecraft 26.3">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPLv3-3f3f46?style=flat-square" alt="GPLv3 license"></a>
+</p>
 
-## Requirements
+Vanadium parallelizes entity, block-entity, scheduled and chunk ticking, natural spawning,
+and entity tracking. A shared worker pool runs independent chunk cells concurrently,
+keeping neighboring cells apart and completing each stage before the next begins.
+It also optimizes chunk lookups, nearby-player indexing and packet preparation.
 
-- Minecraft 26.3, Fabric Loader 0.20.1+, Java 25+
-- [Fabric API](https://modrinth.com/mod/fabric-api)
-- [Fabric Language Kotlin](https://modrinth.com/mod/fabric-language-kotlin) 1.14.2+ (Kotlin 2.4.21)
-- [Cloth Config](https://modrinth.com/mod/cloth-config)
-- [C2ME](https://modrinth.com/mod/c2me-fabric) — **required**
+### Performance
 
-**Incompatible with [Lithium](https://modrinth.com/mod/lithium)** — it assumes single-threaded world access; the server refuses to start with both installed.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/performance-dark.svg">
+  <img src="docs/assets/performance-light.svg" alt="Historical Minecraft 26.2 results: 7.6 TPS with parallel ticking off and 81.3 TPS on at 32 workers. A separate worker sweep peaks at 76.3 TPS at 36 workers, falling to 68.5 at 48.">
+</picture>
 
-**Incompatible with [VMP](https://modrinth.com/mod/vmp-fabric)** — both mods thread entity tracking, with different threading models, in the same vanilla methods. Vanadium ships its own replacements for VMP's server-side features; the server refuses to start with both installed.
+Historical Minecraft 26.2 measurements, not a claim about 26.3. [Data, method and limits →](docs/PERFORMANCE.md)
 
-## Configuration
+### Getting started
 
-Edit `config/vanadium.toml`, then run `/vanadium reload` to apply changes live.
-`workers` requires a server restart. Commands do not modify or save configuration values.
-Loaded-chunk lookups are unconditional infrastructure; the former `chunkCache` option has been removed.
+Use **Minecraft 26.3**, **Fabric Loader 0.20.1+** and **Java 25+**. Build with `./gradlew build`
+([setup](docs/DEVELOPMENT.md)), then place the release jar from `build/libs/` in `mods/` alongside:
 
-| Option | Default | Effect |
-|---|---|---|
-| `enabled` | `true` | Master switch; `false` uses serial ticking, with structural mixins, locks and loaded-chunk lookups still active |
-| `workers` | `0` | `<= 0` = available logical processors; positive values clamp to 2..max(2, available logical processors) (restart) |
-| `cellSize` | `0` | Cell width/height in chunks; `0` = auto from resolved worker count |
-| `parallelEntities` | `true` | Tick entities in parallel |
-| `parallelBlockEntities` | `true` | Tick block entities in parallel |
-| `serialEntityTypes` | `[]` | Entity type IDs that tick serially |
-| `serialBlockEntityTypes` | `[]` | Block-entity type IDs that tick serially |
-| `parallelChunkTicks` | `true` | Tick chunks (weather, random ticks) in parallel |
-| `parallelScheduledTicks` | `true` | Run scheduled block/fluid ticks (redstone, fluid spread, leaf decay) in parallel |
-| `parallelSpawning` | `true` | Run per-chunk natural mob spawning in parallel |
-| `parallelTracking` | `true` | Run entity tracking (movement/data packets to watching players) in parallel |
-| `parallelChunkPackets` | `true` | Prepare chunk section packet data in parallel between world ticks |
-| `consolidateFlushes` | `true` | Batch each connection's packets into one flush per tick instead of one per packet |
-| `parallelChunkLoads` | `true` | Per-chunk load locks; `false` = one global lock |
-| `slowWaveMillis` | `0` | Warn when a wave exceeds this duration; `0` disables diagnostics |
-| `detailedTickDiagnostics` | `false` | Add current task/type labels while wave diagnostics are enabled |
+- [Fabric API](https://modrinth.com/mod/fabric-api) and [Fabric Language Kotlin](https://modrinth.com/mod/fabric-language-kotlin)
+- [Cloth Config](https://modrinth.com/mod/cloth-config) and [C2ME](https://modrinth.com/mod/c2me-fabric)
 
-## Commands
+**C2ME is required:** it handles parallel generation/loading while Vanadium handles ticking.
+**Lithium and VMP are incompatible.** Test your world and modpack before deployment.
 
-Serial rules match exact registry IDs. Set them as TOML string arrays:
+Configure `config/vanadium.toml`; use `/vanadium reload` to apply changes and
+`/vanadium status` to inspect them. Worker-count changes require a restart.
 
-```toml
-serialEntityTypes = ["minecraft:villager", "example:custom_mob"]
-serialBlockEntityTypes = ["minecraft:hopper", "example:machine"]
-```
+### Learn more
 
-Use `[]` to clear a rule, then run `/vanadium reload`.
-Unknown but well-formed IDs are allowed and have no effect until that type is present.
-Matching tickers run on the server thread before the stage's queued parallel work;
-projectiles, portals, and existing fallback paths retain their serial treatment.
-Rules govern these tickers only: they do not isolate a mod's shared state, callbacks,
-scheduled ticks, or tracking. Validate the actual modpack before deployment.
+[Configuration & commands](docs/CONFIGURATION.md) · [Development](docs/DEVELOPMENT.md) ·
+[Architecture](docs/ARCHITECTURE.md) · [Profiling](docs/PROFILING.md) ·
+[Report an issue](https://github.com/synsejse/Vanadium/issues)
 
-| Command | Permission | Effect |
-|---|---|---|
-| `/vanadium` or `/vanadium status` | everyone | Version, enabled state, workers (with restart-pending detection), cell size, all stage flags |
-| `/vanadium set <option> <value>` | op (2) | Change a boolean or integer option live (not `workers`); not saved, `/vanadium reload` restores the file |
-| `/vanadium reload` | op (2) | Re-read `vanadium.toml` and apply live |
-| `/vanadium benchmark [seconds]` | op (2) | Unlock TPS (via vanilla tick-sprint; default 30s, range 5–300s) and report ticks run, average and peak TPS |
-| `/vanadium profile [seconds]` | op (2) | Capture tick/stage timings at the current tick rate; default 30s, range 1–300s |
-| `/vanadium profile stop` | op (2) | Finish the current capture early |
-| `/vanadium profile report` | op (2) | Show the last completed capture for this server |
-
-Profiles report average/p50/p95/p99 tick work and queued stage execution, caller tail-wait
-time, cell/task counts, and average/maximum tasks per cell. They split tick work into stage
-waves, preparation waves and the serial remainder, which bounds what more workers can gain,
-and give each stage's participant utilization (cell time over wave time × participants). Stage measurements exclude
-collection and serial fallbacks; whole-tick measurements include them but exclude idle
-time between ticks. Worlds are aggregated, and cell counts count executions rather than
-unique locations. Keep configuration and workload fixed when comparing captures. Profiling
-adds measurement overhead and does not unlock TPS. Reports are also written to the server log.
-Per-world entries also report preparation (collection plus inline fallbacks), stage execution,
-and whole-world time. Cell execution percentiles expose uneven work within waves. Spawning
-and thunder use `SPAWNING`; random/precipitation ticks use `CHUNK`. World totals include stage
-work, so these overlapping measurements must not be added together. Cell durations include
-any lock waits; use JFR to distinguish waiting from CPU work.
-
-Benchmarks and profiles are also published as JSON: one `VANADIUM_RESULT {...}` log line and a
-file under `vanadium/results/` in the server directory. Each result records the active
-configuration, worker count, cell size, CPU count, heap and mod versions it was measured with.
-`/vanadium set` is meant for A/B runs in one JVM: for example `/vanadium set parallelTracking off`,
-`/vanadium benchmark`, then `/vanadium reload`.
-
-For a stall investigation, set `slowWaveMillis = 1000` and optionally
-`detailedTickDiagnostics = true` in TOML, then run `/vanadium reload`. A separate watchdog reports the stage,
-dimension, cell size, elapsed time, and active caller/worker stacks while the wave
-is still running. Cell coordinates are **cell units**, not chunks or blocks. Reports are
-limited to one per 30 seconds, with up to eight participant stacks and twelve frames each.
-Polling occurs every 100ms, so this is a diagnostic threshold, not a deadline.
-
-Detailed mode labels queued entity and block-entity ticks with registry type IDs; other
-tasks show their runnable class. It adds wrappers and per-task progress updates. Basic
-mode tracks progress once per cell; disabled mode starts no watchdog thread. Diagnostics
-never cancel, retry, or interrupt tick work. Set `slowWaveMillis = 0` and reload after
-investigating; inline serial fallbacks outside scheduler waves are not monitored.
-
-## Development
-
-```sh
-nix develop               # pinned Java 25 + development tools (optional)
-./gradlew build            # jar + tests
-./gradlew test             # unit tests
-./gradlew runServer        # dev server
-./gradlew benchScheduler   # scheduler micro-benchmark
-./gradlew prepareRuntimeMods # verified C2ME release jar
-./gradlew runIntegration    # isolated live tests + tick/save/shutdown
-```
-
-The [26.3 port notes](docs/PORT_26_3.md) record binding changes, validation and remaining manual checks.
-
-See [development and testing](docs/DEVELOPMENT.md) for setup, EULA handling, isolated server
-checks, reports, and troubleshooting; [architecture notes](docs/ARCHITECTURE.md) describe
-the concurrency model and follow-up investigation areas. [AGENTS.md](AGENTS.md) records
-repository guidance for coding agents.
-
-Measured on/off costs for the recent optimizations are in
-[the historical 26.2 benchmark report](docs/archive/BENCHMARKS_26_2.md), including regressions and workload limits.
-
-The interactive dev server loads runtime mods from `run/mods`. The `prepareRuntimeMods` task downloads
-a pinned, checksum-verified C2ME jar to `.vanadium/mods/`; copy it to `run/mods` for interactive
-use. Gradle live tests and feature benchmarks use fresh `.vanadium/runs/` worlds. C2ME remains a release jar in `mods/`, never a flattened development dependency.
-
-Happy playing!
+Originally derived from [JMT-MCMT](https://github.com/jediminer543/JMT-MCMT) through
+[MCMTFabric](https://github.com/himekifee/MCMTFabric); Vanadium now develops its own architecture.
+Licensed under [GPLv3](LICENSE).

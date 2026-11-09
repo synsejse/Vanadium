@@ -3,12 +3,12 @@
   "id": "vanadium",
   "version": "${version}",
   "name": "Vanadium",
-  "description": "A multi-threading mod for Minecraft, based on MCMT.",
+  "description": "Parallel server ticking for Minecraft. Put more of your CPU to work.",
   "authors": [
     "SynseNetwork"
   ],
   "contact": {
-    "homepage": "",
+    "homepage": "https://github.com/synsejse/Vanadium",
     "sources": "https://github.com/synsejse/Vanadium"
   },
   "license": "GPLv3",
