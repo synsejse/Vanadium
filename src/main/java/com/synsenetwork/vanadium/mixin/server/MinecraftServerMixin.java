@@ -1,7 +1,6 @@
 package com.synsenetwork.vanadium.mixin.server;
 
 import com.synsenetwork.vanadium.Vanadium;
-import com.synsenetwork.vanadium.config.VanadiumConfig;
 import com.synsenetwork.vanadium.tick.WorkerPool;
 import java.util.function.BooleanSupplier;
 import net.minecraft.server.MinecraftServer;
@@ -15,7 +14,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public abstract class MinecraftServerMixin {
     @Inject(method = "tickChildren", at = @At(value = "INVOKE", target = "Ljava/lang/Iterable;iterator()Ljava/util/Iterator;"))
     private void preTick(BooleanSupplier shouldKeepTicking, CallbackInfo ci) {
-        Vanadium.scheduler.setCellSize(VanadiumConfig.resolveCellSize());
+        Vanadium.scheduler.setIsolation(Vanadium.config.isolation);
     }
 
     @Redirect(method = "reloadResources", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/MinecraftServer;isSameThread()Z"))

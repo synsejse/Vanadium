@@ -41,7 +41,7 @@ class WaveDiagnostics internal constructor(
 
     val detailed: Boolean get() = enabled && detailedLabels
 
-    fun watch(stage: Stage, dimension: String, cellSize: Int): Watch? {
+    fun watch(stage: Stage, dimension: String, isolation: Int): Watch? {
         if (!enabled) return null
         if (automatic && polling == null) {
             val scheduler = executor ?: Executors.newSingleThreadScheduledExecutor { task ->
@@ -49,7 +49,7 @@ class WaveDiagnostics internal constructor(
             }.also { executor = it }
             polling = scheduler.scheduleWithFixedDelay(::poll, 100, 100, TimeUnit.MILLISECONDS)
         }
-        return Watch(stage, dimension, cellSize, thresholdNanos, detailedLabels, clock.asLong).also { current = it }
+        return Watch(stage, dimension, isolation, thresholdNanos, detailedLabels, clock.asLong).also { current = it }
     }
 
     /** Called only by the watchdog (or by deterministic tests using an injected clock). */
@@ -77,7 +77,7 @@ class WaveDiagnostics internal constructor(
     inner class Watch internal constructor(
         private val stage: Stage,
         private val dimension: String,
-        private val cellSize: Int,
+        private val isolation: Int,
         internal val thresholdNanos: Long,
         private val detailed: Boolean,
         internal val started: Long,
@@ -93,10 +93,10 @@ class WaveDiagnostics internal constructor(
 
         private fun runTask(task: Runnable) {
             val thread = Thread.currentThread()
-            val progress = Progress(task as? Cell)
+            val progress = Progress(task as? Region)
             running[thread] = progress
             try {
-                if (detailed && task is Cell) {
+                if (detailed && task is Region) {
                     task.run { next -> progress.task = (next as? NamedTask)?.label ?: next.javaClass.name }
                 } else {
                     task.run()
@@ -108,8 +108,8 @@ class WaveDiagnostics internal constructor(
 
         internal fun describe(now: Long): String = buildString {
             append(String.format(Locale.ROOT,
-                "Vanadium slow wave: stage=%s dimension=%s cellSize=%d elapsed=%.0fms; active participants=%d",
-                stage, dimension, cellSize, (now - started) / 1e6, running.size))
+                "Vanadium slow wave: stage=%s dimension=%s isolation=%d chunks elapsed=%.0fms; active participants=%d",
+                stage, dimension, isolation, (now - started) / 1e6, running.size))
             for ((shown, entry) in running.entries.withIndex()) {
                 if (shown == MAX_STACKS) {
                     append("\nAdditional participant stacks omitted (limit ").append(MAX_STACKS).append(")")
@@ -117,7 +117,7 @@ class WaveDiagnostics internal constructor(
                 }
                 val (thread, progress) = entry
                 append("\n").append(thread.name).append(" [").append(thread.state).append("] ")
-                progress.cell?.let { append("cell=(").append(it.cellX).append(",").append(it.cellZ).append(") in cell units") }
+                progress.region?.let { append("region=").append(it) }
                 progress.task?.let { append(" task=").append(it) }
                 thread.stackTrace.take(12).forEach { append("\n  at ").append(it) }
             }
@@ -129,12 +129,12 @@ class WaveDiagnostics internal constructor(
         }
     }
 
-    private class Progress(val cell: Cell?) {
+    private class Progress(val region: Region?) {
         @Volatile
         var task: String? = null
     }
 
-    /** A cell task carrying a registry label for detailed slow-wave reports. */
+    /** A region task carrying a registry label for detailed slow-wave reports. */
     internal class NamedTask(val label: String, private val action: Runnable) : Runnable by action
 
     private companion object {

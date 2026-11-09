@@ -61,10 +61,9 @@ object Vanadium : ModInitializer {
 
     private fun onServerStarting(server: MinecraftServer) {
         val workers = VanadiumConfig.resolveWorkers()
-        val cellSize = VanadiumConfig.resolveCellSize()
-        LOGGER.info("Will use {} threads and cell size {} by {} chunks", workers, cellSize, cellSize)
+        LOGGER.info("Will use {} threads, isolation {} chunks", workers, config.isolation)
         val pool = WorkerPool(workers).also { pool = it }
-        scheduler = TickScheduler(pool, cellSize)
+        scheduler = TickScheduler(pool, config.isolation)
         diagnostics = WaveDiagnostics(LOGGER::warn).also { scheduler.diagnostics = it }
     }
 

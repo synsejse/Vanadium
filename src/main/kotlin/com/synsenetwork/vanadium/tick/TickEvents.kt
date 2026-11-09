@@ -31,18 +31,19 @@ class WaveEvent : Event() {
     @field:Label("Dimension")
     @JvmField var dimension: String? = null
 
-    @field:Label("Cells")
-    @JvmField var cells = 0
+    @field:Label("Regions")
+    @JvmField var regions = 0
 
     @field:Label("Tasks")
     @JvmField var tasks = 0
 
     @field:Label("Participants")
-    @field:Description("Threads that can claim cells, including the server thread")
+    @field:Description("Threads that can claim regions, including the server thread")
     @JvmField var participants = 0
 
-    @field:Label("Cell Size")
-    @JvmField var cellSize = 0
+    @field:Label("Isolation")
+    @field:Description("Chunks between regions that may run at the same time")
+    @JvmField var isolation = 0
 }
 
 @Name("vanadium.Preparation")

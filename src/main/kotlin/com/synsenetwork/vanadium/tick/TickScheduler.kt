@@ -3,20 +3,21 @@ package com.synsenetwork.vanadium.tick
 import java.util.EnumMap
 import java.util.function.LongConsumer
 
-/** Server-thread stage collection and dispatch. Worlds run sequentially, with a barrier per stage. */
-class TickScheduler(private val pool: WorkerPool, cellSize: Int) {
-    private val grids = EnumMap<Stage, CellGrid>(Stage::class.java)
+/**
+ * Server-thread stage collection and dispatch. Worlds run sequentially, with a barrier per stage. Each
+ * stage's tasks are planned into regions that adapt to where the work is ([RegionGrid]); regions within
+ * [isolation] chunks of each other never run at the same time.
+ */
+class TickScheduler(private val pool: WorkerPool, isolation: Int) {
+    private val grids = EnumMap<Stage, RegionGrid>(Stage::class.java).apply { Stage.entries.forEach { put(it, RegionGrid()) } }
     private val preparationStarts = EnumMap<Stage, Long>(Stage::class.java)
     private var dimension = "unknown"
     private var worldStart = 0L
 
-    /** Cell width in chunks; changing it rebuilds the grids and applies from the next stage. */
-    var cellSize: Int = cellSize
+    /** Chunks between work that may run at the same time, 1 to [RegionGrid.MAX_ISOLATION]. Applies from the next wave. */
+    var isolation: Int = isolation.coerceIn(1, RegionGrid.MAX_ISOLATION)
         set(value) {
-            if (value != field) {
-                field = value
-                rebuildGrids()
-            }
+            field = value.coerceIn(1, RegionGrid.MAX_ISOLATION)
         }
 
     var profile: TickProfile? = null
@@ -27,15 +28,11 @@ class TickScheduler(private val pool: WorkerPool, cellSize: Int) {
 
     var diagnostics: WaveDiagnostics? = null
 
-    init {
-        rebuildGrids()
-    }
-
     val workerCount: Int get() = pool.workerCount
 
     val detailedDiagnostics: Boolean get() = diagnostics?.detailed == true
 
-    /** Independent preparation jobs only: inputs stay stable and jobs must not enqueue into cell grids. */
+    /** Independent preparation jobs only: inputs stay stable and jobs must not enqueue into stage grids. */
     fun prepare(kind: Preparation, jobs: List<Runnable>) {
         val recording = profile
         val event = PreparationEvent()
@@ -65,30 +62,25 @@ class TickScheduler(private val pool: WorkerPool, cellSize: Int) {
         profile?.recordPhase(dimension, "world total", System.nanoTime() - worldStart)
     }
 
-    private fun rebuildGrids() {
-        for (stage in Stage.entries) grids[stage] = CellGrid(cellSize)
-    }
-
-    /** Starts a stage's tick: ages idle cells and clears leftover work. */
+    /** Starts a stage's tick: ages idle chunks and clears leftover work. */
     fun begin(stage: Stage) {
         if (profile != null) preparationStarts[stage] = System.nanoTime()
         grids.getValue(stage).beginTick()
     }
 
-    /** Queues a tick task into its cell. Pass null for the label unless detailed diagnostics are enabled. */
+    /** Queues a tick task at its chunk. Pass null for the label unless detailed diagnostics are enabled. */
     fun enqueue(stage: Stage, chunkX: Int, chunkZ: Int, task: Runnable, label: String?) {
         grids.getValue(stage).enqueue(chunkX, chunkZ, if (label == null) task else WaveDiagnostics.NamedTask(label, task))
     }
 
-    /** Runs the stage's queued work as one neighborhood-exclusion wave, then resets the stage. */
+    /** Runs the stage's queued work as one wave, then resets the stage. */
     fun run(stage: Stage) {
         val grid = grids.getValue(stage)
         val recording = profile
         val start = if (recording != null) System.nanoTime() else 0
         preparationStarts.remove(stage)?.let { recording?.recordPhase(dimension, "$stage preparation", start - it) }
         try {
-            val cells = grid.activeCells
-            if (cells.isNotEmpty()) runWave(stage, grid, cells, recording)
+            if (!grid.isEmpty) runWave(stage, grid, recording)
         } finally {
             if (recording != null) {
                 val end = System.nanoTime()
@@ -100,45 +92,59 @@ class TickScheduler(private val pool: WorkerPool, cellSize: Int) {
         }
     }
 
-    private fun runWave(stage: Stage, grid: CellGrid, cells: MutableList<Cell>, recording: TickProfile?) {
-        if (cells.size > 2) cells.sortWith(LARGEST_FIRST)
-        recording?.recordWave(stage, cells)
+    private fun runWave(stage: Stage, grid: RegionGrid, recording: TickProfile?) {
+        val regions = grid.plan(pool.workerCount + 1, isolation)
+        recording?.recordWave(stage, regions)
         val waitRecorder = recording?.let { LongConsumer { nanos -> it.recordWait(stage, nanos) } }
-        val participants = participants(cells.size)
+        val participants = participants(regions.size)
         val event = WaveEvent()
         event.begin()
-        val start = if (recording != null) System.nanoTime() else 0
-        diagnostics?.watch(stage, dimension, cellSize).use { watch ->
-            var tasks: List<Runnable> = watch?.wrap(cells) ?: cells
+        val start = System.nanoTime()
+        diagnostics?.watch(stage, dimension, isolation).use { watch ->
+            var tasks: List<Runnable> = watch?.wrap(regions) ?: regions
             val durations = if (recording != null) LongArray(tasks.size) else null
             if (durations != null) tasks = tasks.mapIndexed { index, task ->
                 Runnable {
-                    val cellStart = System.nanoTime()
+                    val regionStart = System.nanoTime()
                     try {
                         task.run()
                     } finally {
-                        durations[index] = System.nanoTime() - cellStart
+                        durations[index] = System.nanoTime() - regionStart
                     }
                 }
             }
+            var busy = -1L
             try {
-                if (cells.size == 1) {
+                if (regions.size == 1) {
                     tasks[0].run()
                     return
                 }
-                val wave = NeighborhoodWave(cells, tasks, grid)
-                pool.runWave(wave.participants(participants), waitRecorder)
-                wave.failure()?.let { throw RuntimeException("Vanadium worker task failed", it) }
+                // Heavy regions pack best by dynamic claiming; cheap ones by dataflow, which never scans.
+                val failure: Throwable?
+                if (grid.nanosPerRegion >= CLAIM_MIN_REGION_NANOS) {
+                    val wave = ClaimWave(tasks, grid.neighborStart, grid.neighbors)
+                    pool.runWave(wave.participants(participants), waitRecorder)
+                    busy = wave.busyNanos
+                    failure = wave.failure()
+                } else {
+                    val wave = DataflowWave(tasks, grid.neighborStart, grid.neighbors, grid.colours)
+                    pool.runWave(wave.participants(participants), waitRecorder)
+                    busy = wave.busyNanos
+                    failure = wave.failure()
+                }
+                failure?.let { throw RuntimeException("Vanadium worker task failed", it) }
             } finally {
-                if (durations != null) recording?.recordCells(stage, durations)
-                recording?.recordWaveCapacity(stage, System.nanoTime() - start, participants)
+                val wall = System.nanoTime() - start
+                grid.recordWave(if (busy >= 0) busy else wall)
+                if (durations != null) recording?.recordRegions(stage, durations)
+                recording?.recordWaveCapacity(stage, wall, participants)
                 if (event.shouldCommit()) {
                     event.stage = stage.name
                     event.dimension = dimension
-                    event.cells = cells.size
-                    event.tasks = cells.sumOf { it.taskCount }
+                    event.regions = regions.size
+                    event.tasks = grid.taskCount
                     event.participants = participants
-                    event.cellSize = cellSize
+                    event.isolation = isolation
                     event.commit()
                 }
             }
@@ -146,7 +152,11 @@ class TickScheduler(private val pool: WorkerPool, cellSize: Int) {
     }
 
     private companion object {
-        // Largest cells first to shorten the wave's tail.
-        val LARGEST_FIRST = compareByDescending<Cell> { it.taskCount }
+        /**
+         * Average region work above which dynamic claiming beats dataflow ordering: measured on 26.3, heavy
+         * entity regions finished about 6% sooner when claimed, cheap random-tick regions about 2x sooner in
+         * dataflow order.
+         */
+        const val CLAIM_MIN_REGION_NANOS = 100_000.0
     }
 }

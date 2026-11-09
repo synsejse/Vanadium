@@ -1,7 +1,7 @@
 # Profiling Vanadium
 
 Use the JDK tools supplied by `nix develop`, or open recordings in JDK Mission Control.
-Performance measurements must hold worker count, cell size, C2ME budget, heap, flags,
+Performance measurements must hold worker count, isolation, C2ME budget, heap, flags,
 mods and workload fixed. `enabled=false` keeps structural mixins and loaded-chunk lookups;
 it is not a no-Vanadium control.
 
@@ -29,10 +29,10 @@ jfr print --events 'vanadium.*,jdk.JavaMonitorEnter,jdk.ThreadPark' /absolute/pa
 ```
 
 Vanadium emits `vanadium.ServerTick` (work excluding idle), `vanadium.Wave` (stage, world,
-cells, tasks, participants and cell size), and `vanadium.Preparation` (independent jobs).
+regions, tasks, participants and isolation), and `vanadium.Preparation` (independent jobs).
 Correlate these intervals with worker samples, monitor blocking, parks and allocation
 samples in Mission Control. The serial remainder of tick work bounds potential scaling.
-Cell duration includes lock waits and does not establish CPU utilization by itself.
+Region duration includes lock waits and does not establish CPU utilization by itself.
 
 `./gradlew runIntegration -Plive.jfr=true` captures the isolated live suite with 100µs
 monitor thresholds. `./gradlew runFeatureBench` writes separate on/off JFR recordings and

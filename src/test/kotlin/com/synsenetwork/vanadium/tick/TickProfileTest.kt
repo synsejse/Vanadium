@@ -19,7 +19,7 @@ class TickProfileTest {
     }
 
     @Test
-    fun captureCountsCellsTasksAndWaitWithoutChangingDispatch() {
+    fun captureCountsRegionsTasksAndWaitWithoutChangingDispatch() {
         val pool = WorkerPool(2)
         try {
             val scheduler = TickScheduler(pool, 2)
@@ -38,7 +38,7 @@ class TickProfileTest {
             scheduler.finishWorld()
             profile.recordTick(1_000_000_000) // Longer than any fixture wave, so the serial share is positive.
             val report = profile.report()
-            for (expected in listOf("waves=1 cells=2 tasks=3; tasks/cell avg=1.5 max=2", "cell execution n=2",
+            for (expected in listOf("waves=1 regions=2 tasks=3; tasks/region avg=1.5 max=2", "region execution n=2",
                     "participant utilization", "Preparation SPAWN_COUNTS: n=1", "jobs avg=3.0", "Parallel sections:",
                     "cannot make ticks more than", "test:world / ENTITY preparation: n=1",
                     "test:world / ENTITY execution: n=1", "test:world / world total: n=1")) {

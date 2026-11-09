@@ -1,12 +1,11 @@
 package com.synsenetwork.vanadium.config
 
 import com.synsenetwork.vanadium.Vanadium
+import com.synsenetwork.vanadium.tick.RegionGrid
 import me.shedaniel.autoconfig.ConfigData
 import me.shedaniel.autoconfig.annotation.Config
 import me.shedaniel.cloth.clothconfig.shadowed.blue.endless.jankson.Comment
 import net.minecraft.resources.Identifier
-import kotlin.math.roundToInt
-import kotlin.math.sqrt
 
 /** TOML-backed options (`config/vanadium.toml`). Fields are public for AutoConfig and the Java mixins. */
 @Config(name = "vanadium")
@@ -18,9 +17,9 @@ class VanadiumConfig : ConfigData {
             + "are clamped between 2 and max(2, available logical processors). Takes effect on restart.")
     @JvmField var workers = 0
 
-    @field:Comment("Width/height, in chunks, of each parallel cell. 0 = auto (chosen from resolved worker count). "
-            + "Smaller cells = finer parallelism but more overhead. Applies next tick.")
-    @JvmField var cellSize = 0
+    @field:Comment("Minimum distance, in chunks, between work that may run at the same time (1 to 16). "
+            + "Work regions adapt to the world automatically; this only sets the safety margin. Applies next tick.")
+    @JvmField var isolation = 2
 
     @field:Comment("Tick entities in parallel")
     @JvmField var parallelEntities = true
@@ -79,7 +78,9 @@ class VanadiumConfig : ConfigData {
     }
 
     override fun validatePostLoad() {
-        if (cellSize < 0) throw ConfigData.ValidationException("cellSize must be >= 0 (0 = auto) (got $cellSize).")
+        if (isolation !in 1..RegionGrid.MAX_ISOLATION) {
+            throw ConfigData.ValidationException("isolation must be within 1..${RegionGrid.MAX_ISOLATION} (got $isolation).")
+        }
         if (slowWaveMillis < 0) throw ConfigData.ValidationException("slowWaveMillis must be >= 0")
         try {
             refreshSerialRules()
@@ -95,16 +96,5 @@ class VanadiumConfig : ConfigData {
 
         internal fun resolveWorkers(workers: Int, availableProcessors: Int): Int =
             if (workers <= 0) availableProcessors else workers.coerceIn(2, maxOf(2, availableProcessors))
-
-        /** The cell size to use: the explicit config value, or the worker-count heuristic when 0 (auto). */
-        @JvmStatic
-        fun resolveCellSize(): Int = Vanadium.config.cellSize.takeIf { it > 0 } ?: autoCellSize(resolveWorkers())
-
-        /**
-         * Neighbor exclusion lets at most about a quarter of densely packed cells run at once, so aim for
-         * four cells per participant over a typical ticking area (~ simulation distance 10). Clamped.
-         */
-        internal fun autoCellSize(parallelism: Int): Int =
-            sqrt(441.0 / (4 * maxOf(1, parallelism))).roundToInt().coerceIn(2, 8)
     }
 }

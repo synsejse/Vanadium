@@ -39,7 +39,7 @@ class TickSchedulerTest {
     }
 
     @Test
-    fun neighborhoodWaveNeverRunsAdjacentCellsTogether() {
+    fun wavesNeverRunChunksWithinIsolationTogether() {
         val pool = WorkerPool(8)
         val scheduler = TickScheduler(pool, 1)
         val size = 12
@@ -68,12 +68,46 @@ class TickSchedulerTest {
         }
         val expected = (0 until 40).sumOf { round -> (0 until size).sumOf { x -> (0 until size).sumOf { z -> tasksAt(x, z, round) } } }
         assertEquals(expected, executed.get())
-        assertEquals(0, violations.get(), "adjacent cells overlapped")
+        assertEquals(0, violations.get(), "chunks within isolation overlapped")
         pool.close()
     }
 
     @Test
-    fun neighborhoodWaveKeepsInsertionOrderWithinCells() {
+    fun heavyRegionsSwitchToClaimingAndKeepIsolation() {
+        val pool = WorkerPool(6)
+        val scheduler = TickScheduler(pool, 1)
+        val size = 6
+        val running = Array(size) { Array(size) { AtomicInteger() } }
+        val violations = AtomicInteger()
+        val executed = AtomicInteger()
+        repeat(6) {
+            scheduler.begin(Stage.ENTITY)
+            for (x in 0 until size) for (z in 0 until size) {
+                scheduler.enqueue(Stage.ENTITY, x, z, {
+                    running[x][z].incrementAndGet()
+                    for (dx in -1..1) for (dz in -1..1) {
+                        val nx = x + dx
+                        val nz = z + dz
+                        if ((dx != 0 || dz != 0) && nx in 0 until size && nz in 0 until size && running[nx][nz].get() > 0) {
+                            violations.incrementAndGet()
+                        }
+                    }
+                    // Heavy enough that, once measured, regions run by dynamic claiming.
+                    val until = System.nanoTime() + 150_000
+                    while (System.nanoTime() < until) Thread.onSpinWait()
+                    executed.incrementAndGet()
+                    running[x][z].decrementAndGet()
+                }, null)
+            }
+            scheduler.run(Stage.ENTITY)
+        }
+        assertEquals(6 * size * size, executed.get())
+        assertEquals(0, violations.get(), "chunks within isolation overlapped")
+        pool.close()
+    }
+
+    @Test
+    fun wavesKeepEnqueueOrderWithinChunks() {
         val pool = WorkerPool(4)
         val scheduler = TickScheduler(pool, 2)
         val seen = List(9) { Collections.synchronizedList(ArrayList<Int>()) }
@@ -87,7 +121,7 @@ class TickSchedulerTest {
     }
 
     @Test
-    fun neighborhoodWaveFinishesOtherCellsAndPropagatesFailure() {
+    fun wavesFinishOtherRegionsAndPropagateFailure() {
         val pool = WorkerPool(4)
         val scheduler = TickScheduler(pool, 1)
         val completed = AtomicInteger()

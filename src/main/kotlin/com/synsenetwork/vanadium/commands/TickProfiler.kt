@@ -28,7 +28,7 @@ object TickProfiler {
         startedAt = System.nanoTime()
         deadline = startedAt + seconds * 1_000_000_000L
         tickStart = 0
-        configuration = "workers=${Vanadium.scheduler.workerCount}, initial cellSize=${Vanadium.scheduler.cellSize}; " +
+        configuration = "workers=${Vanadium.scheduler.workerCount}, isolation=${Vanadium.scheduler.isolation}; " +
                 "keep configuration fixed during capture"
         return true
     }

@@ -13,7 +13,7 @@ single blue accent.
 | Accent | `#346bf1` | `#1b4ed8` |
 
 - `vanadium.svg`: editable 256 × 256 icon source; the README uses it directly.
-- `performance-dark.svg`, `performance-light.svg`: the historical chart for each GitHub theme,
+- `performance-dark.svg`, `performance-light.svg`: the 26.3 benchmark chart for each GitHub theme,
   with accessible title and description.
 - `performance.csv`: plotted values; provenance is in [performance notes](../PERFORMANCE.md).
 

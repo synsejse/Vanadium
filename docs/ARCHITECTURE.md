@@ -6,24 +6,60 @@ thread gathers work and waits at explicit barriers.
 
 ## Scheduling
 
-Each server startup creates its own `WorkerPool` and `TickScheduler`. Each stage has
-a reusable `CellGrid`. Chunks map to cells using floor division. Tasks inside a cell run
-in insertion order, and two neighboring cells (Chebyshev distance one) never run at the
-same time. The grid reuses cells and buckets and evicts cells idle for more than 100 stage begins.
+Each server startup creates its own `WorkerPool` and `TickScheduler`. Each stage has a
+reusable `RegionGrid`, which records tasks per chunk in enqueue order and evicts chunks idle for
+more than 100 stage begins.
 
-By default a stage is one `NeighborhoodWave`: every active cell, sorted largest-first, is
-claimed by whichever participant finds it free. A claimant moves the cell to TRYING, then
-inspects its active neighbors: a RUNNING neighbor makes it back off; between two TRYING
-neighbors the higher index backs off and the lower waits. All state accesses are volatile,
-so two adjacent claimants cannot both pass, and waits only point to higher indices. A claim
-first reads the neighbors and writes nothing if one is busy. A participant whose scan claims
-nothing spins on the completion count rather than rescanning: a claim backs off only for a
-RUNNING neighbor or a lower-index TRYING one, and each such chain ends at a cell that runs, so a
-completion is always coming. Before this, idle participants rescanned and CAS-flipped cell
-states, which was 23% of all samples at 32 workers and slowed running cells through cache-line
-traffic. Cell failures are collected and rethrown after the wave. Adjacent cells therefore run in an
-order that can change between ticks. This replaced a four-color schedule with a barrier per
-color, which provided the same exclusion but made every color wait for its slowest cell.
+**Isolation.** Work in chunks within `isolation` chunks of each other (Chebyshev distance;
+default 2) never runs at the same time. This is the only spatial safety rule, and it does not
+depend on worker count or region shape.
+
+**Adaptive regions.** The grid plans regions from where the work is. Chunks live in dense 16×16
+tiles; each active tile splits like a quadtree while a square holds more tasks than the target,
+`max(tasks / (participants × 4), smallest region worth claiming)`. The smallest worthwhile
+region is about 25 µs of work, estimated from the time participants actually spent running the
+previous waves' tasks. Crowded areas therefore become single-chunk regions, while quiet areas and
+cheap stages (random ticks) stay merged. Square weights come from per-tile prefix sums. A region
+is the bounding box of its chunks, and its tasks keep their enqueue order. Two regions conflict
+when their boxes are within `isolation` of each other; boxes are stamped into their tile and the
+ring around each box is scanned, which makes the relation symmetric by construction.
+
+Planning a crowded stage costs hundreds of microseconds on the server thread, mostly cache misses,
+so a plan is reused while every active chunk still belongs to one of its regions: for up to 20
+waves, while the task count stays within a quarter of the planned one, and while the region-size
+target stays within a factor of two. Conflicts are defined on boxes, so a reused plan is exactly as
+safe as a fresh one; regions whose chunks went quiet run empty.
+
+**Waves.** Regions are ordered heaviest first and coloured greedily so conflicting regions never
+share a colour. The scheduler picks the wave from the measured work per region:
+
+- `ClaimWave` (at least 100 µs per region, typically entities): a region starts whenever none of
+  its conflicts is running. A claimant moves its region to TRYING and inspects its conflicts; a
+  RUNNING one makes it back off, and between two TRYING ones the higher index backs off while the
+  lower waits. All state accesses are volatile, so two conflicting claimants cannot both pass, and
+  waits only point to higher indices. Claims first read the conflicts and write nothing if one is
+  busy, and a participant whose scan claims nothing spins on the completion count rather than
+  rescanning. Every back-off chain ends at a region that runs, so a completion is always coming.
+- `DataflowWave` (cheaper regions, typically random ticks): a region runs once all its
+  lower-coloured conflicts have finished, so conflicting regions are always ordered and the order
+  cannot cycle. Ready regions are published into a slot array; each becomes ready once, so a
+  participant takes the next slot with one atomic increment and a completion only decrements its
+  successors. Nothing scans or retries.
+
+Neither wave has stage-wide barriers between groups of regions. Failures are collected, every
+region still completes or releases its successors, and the first failure is rethrown after the
+wave. Order between conflicting regions can change between ticks.
+
+**Why this shape.** Captured per-chunk work replayed offline, then checked in one 26.3 server JVM
+(32 workers, 4,096 zombies, isolation 2): finer regions shortened the entity wave around clustered
+farms by about 8% and changed nothing on a uniform crowd; claiming finished heavy entity regions
+about 6% sooner than dataflow ordering, while dataflow ran cheap random-tick waves about twice as
+fast as claiming, whose scans grow with region count. Crowds whose chunks all lie within the
+isolation distance (mob farms) are inherently serial: no region shape can run them in parallel.
+
+The final split factor of four retained uniform-world throughput and improved the clustered
+fixture by about 11% against the fixed grid. See the [26.3 A/B results](benchmarks/ADAPTIVE_GRID_26_3.md)
+for all samples, configuration and limitations.
 
 `WorkerPool.runWave()` claims tasks from an indexed list on both persistent pool threads
 and its caller. The caller publishes a private `WorkBatch` through one volatile field; idle
@@ -51,8 +87,8 @@ The actual stage timing comes from Minecraft mixin injection points, not the enu
 | Block entities | `LevelMixin` queues supported tick invokers and drains at the end |
 
 Large populations are collected in two phases (`BatchEnqueue`): the server thread only records
-entities (or ticking chunk holders), workers map contiguous slices to a cell key and task, and
-the server thread then enqueues the results in recording order, so per-cell insertion order is
+entities (or ticking chunk holders), workers map contiguous slices to a chunk key and task, and
+the server thread then enqueues the results in recording order, so per-chunk enqueue order is
 unchanged. This keeps the server thread from dereferencing thousands of objects last written by
 workers on other cores. Serial-rule entities still run inline, in order, before the wave.
 
@@ -70,12 +106,12 @@ individual ticker lookups do not scan the configured lists.
 `TickProfiler` attaches an optional `TickProfile` to the scheduler from a server-tick start
 event. It records tick work at the end event and stage execution around each scheduler drain.
 The pool reports the caller's tail wait after it finishes claiming work; this is distinct
-from total stage duration and is not a measurement of lock contention. Cell/task counts
+from total stage duration and is not a measurement of lock contention. Region/task counts
 are read on the server thread while wave lists are stable. There are no worker-side profile
 counters or per-task timers in normal operation. The server thread emits JFR events per tick,
 stage wave and preparation run (`TickEvents.kt`); they are inert without a recording.
 Profiles also record each wave's wall time times its participants, so per-stage utilization is
-cell time over that capacity, and the tick split is stage waves, preparation and serial rest. Opt-in profiles time each cell into a
+region time over that capacity, and the tick split is stage waves, preparation and serial rest. Opt-in profiles time each region into a
 separate array slot, then aggregate samples on the caller after the barrier. Per-world
 preparation intervals include collection and inline fallbacks, and world totals overlap
 stage timings. Spawning/thunder and random/precipitation work have separate stage entries.
@@ -86,7 +122,7 @@ active/previous captures and releases the command source.
 
 `WaveDiagnostics` is an optional daemon watchdog, created for each server lifecycle and
 closed at server stop. The scheduler publishes one watched wave with its dimension/stage
-context. Caller and workers publish/remove their current cell around execution; detailed
+context. Caller and workers publish/remove their current region around execution; detailed
 mode also updates a volatile task label. The watchdog reads this progress map and thread
 stacks without acquiring world or scheduler monitors. Reports are bounded and rate-limited,
 and completed waves are detached in `finally`, including failures. Task completion barriers
@@ -107,7 +143,7 @@ and AI. Random tick positions (`getBlockRandomPos`) also come from the calling t
 instead of the shared LCG field, so no world-wide lock remains on the random-tick path. The
 level random never offered a reproducible shared sequence (its seed is unique per instance).
 
-Neighbor exclusion separates neighboring cells; it does not bound every possible interaction.
+Isolation keeps concurrent regions apart; it does not bound every possible interaction.
 Vanadium also replaces collections, adds monitors, uses striped entity locks, and stamps
 `ACC_SYNCHRONIZED` on selected vanilla instance methods through `SynchronisePlugin`.
 Changing a mixin ordinal, lock scope, or collection view can change correctness even when
@@ -180,7 +216,7 @@ of sections plus, per chunk column, an immutable array of section Ys. Every AI e
 only the columns inside the box, where vanilla's AVL set walked every section at each section X.
 Visit order matches vanilla's sorted keys (X, then Z and Y in unsigned packed order). Section
 creation and removal serialize on the index. `GoalSelector` keeps vanilla's ordered set: goals
-belong to one mob, which only its own cell ticks.
+belong to one mob, which only its own region ticks.
 
 Chunk simulation levels and POI village distances, which workers read on every entity tick, are
 `ConcurrentLong2ByteMap`s: primitive open addressing whose slots are published FULL with release
@@ -306,6 +342,6 @@ These are source-inspection leads, not a completed concurrency audit:
   callback reinitialization and dedicated-server resource shutdown have automated coverage.
 - The 1.21.1 source audit in `archive/TICK_COVERAGE.md` is historical. The scheduled-tick and
   passenger-rule fixes now have live checks; full interacting redstone machines, dynamically
-  changing passenger trees, and modpack-specific cross-cell behavior still need coverage.
+  changing passenger trees, and modpack-specific cross-region behavior still need coverage.
 
 See [development and validation](DEVELOPMENT.md) for commands and the live-test matrix.

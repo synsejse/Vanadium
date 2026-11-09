@@ -23,7 +23,7 @@ class FeatureBench : ModInitializer {
                         Vanadium.scheduler = TickScheduler(pool, 2)
                         Vanadium.config.enabled = true
                         Files.writeString(Path.of("feature-bench/environment.txt"),
-                            "java=${System.getProperty("java.runtime.version")}\nworkers=$workers\ncellSize=2\n" +
+                            "java=${System.getProperty("java.runtime.version")}\nworkers=$workers\nisolation=2\n" +
                                     "processors=${Runtime.getRuntime().availableProcessors()}\nmaxHeap=${Runtime.getRuntime().maxMemory()}\n" +
                                     "os=${System.getProperty("os.name")} ${System.getProperty("os.arch")}\n" +
                                     "jvmArgs=${java.lang.management.ManagementFactory.getRuntimeMXBean().inputArguments}\n" +

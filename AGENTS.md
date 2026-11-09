@@ -47,7 +47,7 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
   call `vanadium$` methods from Kotlin with backticks. Keep collection adapters on fastutil's
   `Abstract*` bases and override every method that would read unused superclass storage.
 - `Vanadium.kt`: config, server lifecycle ownership of the shared scheduler/pool, command registration.
-- `tick/`: cell coordinates, cell grid, neighborhood-exclusion waves, batched stage collection,
+- `tick/`: adaptive region planning (`RegionGrid`), claim and dataflow waves, batched stage collection,
   stage scheduler, caller-participating spin-then-park worker pool.
 - `chunk/`: chunk manager/cache and per-position loading locks.
 - `concurrent/`: fastutil-compatible concurrent wrappers and striped entity locks.
@@ -65,12 +65,13 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 ## Concurrency rules
 
 - Worlds are processed sequentially through one shared scheduler. Enqueue/reset operations
-  belong to the server thread; workers read/run cells only within a wave.
+  belong to the server thread; workers read/run regions only within a wave.
 - Create a fresh scheduler/pool per server lifecycle and close the pool after the final wave.
   Chunk managers own their maintenance executors; `ChunkLockTable` owns no background threads.
-- Two neighboring cells (Chebyshev distance one) never run concurrently; all tasks in a cell
-  run serially in insertion order. Maintain a full completion barrier between stages.
-  Order between neighboring cells may vary between ticks.
+- Work in chunks within `isolation` chunks of each other (Chebyshev distance) never runs
+  concurrently; all tasks in a region run serially in enqueue order. Cheap regions are ordered by
+  colour; heavy regions claim dynamically. Keep colouring proper and conflict lists symmetric. Maintain a full
+  completion barrier between stages. Order between conflicting regions may vary between ticks.
 - Keep tick-path hot spots lock-free: every moving mob, chunk lookup or random draw on every
   worker multiplies any shared monitor. Check JFR monitor events (threshold 100µs) on the
   target machine after touching entity, chunk, navigation or saved-data paths.
@@ -85,9 +86,9 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - Keep lock ordering deterministic. Preserve reservation/eviction atomicity in `ChunkLockTable`.
 - Full chunks are published by `LevelChunk.setLoaded` before their load completes; recheck that
   map under the load lock, and never publish unloaded or null chunks.
-- Use floor division/modulo for negative chunk coordinates. Cell units, chunks, blocks,
+- Use floor division/modulo for negative chunk coordinates. Chunks, blocks,
   and packed positions are distinct; verify conversions at zero and negative boundaries.
-- Neighbor exclusion does not protect every cross-cell interaction. Preserve explicit
+- Isolation does not protect every cross-region interaction. Preserve explicit
   entity locks, world synchronization, and collection semantics, including fastutil views.
 - SavedDataStorage has asynchronous writes in 26.3: never synchronize saveAndJoin/close
   across their completion wait. Keep cache/snapshot locks separate from disk IO.
@@ -108,7 +109,7 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
   changes, also run the smoke test and document manual scenarios still untested.
 - Unit tests do not boot Fabric or apply Minecraft mixins. A passing build is not proof
   of world safety, multiplayer correctness, or improved performance.
-- Record benchmark hardware, worker count, cell size, flags, mod versions, and workload.
+- Record benchmark hardware, worker count, isolation, flags, mod versions, and workload.
 - Keep generated jars, worlds, logs, caches, profiler recordings, and IDE files untracked.
   Existing `run/` contains personal development state: do not overwrite or delete it.
   Automated runs use fresh `.vanadium/runs/` directories and retain evidence on failure.
