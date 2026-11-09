@@ -40,7 +40,19 @@
   },
   "suggests": {},
   "breaks": {
-    "lithium": "*",
+    "lithium": "<0.26.3",
     "vmp": "*"
+  },
+  "custom": {
+    "lithium:options": {
+      "mixin.world.chunk_access": false,
+      "mixin.entity.inactive_navigations": false,
+      "mixin.chunk.entity_class_groups": false,
+      "mixin.collections.entity_filtering": false,
+      "mixin.collections.entity_by_type": false,
+      "mixin.collections.entity_ticking": false,
+      "mixin.entity.fast_retrieval": false,
+      "mixin.profiler": false
+    }
   }
 }

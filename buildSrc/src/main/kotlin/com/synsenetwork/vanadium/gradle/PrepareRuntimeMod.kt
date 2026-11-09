@@ -36,7 +36,7 @@ abstract class PrepareRuntimeMod : DefaultTask() {
         val target = destination.get().asFile.toPath()
         if (!Files.exists(target)) {
             Files.createDirectories(target.parent)
-            val temporary = Files.createTempFile(target.parent, "c2me-", ".download")
+            val temporary = Files.createTempFile(target.parent, "runtime-mod-", ".download")
             try {
                 val connection = URI(downloadUrl.get()).toURL().openConnection().apply {
                     connectTimeout = 60_000
@@ -44,13 +44,13 @@ abstract class PrepareRuntimeMod : DefaultTask() {
                     setRequestProperty("User-Agent", "Vanadium-development")
                 }
                 connection.getInputStream().use { input -> Files.copy(input, temporary, StandardCopyOption.REPLACE_EXISTING) }
-                check(hash(temporary) == sha512.get()) { "C2ME checksum mismatch" }
+                check(hash(temporary) == sha512.get()) { "Runtime mod checksum mismatch: ${downloadUrl.get()}" }
                 Files.move(temporary, target)
             } finally {
                 Files.deleteIfExists(temporary)
             }
         }
-        check(hash(target) == sha512.get()) { "C2ME checksum mismatch: $target" }
+        check(hash(target) == sha512.get()) { "Runtime mod checksum mismatch: $target" }
         logger.lifecycle("Verified runtime mod: $target")
     }
 }
