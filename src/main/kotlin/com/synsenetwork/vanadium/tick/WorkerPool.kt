@@ -137,6 +137,12 @@ class WorkerPool(threads: Int) : AutoCloseable {
         @Volatile
         private var parked = false
 
+        /** Set by [runDeferrable] for the task running on this thread; touched only by this thread. */
+        var deferrable = false
+
+        /** The running deferrable task asked for the server thread, even if a caller swallowed the signal. */
+        var deferred = false
+
         init {
             isDaemon = true
         }
@@ -185,5 +191,51 @@ class WorkerPool(threads: Int) : AutoCloseable {
         /** True when called from a thread owned by a WorkerPool. */
         @JvmStatic
         fun isWorkerThread(): Boolean = Thread.currentThread() is WorkerThread
+
+        /**
+         * Runs [task], letting work that needs the server thread unwind it with [ServerThreadRequired]. The server
+         * thread participates in the same wave, so a worker waiting for it would never be released. Returns false
+         * when the task was abandoned and must be rerun on the server thread after the wave; anything it did
+         * before that point stays done. Off a worker thread the task just runs: the server thread may block.
+         */
+        @JvmStatic
+        fun runDeferrable(task: Runnable): Boolean {
+            val worker = Thread.currentThread() as? WorkerThread
+            if (worker == null) {
+                task.run()
+                return true
+            }
+            val outerDeferrable = worker.deferrable
+            val outerDeferred = worker.deferred
+            worker.deferrable = true
+            worker.deferred = false
+            try {
+                task.run()
+                return !worker.deferred
+            } catch (t: Throwable) {
+                // A failure after a swallowed signal is a consequence of it; the server-thread rerun shows real bugs.
+                if (t !is ServerThreadRequired && !worker.deferred) throw t
+                return false
+            } finally {
+                // The rerun belongs to this task's caller; an enclosing deferrable task keeps only its own state.
+                worker.deferrable = outerDeferrable
+                worker.deferred = outerDeferred
+            }
+        }
+
+        /**
+         * On a worker inside [runDeferrable], marks the task for the server thread and returns the signal to throw;
+         * otherwise null, and the caller must handle [what] itself. Marking survives a caller swallowing the signal.
+         */
+        @JvmStatic
+        fun deferToServerThread(what: String): ServerThreadRequired? {
+            val worker = Thread.currentThread() as? WorkerThread ?: return null
+            if (!worker.deferrable) return null
+            worker.deferred = true
+            return ServerThreadRequired(what)
+        }
     }
 }
+
+/** Unwinds a worker task that needs the server thread; see [WorkerPool.runDeferrable]. No stack trace is captured. */
+class ServerThreadRequired(what: String) : RuntimeException("$what requires the server thread", null, false, false)

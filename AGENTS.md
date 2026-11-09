@@ -84,6 +84,9 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - Wave input lists stay stable until `runWave` returns. Late helpers use a saved task count
   and must not read lists that the caller has already cleared/reused. Interruption waits
   for all tasks before restoring the caller's interrupt flag; it does not cancel a wave.
+- Workers must never block on work only the server thread can perform (chunk loading/generation,
+  main-thread tasks): it participates in the wave, so the wait never ends. Make such tasks
+  deferrable (`WorkerPool.runDeferrable`, rerun after the wave) rather than waiting.
 - Do not wait at a worker barrier while holding a monitor needed by those workers.
   Scheduled ticks are collected under vanilla scheduling and dispatched after its monitor releases.
 - Keep lock ordering deterministic. Preserve reservation/eviction atomicity in `ChunkLockTable`.

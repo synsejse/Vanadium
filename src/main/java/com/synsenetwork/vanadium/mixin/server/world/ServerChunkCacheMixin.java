@@ -7,6 +7,7 @@ import com.synsenetwork.vanadium.tick.Stage;
 import com.synsenetwork.vanadium.tick.ChunkTickBatch;
 import com.synsenetwork.vanadium.tick.ChunkTickSink;
 import com.synsenetwork.vanadium.tick.SpawnPreparation;
+import com.synsenetwork.vanadium.tick.SpawnTasks;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -54,6 +55,7 @@ public abstract class ServerChunkCacheMixin {
     @Inject(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;)V", at = @At("HEAD"))
     private void beginChunkTicks(ProfilerFiller profiler, CallbackInfo ci) {
         Vanadium.scheduler.begin(Stage.SPAWNING);
+        vanadium$spawns().clear();
     }
 
     /**
@@ -65,6 +67,7 @@ public abstract class ServerChunkCacheMixin {
             target = "Lnet/minecraft/server/level/ChunkMap;forEachBlockTickingChunk(Ljava/util/function/Consumer;)V"))
     private void finishSpawning(ProfilerFiller profiler, CallbackInfo ci) {
         Vanadium.scheduler.run(Stage.SPAWNING);
+        vanadium$spawns().runDeferred();
         Vanadium.scheduler.begin(Stage.CHUNK);
         if (Vanadium.config.enabled && Vanadium.config.parallelChunkTicks) {
             ChunkTickBatch batch = vanadium$chunkTicks();
@@ -87,6 +90,15 @@ public abstract class ServerChunkCacheMixin {
     private ChunkTickBatch vanadium$chunkTickBatch;
 
     @Unique
+    private SpawnTasks vanadium$spawnTasks;
+
+    @Unique
+    private SpawnTasks vanadium$spawns() {
+        if (vanadium$spawnTasks == null) vanadium$spawnTasks = new SpawnTasks((ServerChunkCache) (Object) this);
+        return vanadium$spawnTasks;
+    }
+
+    @Unique
     private ChunkTickBatch vanadium$chunkTicks() {
         if (vanadium$chunkTickBatch == null) vanadium$chunkTickBatch = new ChunkTickBatch(level);
         return vanadium$chunkTickBatch;
@@ -104,8 +116,9 @@ public abstract class ServerChunkCacheMixin {
             NaturalSpawner.spawnForChunk(level, chunk, info, categories);
             return;
         }
-        Vanadium.scheduler.enqueue(Stage.SPAWNING, chunk.getPos().x(), chunk.getPos().z(),
-                () -> NaturalSpawner.spawnForChunk(level, chunk, info, categories), null);
+        // A chunk whose spawn checks need the server thread reruns there after the wave.
+        vanadium$spawns().enqueue(Vanadium.scheduler, chunk,
+                () -> NaturalSpawner.spawnForChunk(level, chunk, info, categories));
     }
 
     @Redirect(method = "tickSpawningChunk", at = @At(value = "INVOKE",

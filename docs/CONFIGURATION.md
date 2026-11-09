@@ -17,7 +17,7 @@ Loaded-chunk lookups are unconditional infrastructure; the former `chunkCache` o
 | `serialBlockEntityTypes` | `[]` | Block-entity type IDs that tick serially |
 | `parallelChunkTicks` | `true` | Tick chunks (weather, random ticks) in parallel |
 | `parallelScheduledTicks` | `true` | Run scheduled block/fluid ticks (redstone, fluid spread, leaf decay) in parallel |
-| `parallelSpawning` | `true` | Run per-chunk natural mob spawning in parallel |
+| `parallelSpawning` | `true` | Run per-chunk natural mob spawning in parallel; chunks whose structure lookups need ungenerated chunks rerun on the server thread after the wave |
 | `parallelTracking` | `true` | Run entity tracking (movement/data packets to watching players) in parallel |
 | `parallelChunkPackets` | `true` | Prepare chunk section packet data in parallel between world ticks |
 | `consolidateFlushes` | `true` | Batch each connection's packets into one flush per tick instead of one per packet |

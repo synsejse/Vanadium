@@ -101,6 +101,13 @@ conservative fallback. It does not run pathfinding asynchronously.
   (or the cache monitor with parallel loading disabled). FULL publication is rechecked
   after acquiring the load lock. Never publish null or non-FULL results. Minecraft's
   own background workers bounce synchronous loading to the server thread.
+- Vanadium workers never wait for chunk work only the server thread can do: it is in the
+  same wave, and C2ME makes new holders visible only during its tick. A worker gets a chunk
+  only if C2ME has already completed the requested status. Otherwise a task run through
+  `WorkerPool.runDeferrable` unwinds with `ServerThreadRequired` and reruns on the server
+  thread after the wave; other callers log a rate-limited warning and wait as before.
+  Spawning is deferrable: it prechecks the chunk's referenced structure starts, so the
+  usual deferral (joins and exploration) happens before any spawn attempt.
 - `ChunkLockTable` reserves entries atomically against eviction. Unlock before dropping a
   reservation; maintenance must not evict a held or pending lock.
 - Per-holder synchronization protects chunk block/light updates. Dirty notifications queue
