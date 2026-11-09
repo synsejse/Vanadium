@@ -1,60 +1,71 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="400" viewBox="0 0 960 400" role="img" aria-labelledby="title desc">
-<title id="title">Vanadium throughput and worker scaling (Minecraft 26.2)</title>
-<desc id="desc">Minecraft 26.2, dual Xeon E5-2699 v3 VM, 4096 AI zombies in 1024 chunks, no players. At 32 workers: off 7.6 TPS, on 81.3 TPS. Worker sweep: 16 workers 63.8, 24 workers 71.7, 32 workers 73.8, 36 workers 76.3, 48 workers 68.5 TPS. Separate experiments; off keeps structural changes.</desc>
-<rect x=".5" y=".5" width="959" height="399" rx="12" fill="#0a0a0a" stroke="#ffffff" stroke-opacity=".08"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="464" viewBox="0 0 960 464" role="img" aria-labelledby="title desc">
+<title id="title">Vanadium 26.3 worker scaling and adaptive-region comparison</title>
+<desc id="desc">Minecraft 26.3. Fixed-grid worker sweep: 2 helpers 29.3 TPS; 4 helpers 43.6 TPS; 8 helpers 63.3 TPS; 16 helpers 93.4 TPS; 24 helpers 112.2 TPS; 32 helpers 119.1 TPS; 36 helpers 114.1 TPS; 48 helpers 99.8 TPS; 64 helpers 85.9 TPS. Separate 32-helper A/B: uniform fixed 120.4, adaptive 120.4 TPS; clustered fixed 82.2, adaptive 91.5 TPS. Scaling is from before adaptive regions, not the current scheduler. No vanilla comparison.</desc>
+<rect x=".5" y=".5" width="959" height="463" rx="12" fill="#0a0a0a" stroke="#27272a"/>
 <g font-family="Inter, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
-<text x="32" y="44" fill="#f1f3f7" font-size="17" font-weight="600">Throughput and worker scaling</text>
-<text x="32" y="68" fill="#a3a3a3" font-size="13">Minecraft 26.2 · dual Xeon E5-2699 v3 VM · 4,096 AI zombies · 1,024 chunks · uncapped TPS</text>
-<text x="32" y="114" fill="#f1f3f7" font-size="14" font-weight="600">Parallel ticking, 32 workers</text>
-<path d="M32 132V300" stroke="#ffffff" stroke-opacity=".07"/>
-<text x="32" y="322" text-anchor="middle" fill="#a3a3a3" font-size="12">0</text>
-<path d="M110.4 132V300" stroke="#ffffff" stroke-opacity=".07"/>
-<text x="110.4" y="322" text-anchor="middle" fill="#a3a3a3" font-size="12">20</text>
-<path d="M188.8 132V300" stroke="#ffffff" stroke-opacity=".07"/>
-<text x="188.8" y="322" text-anchor="middle" fill="#a3a3a3" font-size="12">40</text>
-<path d="M267.2 132V300" stroke="#ffffff" stroke-opacity=".07"/>
-<text x="267.2" y="322" text-anchor="middle" fill="#a3a3a3" font-size="12">60</text>
-<path d="M345.6 132V300" stroke="#ffffff" stroke-opacity=".07"/>
-<text x="345.6" y="322" text-anchor="middle" fill="#a3a3a3" font-size="12">80</text>
-<path d="M424 132V300" stroke="#ffffff" stroke-opacity=".07"/>
-<text x="424" y="322" text-anchor="middle" fill="#a3a3a3" font-size="12">100</text>
-<text x="32" y="150" fill="#a3a3a3" font-size="13">Off</text>
-<rect x="32" y="160" width="29.8" height="26" rx="4" fill="#3f3f46"/>
-<text x="71.8" y="178" fill="#f1f3f7" font-size="14" font-weight="600">7.6</text>
-<text x="32" y="222" fill="#a3a3a3" font-size="13">On</text>
-<rect x="32" y="232" width="318.7" height="26" rx="4" fill="#346bf1"/>
-<text x="360.7" y="250" fill="#f1f3f7" font-size="14" font-weight="600">81.3</text>
-<text x="512" y="114" fill="#f1f3f7" font-size="14" font-weight="600">Worker scaling</text>
-<path d="M536 300H920" stroke="#ffffff" stroke-opacity=".07"/>
-<text x="524" y="304" text-anchor="end" fill="#a3a3a3" font-size="12">0</text>
-<path d="M536 266.4H920" stroke="#ffffff" stroke-opacity=".07"/>
-<text x="524" y="270.4" text-anchor="end" fill="#a3a3a3" font-size="12">20</text>
-<path d="M536 232.8H920" stroke="#ffffff" stroke-opacity=".07"/>
-<text x="524" y="236.8" text-anchor="end" fill="#a3a3a3" font-size="12">40</text>
-<path d="M536 199.2H920" stroke="#ffffff" stroke-opacity=".07"/>
-<text x="524" y="203.2" text-anchor="end" fill="#a3a3a3" font-size="12">60</text>
-<path d="M536 165.6H920" stroke="#ffffff" stroke-opacity=".07"/>
-<text x="524" y="169.6" text-anchor="end" fill="#a3a3a3" font-size="12">80</text>
-<path d="M536 132H920" stroke="#ffffff" stroke-opacity=".07"/>
-<text x="524" y="136" text-anchor="end" fill="#a3a3a3" font-size="12">100</text>
-<path d="M536 266.4H920" stroke="#a3a3a3" stroke-opacity=".6" stroke-dasharray="3 4"/>
-<text x="920" y="260.4" text-anchor="end" fill="#a3a3a3" font-size="11">20 TPS</text>
-<path d="M536 192.8 L632 179.5 L728 176 L776 171.8 L920 184.9" fill="none" stroke="#346bf1" stroke-width="2.5" stroke-linejoin="round"/>
-<circle cx="536" cy="192.8" r="4" fill="#346bf1" stroke="#0a0a0a" stroke-width="2"/>
-<text x="536" y="180.8" text-anchor="middle" fill="#f1f3f7" font-size="12" font-weight="600">63.8</text>
-<text x="536" y="322" text-anchor="middle" fill="#a3a3a3" font-size="12">16</text>
-<circle cx="632" cy="179.5" r="4" fill="#346bf1" stroke="#0a0a0a" stroke-width="2"/>
-<text x="632" y="167.5" text-anchor="middle" fill="#f1f3f7" font-size="12" font-weight="600">71.7</text>
-<text x="632" y="322" text-anchor="middle" fill="#a3a3a3" font-size="12">24</text>
-<circle cx="728" cy="176" r="4" fill="#346bf1" stroke="#0a0a0a" stroke-width="2"/>
-<text x="728" y="164" text-anchor="middle" fill="#f1f3f7" font-size="12" font-weight="600">73.8</text>
-<text x="728" y="322" text-anchor="middle" fill="#a3a3a3" font-size="12">32</text>
-<circle cx="776" cy="171.8" r="4" fill="#346bf1" stroke="#0a0a0a" stroke-width="2"/>
-<text x="776" y="159.8" text-anchor="middle" fill="#f1f3f7" font-size="12" font-weight="600">76.3</text>
-<text x="776" y="322" text-anchor="middle" fill="#a3a3a3" font-size="12">36</text>
-<circle cx="920" cy="184.9" r="4" fill="#346bf1" stroke="#0a0a0a" stroke-width="2"/>
-<text x="920" y="172.9" text-anchor="middle" fill="#f1f3f7" font-size="12" font-weight="600">68.5</text>
-<text x="920" y="322" text-anchor="middle" fill="#a3a3a3" font-size="12">48</text>
-<text x="728" y="342" text-anchor="middle" fill="#a3a3a3" font-size="12">workers</text>
-<text x="32" y="376" fill="#a3a3a3" font-size="12">Historical single runs from separate experiments; “off” keeps Vanadium’s structural changes. Not a vanilla comparison.</text>
+<text x="32" y="40" fill="#f1f3f7" font-size="17" font-weight="600">Throughput and worker scaling</text>
+<text x="32" y="64" fill="#a3a3a3" font-size="13" >Minecraft 26.3 · dual Xeon E5-2699 v3 VM · uncapped TPS · higher is better</text>
+<text x="58" y="108" fill="#f1f3f7" font-size="14" font-weight="600">Worker scaling · fixed grid</text>
+<text x="58" y="128" fill="#a3a3a3" font-size="11" >4,096 AI zombies · 1,024 chunks · one JVM per point</text>
+<path d="M58 340H508" stroke="#27272a" />
+<text x="48" y="344" fill="#a3a3a3" font-size="11" text-anchor="end">0</text>
+<path d="M58 312H508" stroke="#27272a" />
+<text x="48" y="316" fill="#a3a3a3" font-size="11" text-anchor="end">20</text>
+<path d="M58 284H508" stroke="#27272a" />
+<text x="48" y="288" fill="#a3a3a3" font-size="11" text-anchor="end">40</text>
+<path d="M58 256H508" stroke="#27272a" />
+<text x="48" y="260" fill="#a3a3a3" font-size="11" text-anchor="end">60</text>
+<path d="M58 228H508" stroke="#27272a" />
+<text x="48" y="232" fill="#a3a3a3" font-size="11" text-anchor="end">80</text>
+<path d="M58 200H508" stroke="#27272a" />
+<text x="48" y="204" fill="#a3a3a3" font-size="11" text-anchor="end">100</text>
+<path d="M58 172H508" stroke="#27272a" />
+<text x="48" y="176" fill="#a3a3a3" font-size="11" text-anchor="end">120</text>
+<path d="M58 144H508" stroke="#27272a" />
+<text x="48" y="148" fill="#a3a3a3" font-size="11" text-anchor="end">140</text>
+<path d="M58 312H508" stroke="#a3a3a3" stroke-dasharray="3 4" opacity=".6"/>
+<path d="M72.06 298.95 L86.13 279.02 L114.25 251.36 L170.5 209.22 L226.75 182.9 L283 173.3 L311.13 180.31 L395.5 200.3 L508 219.75" fill="none" stroke="#346bf1" stroke-width="2.5" stroke-linejoin="round"/>
+<circle cx="72.06" cy="298.95" r="4" fill="#346bf1" stroke="#0a0a0a" stroke-width="2"><title>2 helpers: 29.3 TPS</title></circle>
+<circle cx="86.13" cy="279.02" r="4" fill="#346bf1" stroke="#0a0a0a" stroke-width="2"><title>4 helpers: 43.6 TPS</title></circle>
+<circle cx="114.25" cy="251.36" r="4" fill="#346bf1" stroke="#0a0a0a" stroke-width="2"><title>8 helpers: 63.3 TPS</title></circle>
+<circle cx="170.5" cy="209.22" r="4" fill="#346bf1" stroke="#0a0a0a" stroke-width="2"><title>16 helpers: 93.4 TPS</title></circle>
+<circle cx="226.75" cy="182.9" r="4" fill="#346bf1" stroke="#0a0a0a" stroke-width="2"><title>24 helpers: 112.2 TPS</title></circle>
+<circle cx="283" cy="173.3" r="4" fill="#346bf1" stroke="#0a0a0a" stroke-width="2"><title>32 helpers: 119.1 TPS</title></circle>
+<text x="283" y="161.3" fill="#f1f3f7" font-size="12" text-anchor="middle" font-weight="600">119.1</text>
+<circle cx="311.13" cy="180.31" r="4" fill="#346bf1" stroke="#0a0a0a" stroke-width="2"><title>36 helpers: 114.1 TPS</title></circle>
+<circle cx="395.5" cy="200.3" r="4" fill="#346bf1" stroke="#0a0a0a" stroke-width="2"><title>48 helpers: 99.8 TPS</title></circle>
+<circle cx="508" cy="219.75" r="4" fill="#346bf1" stroke="#0a0a0a" stroke-width="2"><title>64 helpers: 85.9 TPS</title></circle>
+<text x="508" y="207.75" fill="#f1f3f7" font-size="12" text-anchor="middle" font-weight="600">85.9</text>
+<text x="58" y="362" fill="#a3a3a3" font-size="11" text-anchor="middle">0</text>
+<text x="114.25" y="362" fill="#a3a3a3" font-size="11" text-anchor="middle">8</text>
+<text x="170.5" y="362" fill="#a3a3a3" font-size="11" text-anchor="middle">16</text>
+<text x="226.75" y="362" fill="#a3a3a3" font-size="11" text-anchor="middle">24</text>
+<text x="283" y="362" fill="#a3a3a3" font-size="11" text-anchor="middle">32</text>
+<text x="339.25" y="362" fill="#a3a3a3" font-size="11" text-anchor="middle">40</text>
+<text x="395.5" y="362" fill="#a3a3a3" font-size="11" text-anchor="middle">48</text>
+<text x="451.75" y="362" fill="#a3a3a3" font-size="11" text-anchor="middle">56</text>
+<text x="508" y="362" fill="#a3a3a3" font-size="11" text-anchor="middle">64</text>
+<text x="283" y="385" fill="#a3a3a3" font-size="11" text-anchor="middle">Active helpers (+ participating server thread)</text>
+<text x="580" y="108" fill="#f1f3f7" font-size="14" font-weight="600">Adaptive regions · separate A/B</text>
+<rect x="580" y="121" width="9" height="9" rx="2" fill="#71717a"/>
+<text x="595" y="130" fill="#a3a3a3" font-size="11" >Fixed grid</text>
+<rect x="682" y="121" width="9" height="9" rx="2" fill="#346bf1"/>
+<text x="697" y="130" fill="#a3a3a3" font-size="11" >Adaptive</text>
+<text x="580" y="150" fill="#a3a3a3" font-size="11" >32 helpers · four samples per arm</text>
+<text x="580" y="178" fill="#f1f3f7" font-size="12" font-weight="600">Uniform crowd</text>
+<rect x="580" y="188" width="258.07" height="18" rx="3" fill="#71717a"/>
+<text x="846.07" y="202" fill="#f1f3f7" font-size="12" >120.4</text>
+<rect x="580" y="215" width="258.1" height="18" rx="3" fill="#346bf1"/>
+<text x="846.1" y="229" fill="#f1f3f7" font-size="12" >120.4</text>
+<text x="580" y="266" fill="#f1f3f7" font-size="12" font-weight="600">Clustered farms</text>
+<rect x="580" y="276" width="176.12" height="18" rx="3" fill="#71717a"/>
+<text x="764.12" y="290" fill="#f1f3f7" font-size="12" >82.2</text>
+<rect x="580" y="303" width="196.12" height="18" rx="3" fill="#346bf1"/>
+<text x="784.12" y="317" fill="#f1f3f7" font-size="12" >91.5</text>
+<text x="580" y="362" fill="#a3a3a3" font-size="11" text-anchor="middle">0</text>
+<text x="730" y="362" fill="#a3a3a3" font-size="11" text-anchor="middle">70</text>
+<text x="880" y="362" fill="#a3a3a3" font-size="11" text-anchor="middle">140</text>
+<text x="730" y="385" fill="#a3a3a3" font-size="11" text-anchor="middle">Uncapped TPS</text>
+<text x="32" y="421" fill="#a3a3a3" font-size="12" >Measured November 9, 2026. Sweep predates adaptive regions; do not read it as adaptive scaling.</text>
+<text x="32" y="443" fill="#a3a3a3" font-size="12" >Separate experiments; no players, no vanilla comparison. Means of all samples; not confidence estimates.</text>
 </g></svg>

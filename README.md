@@ -23,10 +23,11 @@ It also optimizes chunk lookups, nearby-player indexing and packet preparation.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/performance-dark.svg">
-  <img src="docs/assets/performance-light.svg" alt="Historical Minecraft 26.2 results: 7.6 TPS with parallel ticking off and 81.3 TPS on at 32 workers. A separate worker sweep peaks at 76.3 TPS at 36 workers, falling to 68.5 at 48.">
+  <img src="docs/assets/performance-light.svg" alt="Minecraft 26.3 benchmarks: the fixed-grid worker sweep peaks at 119.1 TPS with 32 helpers and falls to 85.9 at 64. Separate adaptive-region comparisons show unchanged uniform throughput and an 11.4% clustered-workload gain.">
 </picture>
 
-Historical Minecraft 26.2 measurements, not a claim about 26.3. [Data, method and limits →](docs/PERFORMANCE.md)
+Minecraft 26.3 on the dual Xeon test VM. The fixed-grid scaling sweep and adaptive-region A/B
+are separate experiments. [Data, method and limits →](docs/PERFORMANCE.md)
 
 ### Getting started
 

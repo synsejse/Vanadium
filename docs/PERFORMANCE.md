@@ -1,59 +1,94 @@
 # Performance evidence
 
-The README figure ([light](assets/performance-light.svg), [dark](assets/performance-dark.svg)) visualizes existing **Minecraft 26.2**
-measurements from 2026-11-08. It does not present the 26.3 port as benchmarked.
-Its editable source is SVG; exact plotted values are in [performance.csv](assets/performance.csv).
-Only straight segments join measurements; there is no smoothing or extrapolation.
+The README figure ([light](assets/performance-light.svg), [dark](assets/performance-dark.svg))
+uses **Minecraft 26.3 measurements from 2026-11-09**. It separates the worker-count
+investigation on the fixed grid from the later adaptive-region A/B. The curve is **not**
+a worker sweep of the adaptive scheduler.
 
-## What is plotted
+[performance.csv](assets/performance.csv) contains the exact plotted means. Both SVGs use
+linear axes starting at zero, straight segments between measured points, and all samples.
+No interpolation to unmeasured worker counts, smoothing or confidence interval is claimed.
 
-- **Parallel ticking off/on:** 7.6 → 81.3 uncapped TPS in one 32-worker JVM, off first,
-  then neighborhood-exclusion scheduling. Ratio: 81.3 / 7.6 = **10.7×** (rounded).
-  The intervening removed four-color implementation (65.4 TPS) is not plotted.
-  `enabled=false` retains structural mixins, synchronization and loaded-chunk indexing;
-  this is not vanilla or a server without Vanadium. Fixed order and entity movement
-  can bias this comparison; it is not an independently replicated estimate.
-- **Worker scaling:** the five “after” zombie values in the historical worker sweep,
-  16/24/32/36/48 helpers. Each point is a separate JVM, one measurement per point.
-  The caller participates in addition to the configured helpers. The 48-worker result
-  is included to show oversubscription; more threads are not always faster.
+## Worker scaling: fixed grid
 
-These are **separate experiments**, not one continuous speedup series. In particular,
-the sweep's 73.8 TPS at 32 workers and the toggle's 81.3 TPS must not be substituted for
-one another. The sweep was recorded during development; it is historical evidence, not
-a controlled scaling curve for the current release. The archive does not pin an exact
-after revision per point. No confidence interval is available.
+| Active helpers | TPS samples | Mean TPS |
+| ---: | --- | ---: |
+| 2 | 28.72, 29.93 | 29.32 |
+| 4 | 43.20, 43.91 | 43.56 |
+| 8 | 66.37, 60.25 | 63.31 |
+| 16 | 93.25, 93.59 | 93.42 |
+| 24 | 113.44, 110.98 | 112.21 |
+| 32 | 116.97, 121.18 | 119.07 |
+| 36 | 112.09, 116.03 | 114.06 |
+| 48 | 98.84, 100.74 | 99.79 |
+| 64 | 85.15, 86.63 | 85.89 |
 
-## Hardware and workload
+Source: [all 18 timing samples](benchmarks/worker-scaling-26.3.csv). One fresh JVM per
+worker count, two consecutive 20-second profiled tick sprints per JVM. The server thread
+participates in addition to the helpers. This is the pre-adaptive fixed 2×2 grid on the
+`f95121b` development baseline; all stage flags remain at defaults.
 
-Dual Intel Xeon E5-2699 v3 host, KVM guest with 72 vCPUs, two NUMA nodes, NixOS/Linux
-6.18.60. At measurement time the guest reported two sockets × 36 cores, one thread
-per core; that guest topology did not describe the host's SMT siblings accurately.
-OpenJDK 25.0.4.1, fixed 4GiB heap, G1. No controlled affinity/frequency comparison
-is claimed by this figure.
+The launcher called the lowest point `workers=1`, but Vanadium clamps positive worker
+counts to at least two. The server log confirms **two active helpers**; the sample CSV
+preserves both requested and active counts. An initial startup-timeout attempt supplied
+no measurements and is excluded; the completed retry supplies this point. It ran after
+the ascending 4–64 sweep, not as a randomized control. The other counts ran in ascending
+order. Two samples in one JVM are not independent replication across JVMs.
 
-Minecraft 26.2, Fabric Loader 0.19.3, Fabric API 0.160.0+26.2, Cloth Config 26.2.155,
-C2ME 0.4.2-alpha.0.52 with global parallelism four. Stage flags at defaults, cell size
-two. Fresh seed-12345 flat worlds; view/simulation distance four, 1,024 force-loaded
-chunks (32 × 32), four persistent invulnerable AI zombies per chunk (4,096 total).
-No players; natural spawning, daylight and weather cycles disabled; midnight.
+Throughput peaks around 32 helpers and declines by about 28% at 64 in this fixture.
+The curve establishes that behavior, not a cause by itself. Separate synthetic hardware
+probes scaled much better on compute and random-access loops; streaming bandwidth scaled
+poorly. A 16-helper affinity comparison measured 97.3/97.3 TPS on one socket versus
+95.6/97.0 across sockets. Those limited diagnostics did not establish clock loss or NUMA
+placement as the explanation. Scheduler granularity, locality and workload dependencies
+still matter; neither these probes nor this chart isolate their individual contributions.
 
-Each measurement is a 30-second `/vanadium benchmark` tick sprint. TPS is uncapped
-**processing capacity**, not a promise of a higher gameplay tick rate. Normally Minecraft
-runs at 20 TPS. The chart axes start at zero; the 20 TPS reference is marked.
-Sequential runs can drift upward by about 10% as zombies move apart.
+## Adaptive regions: separate comparison
 
-The full [historical report](archive/BENCHMARKS_26_2.md#dual-xeon-e5-2699-v3-development-vm-2026-11-08)
-records the optimization sequence, other results and limitations. Its old Python
-commands are archival; those harnesses have been retired. Original logs/JSON/worlds
-were retained locally during the study, not committed. The chart's CSV is a transcription
-of that report, not a new raw timing dataset.
+The second panel shows means from the later alternating **fixed/adaptive/adaptive/fixed**
+JVM comparison at 32 helpers, with two 20-second samples per JVM (four per arm):
 
-## Current measurements
+| Workload | Fixed grid | Adaptive regions | Change |
+| --- | ---: | ---: | ---: |
+| Uniform crowd | 120.43 TPS | 120.45 TPS | Effectively unchanged |
+| Clustered farms | 82.19 TPS | 91.52 TPS | +11.35% |
 
-The 26.3 port passed unit, live integration and paired subsystem-fixture checks
-([port notes](PORT_26_3.md)). Those fixtures do not establish whole-server speedup.
-Real players, network traffic, exploration, modpacks and interacting machines may
-behave differently. A current production claim needs a new matched-world sweep,
-multiple fresh JVMs per point, alternating controls and published raw results.
-See [profiling](PROFILING.md) and [development](DEVELOPMENT.md) for current tools.
+All samples, the spatial-rule difference and the recipe are documented in the
+[adaptive-grid report](benchmarks/ADAPTIVE_GRID_26_3.md), with a separate
+[16-sample CSV](benchmarks/adaptive-grid-26.3.csv). These runs are not substituted into the
+worker-sweep curve. In particular, its 119.07 TPS at 32 helpers is a different experiment
+from the A/B's 120.43 TPS fixed-grid control. No adaptive 48/64-helper measurement is available.
+
+## Environment and limits
+
+Dual Xeon E5-2699 v3 KVM guest, 72 vCPUs exposed as two sockets × 18 cores × two threads,
+two NUMA nodes, NixOS/Linux; no explicit affinity for the plotted runs. OpenJDK 25.0.4.1,
+fixed 4GiB G1 heap. Minecraft 26.3, Loader 0.20.1, Fabric API 0.165.2+26.3,
+Fabric Language Kotlin 1.14.2+kotlin.2.4.21, Cloth Config 26.3.159,
+C2ME 0.4.2-alpha.0.116 with global parallelism four. Default 2ms worker idle spin.
+
+Fresh seed-12345 flat worlds, 1,024 force-loaded chunks (32×32), view/simulation distance
+four, midnight, spawning/time/weather cycles disabled, no players. The worker sweep and
+uniform A/B use 4,096 persistent invulnerable AI zombies, four per chunk. The clustered
+A/B uses a different population recipe described in its report; compare arms within
+each workload, not the two workloads against one another.
+
+After loading chunks and waiting ten seconds, summon the crowd and settle for 15 seconds.
+Run `/vanadium profile 20` followed by `/vanadium benchmark 20` for each sample. Profiling
+is active during the sprint in both experiments. TPS is uncapped **processing capacity**,
+not a higher gameplay tick rate; normally Minecraft runs at 20 TPS. Moving mobs and JVM
+warmup can change the later samples. No tail-latency improvement is claimed.
+
+The temporary launcher's empty flat-settings decode logged `No key layers in MapLike[{}]`;
+Minecraft retains the flat preset on this failed optional settings decode. It is not a
+clean-startup claim. The supported integration fixture supplies explicit layers.
+The external launcher remains retired tooling, not a new repository test dependency.
+Full scaling JSONs/logs are preserved locally under `.vanadium/readme-scaling/`;
+the adaptive run's evidence locations are in its report. Checked-in CSVs preserve timing
+values; generated worlds, logs and recordings remain untracked.
+
+There is no vanilla/no-Vanadium arm, real multiplayer, modpack, exploration or interacting
+redstone/fluid-machine measurement. Neither curve promises performance on another world
+or CPU. Current reproduction/profiling tools are in [development](DEVELOPMENT.md) and
+[profiling](PROFILING.md). The older [26.2 report](archive/BENCHMARKS_26_2.md) remains historical
+and is no longer the source of the README figure.
