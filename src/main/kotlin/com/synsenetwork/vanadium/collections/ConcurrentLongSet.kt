@@ -1,4 +1,4 @@
-package com.synsenetwork.vanadium.concurrent
+package com.synsenetwork.vanadium.collections
 
 import it.unimi.dsi.fastutil.longs.LongCollection
 import it.unimi.dsi.fastutil.longs.LongComparator
@@ -17,7 +17,7 @@ import java.util.function.LongConsumer
  * overridden (including `forEach` and `spliterator`). Iteration is ascending, not insertion order;
  * `removeFirstLong` removes the smallest key. Range views and positional iterators are unsupported.
  */
-class ConcurrentLongLinkedOpenHashSet : LongLinkedOpenHashSet() {
+class ConcurrentLongSet : LongLinkedOpenHashSet() {
     private val backing = ConcurrentSkipListSet<Long>()
 
     override fun add(k: Long): Boolean = backing.add(k)
@@ -78,7 +78,7 @@ class ConcurrentLongLinkedOpenHashSet : LongLinkedOpenHashSet() {
     /** Natural ascending order, as the backing skip list uses. */
     override fun comparator(): LongComparator? = null
 
-    override fun clone(): LongLinkedOpenHashSet = ConcurrentLongLinkedOpenHashSet().also { it.backing.addAll(backing) }
+    override fun clone(): LongLinkedOpenHashSet = ConcurrentLongSet().also { it.backing.addAll(backing) }
 
     override fun ensureCapacity(capacity: Int) = Unit
 

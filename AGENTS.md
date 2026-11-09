@@ -4,6 +4,7 @@ Vanadium is a Kotlin Fabric mod (Java 25 bytecode) targeting **Minecraft 26.3 wi
 names**. Mixins stay in Java; everything else is Kotlin, loaded through Fabric Language Kotlin.
 Read `README.md`, `docs/DEVELOPMENT.md`, and `docs/ARCHITECTURE.md` before changing tick paths.
 Version sources are `gradle.properties`, `build.gradle.kts`, and `gradle/wrapper/gradle-wrapper.properties`.
+Verification conventions and typed tasks live in `buildSrc/`; Loom's pinned version comes from `gradle.properties`.
 Do not upgrade Minecraft, mappings, Loom, Gradle, Kotlin, or runtime mods as incidental cleanup.
 
 ## Environment and commands
@@ -13,6 +14,7 @@ Do not upgrade Minecraft, mappings, Loom, Gradle, Kotlin, or runtime mods as inc
 - Always use `./gradlew`, not a system Gradle. Kotlin and Java compile with a Java 25 toolchain.
 - `./gradlew genSources`: generate Minecraft sources for reviewing injection targets.
 - `./gradlew build`: compile, validate the access widener, test, and produce distributable jars.
+- `./gradlew -p buildSrc check`: validate build logic and checksum/download task tests.
 - `./gradlew test --tests 'com.synsenetwork.vanadium.tick.*'`: focused scheduler tests.
 - `./gradlew test --rerun-tasks`: actually rerun tests when checking concurrency behavior.
 - `./gradlew benchScheduler`: synthetic scheduler overhead/allocation benchmark.
@@ -50,7 +52,8 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - `tick/`: adaptive region planning (`RegionGrid`), claim and dataflow waves, batched stage collection,
   stage scheduler, caller-participating spin-then-park worker pool.
 - `chunk/`: chunk manager/cache and per-position loading locks.
-- `concurrent/`: fastutil-compatible concurrent wrappers and striped entity locks.
+- `collections/`: fastutil-compatible adapters over JDK/JCTools collections.
+- `concurrent/`: striped entity locks and per-thread random sources.
 - `tracking/`: area maps and nearby-player indexing for entity tracking.
 - `mixin/server/world/`, `mixin/world/`: stage injection points and vanilla world access changes.
 - Remaining `mixin/` packages: synchronization and concurrent collection replacements.

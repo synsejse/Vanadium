@@ -1,6 +1,6 @@
 package com.synsenetwork.vanadium.entity
 
-import com.synsenetwork.vanadium.concurrent.ReadOptimizedLongMap
+import org.jctools.maps.NonBlockingHashMapLong
 import it.unimi.dsi.fastutil.longs.LongArrayList
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import it.unimi.dsi.fastutil.longs.LongSet
@@ -20,10 +20,10 @@ import java.util.function.LongFunction
  * Y each in the unsigned order of their packed bits (non-negative ascending, then negative ascending).
  */
 class EntitySectionIndex<T : EntityAccess> {
-    private val sections = ReadOptimizedLongMap<EntitySection<T>>()
+    private val sections = NonBlockingHashMapLong<EntitySection<T>>()
 
     /** Chunk key to the Y coordinates of its sections, sorted by packed Y bits; replaced on change. */
-    private val columns = ReadOptimizedLongMap<IntArray>()
+    private val columns = NonBlockingHashMapLong<IntArray>()
 
     operator fun get(key: Long): EntitySection<T>? = sections[key]
 
@@ -42,7 +42,7 @@ class EntitySectionIndex<T : EntityAccess> {
         }
     }
 
-    fun size(): Int = sections.size()
+    fun size(): Int = sections.size
 
     /** Accessible, non-empty sections overlapping the section-coordinate box, in vanilla order. */
     fun forEachAccessibleNonEmpty(
@@ -81,7 +81,8 @@ class EntitySectionIndex<T : EntityAccess> {
 
     fun chunksWithSections(): LongSet {
         val chunks = LongOpenHashSet()
-        columns.forEachKey(chunks::add)
+        val keys = columns.IteratorLong()
+        while (keys.hasNext()) chunks.add(keys.nextLong())
         return chunks
     }
 

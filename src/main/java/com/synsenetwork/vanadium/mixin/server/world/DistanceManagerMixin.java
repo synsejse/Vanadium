@@ -2,8 +2,8 @@ package com.synsenetwork.vanadium.mixin.server.world;
 
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
-import com.synsenetwork.vanadium.concurrent.ConcurrentLongLinkedOpenHashSet;
-import com.synsenetwork.vanadium.concurrent.ConcurrentLong2ByteMap;
+import com.synsenetwork.vanadium.collections.ConcurrentLongSet;
+import com.synsenetwork.vanadium.collections.ConcurrentLongByteMap;
 import com.synsenetwork.vanadium.mixin.world.SimulationChunkTrackerAccessor;
 import it.unimi.dsi.fastutil.longs.LongConsumer;
 import it.unimi.dsi.fastutil.longs.LongSet;
@@ -30,7 +30,7 @@ public abstract class DistanceManagerMixin {
     @Shadow
     @Final
     @Mutable
-    LongSet ticketsToRelease = new ConcurrentLongLinkedOpenHashSet();
+    LongSet ticketsToRelease = new ConcurrentLongSet();
 
     @Shadow
     @Final
@@ -39,7 +39,7 @@ public abstract class DistanceManagerMixin {
     /** Iterates the concurrent level map directly; vanilla's fastIterable converts every entry. */
     @WrapMethod(method = "forEachEntityTickingChunk")
     private void forEachEntityTickingChunkDirect(LongConsumer consumer, Operation<Void> original) {
-        if (((SimulationChunkTrackerAccessor) simulationChunkTracker).vanadium$chunks() instanceof ConcurrentLong2ByteMap chunks) {
+        if (((SimulationChunkTrackerAccessor) simulationChunkTracker).vanadium$chunks() instanceof ConcurrentLongByteMap chunks) {
             chunks.forEachEntry((key, level) -> {
                 if (ChunkLevel.isEntityTicking(level)) consumer.accept(key);
             });

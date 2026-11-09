@@ -2,6 +2,7 @@ package com.synsenetwork.vanadium.packaging
 
 import com.google.gson.JsonParser
 import java.util.zip.ZipFile
+import java.util.zip.ZipInputStream
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -9,6 +10,21 @@ import kotlin.test.assertTrue
 
 class DistributionTest {
     private fun release() = ZipFile(System.getProperty("vanadium.releaseJar"))
+
+    @Test
+    fun concurrentMapLibraryIsDeclaredAndBundled() = release().use { jar ->
+        val metadata = jar.getInputStream(jar.getEntry("fabric.mod.json")).reader().use {
+            JsonParser.parseReader(it).asJsonObject
+        }
+        val path = metadata.getAsJsonArray("jars").map { it.asJsonObject["file"].asString }
+            .single { it.substringAfterLast('/').startsWith("jctools-core-") }
+        val entry = jar.getEntry(path)
+        assertTrue(entry != null, "Declared JCTools dependency missing from release")
+        ZipInputStream(jar.getInputStream(entry)).use { dependency ->
+            assertTrue(generateSequence { dependency.nextEntry }.any { it.name == "org/jctools/maps/NonBlockingHashMapLong.class" },
+                "Bundled jar does not provide the primitive concurrent map")
+        }
+    }
 
     @Test
     fun releaseContainsOnlyProductionCodeWithMatchingMetadata() = release().use { jar ->

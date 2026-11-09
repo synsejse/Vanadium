@@ -42,11 +42,11 @@ class RegionWaveTest {
                 if (claiming) {
                     val wave = ClaimWave(work, start, neighbors)
                     pool.runWave(wave.participants(3))
-                    assertNull(wave.failure())
+                    assertNull(wave.failure)
                 } else {
                     val wave = DataflowWave(work, start, neighbors, intArrayOf(0, 1, 0))
                     pool.runWave(wave.participants(3))
-                    assertNull(wave.failure())
+                    assertNull(wave.failure)
                 }
             }
             assertEquals(3, completed.get())
@@ -65,11 +65,11 @@ class RegionWaveTest {
                 if (claiming) {
                     val wave = ClaimWave(work, start, neighbors)
                     pool.runWave(wave.participants(3))
-                    assertSame(boom, wave.failure())
+                    assertSame(boom, wave.failure)
                 } else {
                     val wave = DataflowWave(work, start, neighbors, intArrayOf(0, 1, 0))
                     pool.runWave(wave.participants(3))
-                    assertSame(boom, wave.failure())
+                    assertSame(boom, wave.failure)
                 }
             }
             assertEquals(2, completed.get(), "failure left another region unfinished")

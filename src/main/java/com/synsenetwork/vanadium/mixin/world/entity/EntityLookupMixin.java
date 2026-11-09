@@ -1,6 +1,6 @@
 package com.synsenetwork.vanadium.mixin.world.entity;
 
-import com.synsenetwork.vanadium.concurrent.Int2ObjectConcurrentHashMap;
+import com.synsenetwork.vanadium.collections.ConcurrentIntObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import java.util.Collections;
 import java.util.Map;
@@ -32,7 +32,7 @@ public abstract class EntityLookupMixin<T extends EntityAccess> {
     @Inject(method = "<init>",at = @At("TAIL"))
     private void replaceConVars(CallbackInfo ci)
     {
-        byId = new Int2ObjectConcurrentHashMap<>();
+        byId = new ConcurrentIntObjectMap<>();
     }
 
     /** Keep the visible entity view read-only while exposing its size for spawn preparation. */

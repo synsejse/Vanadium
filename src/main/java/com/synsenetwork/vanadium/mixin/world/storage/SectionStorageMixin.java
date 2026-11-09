@@ -1,7 +1,7 @@
 package com.synsenetwork.vanadium.mixin.world.storage;
 
-import com.synsenetwork.vanadium.concurrent.ConcurrentLongLinkedOpenHashSet;
-import com.synsenetwork.vanadium.concurrent.Long2ObjectConcurrentHashMap;
+import com.synsenetwork.vanadium.collections.ConcurrentLongSet;
+import com.synsenetwork.vanadium.collections.ConcurrentLongObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
 import java.util.Optional;
@@ -16,10 +16,10 @@ public abstract class SectionStorageMixin<R> {
     @Shadow
     @Final
     @Mutable
-    private Long2ObjectMap<Optional<R>> storage = new Long2ObjectConcurrentHashMap<>();
+    private Long2ObjectMap<Optional<R>> storage = new ConcurrentLongObjectMap<>();
 
     @Shadow
     @Final
     @Mutable
-    private LongLinkedOpenHashSet dirtyChunks = new ConcurrentLongLinkedOpenHashSet();
+    private LongLinkedOpenHashSet dirtyChunks = new ConcurrentLongSet();
 }

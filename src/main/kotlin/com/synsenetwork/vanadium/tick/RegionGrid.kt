@@ -29,14 +29,14 @@ class RegionGrid {
         /** Region index + 1 owning each chunk through its box this wave, 0 for none. */
         @JvmField val owners = IntArray(TILE * TILE)
 
-        /** Neighbouring tiles by (dx + 1) + 3 * (dz + 1), refreshed per wave; null when absent. */
+        /** Neighbouring tiles by (dx + 1) + 3 * (dz + 1), refreshed when building conflicts; null when absent. */
         @JvmField val around = arrayOfNulls<Tile>(9)
         @JvmField var activeWave = -1L
         @JvmField var lastActiveTick = 0L
         @JvmField var bucketCount = 0
     }
 
-    private class Bucket(@JvmField val tile: Tile, @JvmField val slot: Int) {
+    private class Bucket {
         @JvmField var count = 0
         @JvmField var lastActiveTick = 0L
 
@@ -94,7 +94,7 @@ class RegionGrid {
         // Plain get/put: a capturing computeIfAbsent lambda would allocate on every enqueue.
         val tile = tiles.get(key) ?: Tile(tileX, tileZ).also { tiles.put(key, it) }
         val slot = (chunkX and TILE_MASK) * TILE + (chunkZ and TILE_MASK)
-        val bucket = tile.buckets[slot] ?: Bucket(tile, slot).also {
+        val bucket = tile.buckets[slot] ?: Bucket().also {
             tile.buckets[slot] = it
             tile.bucketCount++
         }
@@ -171,7 +171,6 @@ class RegionGrid {
         for (region in planned) region.weight = 0
         for (bucket in activeBuckets) bucket.region!!.weight += bucket.count
         if (planned.size > 1) planned.sortWith(HEAVIEST_FIRST)
-        for (i in planned.indices) planned[i].waveIndex = i
         buildConflicts(isolation)
         colour()
     }

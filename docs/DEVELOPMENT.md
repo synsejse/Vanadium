@@ -1,8 +1,8 @@
 # Development and testing
 
 Minecraft **26.3**, official unobfuscated names, Java **25**. Versions and the C2ME release
-URL/checksum are pinned in `gradle.properties`; Loom/Kotlin are in `build.gradle.kts` and
-Gradle is pinned by the wrapper. Use `nix develop` and the checked-in `./gradlew`.
+URL/checksum and Loom/JCTools versions are pinned in `gradle.properties`; Kotlin is pinned
+in `build.gradle.kts` and Gradle by the wrapper. Use `nix develop` and the checked-in `./gradlew`.
 Initial dependency resolution needs network access.
 
 Player-facing settings and commands are in [configuration](CONFIGURATION.md).
@@ -19,6 +19,15 @@ git diff --check
 
 `build` compiles Kotlin/Java, validates the access widener, runs JUnit 5 tests, and produces
 release/source jars in `build/libs/`. Test reports are in `build/reports/tests/test/`.
+Build and verification configuration is separated:
+
+- `build.gradle.kts`: mod dependencies, toolchains, resources and release packaging.
+- `buildSrc/src/main/kotlin/vanadium.verification.gradle.kts`: unit tests, live fixtures and benchmarks.
+- `buildSrc/src/main/kotlin/com/synsenetwork/vanadium/gradle/`: typed download/launch actions and fixture definitions.
+
+Run `./gradlew -p buildSrc check` for the build-logic tests; they validate verified downloads
+and rejection of corrupt artifacts without accessing the network.
+
 Unit tests inspect vanilla bindings without booting Minecraft or applying mixins.
 They are necessary but insufficient to validate a port.
 
@@ -84,9 +93,8 @@ properties. Reduced scale/rounds only check the harness; they are not performanc
 For independent JVM samples, invoke the task again; each run gets a new world and JVM.
 
 For whole-server measurements use `/vanadium benchmark`, `/vanadium profile`, and the
-JDK's `jcmd`/`jfr` tools; see [profiling](PROFILING.md). The retired ad-hoc Python sweeps and
-report generators are not maintained replacements for these tools. Historical measurements
-are kept under [archive/](archive/) and describe the old 26.2 code and harnesses.
+JDK's `jcmd`/`jfr` tools; see [profiling](PROFILING.md). Old exploratory harnesses and 26.2 reports have been removed; current chart evidence is
+in [performance](PERFORMANCE.md).
 Record hardware, worker/isolation/C2ME settings, heap, flags, mod versions and workload whenever
 publishing new measurements. Stage and world profile intervals overlap; do not add them.
 

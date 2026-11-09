@@ -3,8 +3,8 @@ package com.synsenetwork.vanadium.mixin.server.world;
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.synsenetwork.vanadium.Vanadium;
-import com.synsenetwork.vanadium.concurrent.ConcurrentLongLinkedOpenHashSet;
-import com.synsenetwork.vanadium.concurrent.Int2ObjectConcurrentHashMap;
+import com.synsenetwork.vanadium.collections.ConcurrentLongSet;
+import com.synsenetwork.vanadium.collections.ConcurrentIntObjectMap;
 import com.synsenetwork.vanadium.tick.ChunkTickBatch;
 import com.synsenetwork.vanadium.tick.ChunkTickSink;
 import com.synsenetwork.vanadium.tick.Stage;
@@ -61,7 +61,7 @@ public abstract class ChunkMapMixin implements ChunkTickSink {
     @Shadow
     @Final
     @Mutable
-    private Int2ObjectMap<ChunkMap.TrackedEntity> entityMap = new Int2ObjectConcurrentHashMap<>();
+    private Int2ObjectMap<ChunkMap.TrackedEntity> entityMap = new ConcurrentIntObjectMap<>();
 
 
     @Shadow
@@ -72,7 +72,7 @@ public abstract class ChunkMapMixin implements ChunkTickSink {
     @Shadow
     @Final
     @Mutable
-    final LongSet toDrop = new ConcurrentLongLinkedOpenHashSet();
+    final LongSet toDrop = new ConcurrentLongSet();
 
     @Shadow
     @Final

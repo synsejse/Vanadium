@@ -38,6 +38,5 @@ Region duration includes lock waits and does not establish CPU utilization by it
 monitor thresholds. `./gradlew runFeatureBench` writes separate on/off JFR recordings and
 paired timing/allocation CSV files. See [development](DEVELOPMENT.md) for filters and scale.
 Feature timing samples exclude active JFR and are subsystem measurements rather than
-multiplayer TPS or p99 latency. The 26.2 reports in [archive/](archive/) retain their original
-hardware/configuration evidence; their former Python commands are historical, not current
-repository tooling.
+multiplayer TPS or p99 latency. Published chart inputs and workload limits are documented
+in [performance evidence](PERFORMANCE.md).

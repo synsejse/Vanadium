@@ -16,9 +16,6 @@ class Region : Runnable {
 
     internal val tasks = ArrayList<Runnable>()
 
-    /** Position in the current plan; written by the server thread before the wave. */
-    internal var waveIndex = 0
-
     /** Tasks when the plan was made; orders regions heaviest first. */
     internal var weight = 0
 

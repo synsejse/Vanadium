@@ -12,5 +12,4 @@ logs/
 *.jfr
 hs_err_pid*.log
 .vanadium/
-__pycache__/
 .kotlin/

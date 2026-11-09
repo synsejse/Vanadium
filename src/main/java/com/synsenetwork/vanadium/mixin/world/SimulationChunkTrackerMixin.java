@@ -1,6 +1,6 @@
 package com.synsenetwork.vanadium.mixin.world;
 
-import com.synsenetwork.vanadium.concurrent.ConcurrentLong2ByteMap;
+import com.synsenetwork.vanadium.collections.ConcurrentLongByteMap;
 import it.unimi.dsi.fastutil.longs.Long2ByteMap;
 import net.minecraft.server.level.SimulationChunkTracker;
 import org.spongepowered.asm.mixin.Final;
@@ -13,6 +13,6 @@ public abstract class SimulationChunkTrackerMixin {
     @Shadow
     @Final
     @Mutable
-    protected Long2ByteMap chunks = new ConcurrentLong2ByteMap();
+    protected Long2ByteMap chunks = new ConcurrentLongByteMap();
 
 }

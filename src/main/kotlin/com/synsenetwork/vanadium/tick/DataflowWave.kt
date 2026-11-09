@@ -6,30 +6,18 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Runs every planned region of a stage as one dataflow wave; used for cheap regions (see [TickScheduler]). Conflicting regions (within the isolation
- * distance, see [RegionGrid]) have different colours, and the lower colour always runs first: a region
- * becomes ready once all of its lower-coloured conflicts have finished. Two conflicting regions are
- * therefore never running together, and the order is acyclic, so the wave cannot deadlock. A region only
- * ever waits for its own conflicts, never for a stage-wide barrier.
+ * Runs cheap regions after their lower-coloured conflicts finish. Proper colouring makes the order
+ * acyclic, so conflicting work never overlaps and every dependency chain can progress.
  *
- * Ready regions are published into slots in the order they become ready, and every region becomes ready
- * exactly once, so a participant takes the next slot with one atomic increment and waits for that slot to
- * be filled. While a participant waits, the regions holding earlier slots are running or finished, and
- * their completions fill the slots in order, so every waited-on slot is eventually filled.
- *
- * Tasks within a region run in enqueue order; a failing region still releases its successors, and the
- * first failure is rethrown by the caller after the wave.
- *
- * @param work the runnable for each region (the region itself or a diagnostic/profiling wrapper), index-aligned
- * @param neighborStart conflicts of region i are [neighbors] at neighborStart[i] until neighborStart[i + 1]
- * @param colours a proper colouring of the conflict graph; lower colours run first
+ * Ready indices are published once into monotonic slots. Participants reserve a slot and wait on
+ * that slot alone, avoiding shared queue polling. Failed regions still release their successors.
  */
 internal class DataflowWave(
     private val work: List<Runnable>,
     private val neighborStart: IntArray,
     private val neighbors: IntArray,
     private val colours: IntArray,
-) {
+) : RegionWave {
     private val count = work.size
 
     /** Unfinished lower-coloured conflicts per region, one per 64-byte line. */
@@ -39,7 +27,7 @@ internal class DataflowWave(
     private val slots = AtomicIntegerArray(count)
     private val published = AtomicInteger()
     private val taken = AtomicInteger()
-    private val failure = AtomicReference<Throwable?>()
+    private val firstFailure = AtomicReference<Throwable?>()
     private val busy = AtomicLong()
 
     init {
@@ -53,13 +41,13 @@ internal class DataflowWave(
     }
 
     /** One loop per participant; each returns once every region has been taken and run. */
-    fun participants(participants: Int): List<Runnable> = List(participants) { Runnable(::participate) }
+    override fun participants(participants: Int): List<Runnable> = List(participants) { Runnable(::participate) }
 
     /** The first region failure, rethrown by the caller after the wave. */
-    fun failure(): Throwable? = failure.get()
+    override val failure: Throwable? get() = firstFailure.get()
 
     /** Time participants spent running regions, excluding waiting; valid after the wave. */
-    val busyNanos: Long get() = busy.get()
+    override val busyNanos: Long get() = busy.get()
 
     private fun participate() {
         var spent = 0L
@@ -76,7 +64,7 @@ internal class DataflowWave(
             try {
                 work[region].run()
             } catch (t: Throwable) {
-                failure.compareAndSet(null, t)
+                firstFailure.compareAndSet(null, t)
             } finally {
                 spent += System.nanoTime() - start
                 release(region)
