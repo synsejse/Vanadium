@@ -59,6 +59,31 @@ All samples, the spatial-rule difference and the recipe are documented in the
 worker-sweep curve. In particular, its 119.07 TPS at 32 helpers is a different experiment
 from the A/B's 120.43 TPS fixed-grid control. No adaptive 48/64-helper measurement is available.
 
+## Flat entity wave: crowded places
+
+Measured 2026-11-11 on the same VM. One build, `flatEntities` off (regions, `isolation = 1`) and on,
+in alternating off/on/on/off server JVMs, two vanilla `/tick sprint` windows each (four samples per
+arm; 1,000 ticks, 400 for the villagers). Standalone Fabric servers with Lithium 0.26.3 and C2ME, flat
+world, no players, mobs that cannot die, spawning off. Means in TPS; ranges are all four samples.
+
+| Workload | Workers | Regions | Flat wave | Change |
+| --- | ---: | ---: | ---: | ---: |
+| 700 mixed mobs in 4×4 chunks | 24 | 282 (233–324) | 821 (617–1020) | 2.9× |
+| 700 mixed mobs in 4×4 chunks | 8 | 335 (261–405) | 551 (385–694) | 1.6× |
+| 600 mobs in 6×6 blocks (one chunk) | 8 | 107 (90–128) | 510 (352–676) | 4.8× |
+| 2,000 villagers in 8×8 chunks | 24 | 88 (82–96) | 187 (139–218) | 2.1× |
+| 600 mobs fighting in a 34×34 arena | 24 | 21 (20–23) | 168 (157–179) | 7.8× |
+
+The arena is 300 zombies, 200 villagers and 100 iron golems with Resistance, walled in so they keep
+fighting. Over 2,400 ticks of it the flat wave made about 41,000 cross-entity damage writes and
+2.1 million queued pushes with no lock cycle, no timeout and no skipped tick. A JFR capture of that
+run put 56% of tick-thread samples in entity ticks (about 26% under regions on the dense base), 0.8%
+in the ownership protocol, and 0.3 s of monitor contention in total.
+
+Samples vary by up to 40% within an arm (later sprint windows run faster), so read the factors as
+sizes, not precise ratios. Region scheduling stays in use for the other stages; block entities packed
+into one base are still limited by it. These workloads have no players, redstone or modded entities.
+
 ## Environment and limits
 
 Dual Xeon E5-2699 v3 KVM guest, 72 vCPUs exposed as two sockets × 18 cores × two threads,

@@ -29,7 +29,9 @@ It also optimizes chunk lookups, nearby-player indexing and packet preparation.
 </picture>
 
 Minecraft 26.3 on the dual Xeon test VM. The fixed-grid scaling sweep and adaptive-region A/B
-are separate experiments. [Data, method and limits →](docs/PERFORMANCE.md)
+are separate experiments, measured before entities moved to the flat wave. In crowded places the
+flat wave measured 1.6× to 7.8× the throughput of region scheduling (a one-chunk mob farm: 107 → 510
+TPS on 8 workers). [Data, method and limits →](docs/PERFORMANCE.md)
 
 ### Getting started
 
