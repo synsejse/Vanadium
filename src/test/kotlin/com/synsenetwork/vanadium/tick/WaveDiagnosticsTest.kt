@@ -20,7 +20,7 @@ class WaveDiagnosticsTest {
         WaveDiagnostics(reports::add, { 0 }, false).use { diagnostics ->
             diagnostics.configure(0, true)
             assertFalse(diagnostics.detailed)
-            assertNull(diagnostics.watch(Stage.ENTITY, "test:world", 3))
+            assertNull(diagnostics.watch(Stage.BLOCK_ENTITY, "test:world", 3))
             diagnostics.poll()
             assertTrue(reports.isEmpty())
         }
@@ -92,15 +92,15 @@ class WaveDiagnosticsTest {
                 val scheduler = TickScheduler(pool, 2)
                 scheduler.diagnostics = diagnostics
                 scheduler.setDimension("test:inline")
-                scheduler.begin(Stage.ENTITY)
+                scheduler.begin(Stage.BLOCK_ENTITY)
                 val caller = Thread.currentThread()
-                scheduler.enqueue(Stage.ENTITY, -1, -1, {
+                scheduler.enqueue(Stage.BLOCK_ENTITY, -1, -1, {
                     assertSame(caller, Thread.currentThread())
                     clock.set(TimeUnit.MILLISECONDS.toNanos(2))
                     diagnostics.poll()
                     throw IllegalStateException("fixture")
                 }, null)
-                assertFailsWith<IllegalStateException> { scheduler.run(Stage.ENTITY) }
+                assertFailsWith<IllegalStateException> { scheduler.run(Stage.BLOCK_ENTITY) }
                 assertEquals(1, reports.size)
                 assertTrue("region=chunks (-1,-1)..(-1,-1)" in reports.first())
                 clock.addAndGet(TimeUnit.SECONDS.toNanos(31))

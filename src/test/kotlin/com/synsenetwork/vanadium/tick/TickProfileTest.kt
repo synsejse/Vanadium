@@ -27,25 +27,35 @@ class TickProfileTest {
             val calls = AtomicInteger()
             scheduler.profile = profile
             scheduler.setDimension("test:world")
-            scheduler.begin(Stage.ENTITY)
-            scheduler.enqueue(Stage.ENTITY, 0, 0, { calls.incrementAndGet() }, null)
-            scheduler.enqueue(Stage.ENTITY, 0, 0, { calls.incrementAndGet() }, null)
-            scheduler.enqueue(Stage.ENTITY, 4, 0, { calls.incrementAndGet() }, null)
-            scheduler.run(Stage.ENTITY)
+            scheduler.begin(Stage.BLOCK_ENTITY)
+            scheduler.enqueue(Stage.BLOCK_ENTITY, 0, 0, { calls.incrementAndGet() }, null)
+            scheduler.enqueue(Stage.BLOCK_ENTITY, 0, 0, { calls.incrementAndGet() }, null)
+            scheduler.enqueue(Stage.BLOCK_ENTITY, 4, 0, { calls.incrementAndGet() }, null)
+            scheduler.run(Stage.BLOCK_ENTITY)
             assertEquals(3, calls.get())
             scheduler.prepare(Preparation.SPAWN_COUNTS, List(3) { Runnable { calls.incrementAndGet() } })
             assertEquals(6, calls.get())
+            // Entities: one flat wave, no regions.
+            scheduler.begin(Stage.ENTITY)
+            scheduler.runFlat(Stage.ENTITY, List(5) { Runnable { calls.addAndGet(100) } })
+            assertEquals(506, calls.get())
+            calls.addAndGet(-500)
             scheduler.finishWorld()
             profile.recordTick(1_000_000_000) // Longer than any fixture wave, so the serial share is positive.
             val json = profile.toJson()
             assertEquals(1, json.getAsJsonObject("ticks").get("count").asInt)
-            val entity = json.getAsJsonObject("stages").getAsJsonObject("ENTITY")
+            val entity = json.getAsJsonObject("stages").getAsJsonObject("BLOCK_ENTITY")
             assertEquals(3, entity.get("tasks").asInt)
             assertEquals(2, entity.get("regions").asInt)
             assertEquals(1, entity.get("waves").asInt)
             assertEquals(2, entity.get("maxTasksPerRegion").asInt)
             assertEquals(2, entity.getAsJsonObject("regionExecution").get("count").asInt)
-            for (phase in listOf("ENTITY preparation", "ENTITY execution", "world total")) {
+            val flat = json.getAsJsonObject("stages").getAsJsonObject("ENTITY")
+            assertEquals(5, flat.get("tasks").asInt)
+            assertEquals(0, flat.get("regions").asInt)
+            assertEquals(1, flat.get("waves").asInt)
+            for (phase in listOf("BLOCK_ENTITY preparation", "BLOCK_ENTITY execution", "ENTITY preparation",
+                "ENTITY execution", "world total")) {
                 assertEquals(1, json.getAsJsonObject("phases").getAsJsonObject("test:world / $phase").get("count").asInt)
             }
             assertTrue(entity.get("utilization").asDouble in 0.0..1.0)
@@ -54,9 +64,9 @@ class TickProfileTest {
             val shares = listOf("stageWaves", "preparation", "serial").sumOf { split.get(it).asDouble }
             assertEquals(1.0, shares, 1e-9)
             scheduler.profile = null
-            scheduler.begin(Stage.ENTITY)
-            scheduler.enqueue(Stage.ENTITY, 0, 0, { calls.incrementAndGet() }, null)
-            scheduler.run(Stage.ENTITY)
+            scheduler.begin(Stage.BLOCK_ENTITY)
+            scheduler.enqueue(Stage.BLOCK_ENTITY, 0, 0, { calls.incrementAndGet() }, null)
+            scheduler.run(Stage.BLOCK_ENTITY)
             scheduler.prepare(Preparation.SPAWN_COUNTS, List(2) { Runnable { calls.incrementAndGet() } })
             assertEquals(9, calls.get())
             assertEquals(json, profile.toJson())

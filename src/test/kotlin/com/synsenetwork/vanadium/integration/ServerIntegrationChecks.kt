@@ -43,6 +43,7 @@ class ServerIntegrationChecks : ModInitializer {
             ChunkLookupChecks.run(level)
             ServerThreadChunkChecks.run(level)
             LithiumChecks.run(level)
+            FlatEntityChecks.run(level)
             TickSafetyChecks.run(level)
             NavigationChecks.run(level)
             TrackingChecks.run(level)

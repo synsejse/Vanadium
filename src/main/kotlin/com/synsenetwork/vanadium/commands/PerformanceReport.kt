@@ -109,13 +109,21 @@ internal class PerformanceReport(
             else -> name
         }
         val execution = data.getAsJsonObject("execution")
-        val tooltip = "$label · all dimensions\n${format(execution.number("totalMs") / tickCount)} ms per server tick, including planning, dispatch and waits.\n" +
-            "${format(data.number("tasks") / tickCount, 1)} tasks/tick · ${format(data.number("regions") / tickCount, 1)} regions/tick\n" +
-            "Largest region: ${data.number("maxTasksPerRegion").toLong()} tasks\n" +
-            "Participant utilization: ${format(data.number("utilization") * 100, 1)}% (region wall time / capacity, not CPU usage)\n" +
-            "Caller tail wait: ${format(data.number("callerTailWaitMs") / tickCount)} ms/tick (already included)\n" +
-            "Individual region durations: ${sampleDetails(data.getAsJsonObject("regionExecution"))}\n" +
-            "Collection and inline fallbacks are outside this stage timing."
+        val header = "$label · all dimensions\n${format(execution.number("totalMs") / tickCount)} ms per server tick, including planning, dispatch and waits.\n"
+        val tasks = "${format(data.number("tasks") / tickCount, 1)} tasks/tick"
+        val tail = "Caller tail wait: ${format(data.number("callerTailWaitMs") / tickCount)} ms/tick (already included)\n"
+        // Entities run as one wave with no regions, so region figures do not apply to them.
+        val tooltip = if (data.number("regions") == 0.0) {
+            header + "$tasks in one wave, wherever they are (no regions)\n" + tail +
+                "Serial entities and collection are outside this stage timing."
+        } else {
+            header + "$tasks · ${format(data.number("regions") / tickCount, 1)} regions/tick\n" +
+                "Largest region: ${data.number("maxTasksPerRegion").toLong()} tasks\n" +
+                "Participant utilization: ${format(data.number("utilization") * 100, 1)}% (region wall time / capacity, not CPU usage)\n" +
+                tail +
+                "Individual region durations: ${sampleDetails(data.getAsJsonObject("regionExecution"))}\n" +
+                "Collection and inline fallbacks are outside this stage timing."
+        }
         return hover(text("$label ${format(execution.number("totalMs") / tickCount)} ms", ChatFormatting.WHITE), tooltip)
     }
 
