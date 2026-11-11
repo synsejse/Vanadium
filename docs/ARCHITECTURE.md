@@ -29,6 +29,8 @@ load-lock tables own no threads. Integrated-server reopen must create a new life
 | Entities | Queue vanilla's complete per-entity body; finish before block-entity bookkeeping |
 | Block entities | Queue supported tickers; finish before clearing the ticking flag |
 
+Entities are the exception to region scheduling: see [Flat entity wave](#flat-entity-wave).
+
 Disabled stages retain serial fallbacks. Structural synchronization and loaded-chunk
 indexing remain installed even with `enabled=false`. Projectiles, entities in portals and
 configured exact-ID exceptions tick serially. A serial passenger routes its whole vehicle
@@ -68,6 +70,50 @@ thread claim work. One-task waves run inline. Helpers spin briefly before parkin
 caller spins then parks for the tail. Late helpers use a saved task count, never a list
 that the caller has cleared. Interruption restores the caller's flag only after all work
 finishes. Never hold a monitor needed by workers while joining a wave.
+
+## Flat entity wave
+
+Regions cannot help where work is packed together: a base or a mob farm is one clique of conflicting
+regions, and its entities tick serially while the other workers wait. With `flatEntities` (the default)
+the ENTITY stage therefore has no regions and no isolation: every entity tick is one task in a single
+wave, wherever it is. Other stages keep region scheduling.
+
+What made this safe before was distance; now it is ownership (`Interactions`, `OwnerLocks`):
+
+- A tick owns its vehicle tree: it holds that root entity's lock from start to end. Everything it
+  writes to itself needs nothing else.
+- Reads of other entities and of blocks take no lock, exactly as between regions. Sorts by distance
+  snapshot positions first (`StableDistance`), because entities move while they are being sorted.
+- A push, the one thing crowded entities do to each other every tick, goes to the target's inbox and
+  never waits; the target applies it at the start of its tick, or the server thread after the wave.
+- Any other write to another tree is a foreign write. Mixins at the mutation points open a scope:
+  the tick releases its own lock and takes the target's, so the write waits for the target's own
+  tick, and for nothing else: writes to different entities do not wait for each other. Releasing
+  first keeps two entities that write to each other from deadlocking; the tick is open to foreign
+  writes while it is in the scope, at a point where it was calling out, and a write back to itself
+  in there takes its own lock again. The generic points are velocity, position, removal, synced data
+  and brain memories; damage, effects, mounting, breeding, gossip and orb merging are scoped as whole
+  operations, and the pairwise ones recheck their conditions inside the scope (two parents, one birth).
+- Block changes, explosions and vibration delivery from entity ticks are shared writes: they run one
+  at a time on a shared lock, then follow the same per-chunk and neighbour-update synchronization as
+  region work. Hoppers and beehives serialize the items and bees that enter them.
+- Items keep their pairwise item locks and are not targets of the generic points.
+- Entities whose ticks mostly write to others run serially before the wave, like projectiles: TNT,
+  container and TNT minecarts, the dragon, the wither, end crystals, lightning, effect clouds, evoker
+  fangs, copper golems and wardens.
+
+A scope nested in another (damage whose side effects reach a third entity) holds one lock while
+waiting for the next, so two such writers can wait on each other. A waiter follows the chain of
+holders and what each waits for; if it leads back to itself it proceeds without that lock, and counts
+it. Locks outside the protocol are invisible to that check, so every wait is also bounded (100 ms).
+Either way one write runs unprotected instead of stalling the tick, and is reported. `Interactions`
+counts foreign writes by kind (`-Dvanadium.interactionLogWaves=N` logs them). The catalogue of whole
+operations is vanilla's; a mod's own pairwise logic is covered only by the generic points.
+
+Overlapping ticks can also fail where serial ticks cannot: a value read after another tick removed
+it. Such failures do not repeat, so with `skipFailedEntityTicks` one failed tick is logged and its
+remainder skipped; the same entity failing three ticks running is a real bug and stops the server
+as vanilla does.
 
 ## Collections and publication
 

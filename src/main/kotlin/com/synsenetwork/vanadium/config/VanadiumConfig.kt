@@ -24,6 +24,15 @@ class VanadiumConfig : ConfigData {
     @field:Comment("Tick entities in parallel")
     @JvmField var parallelEntities = true
 
+    @field:Comment("Tick all entities in one parallel wave regardless of where they are, instead of in regions kept "
+            + "'isolation' chunks apart. Entities own themselves while they tick; what they do to each other is "
+            + "locked per interaction. false = region scheduling, as for the other stages. Applies next tick.")
+    @JvmField var flatEntities = true
+
+    @field:Comment("With flatEntities: when an entity's tick throws, log it and skip the rest of that tick instead of "
+            + "stopping the server. An entity that fails 3 ticks in a row still stops it. false = vanilla behaviour.")
+    @JvmField var skipFailedEntityTicks = true
+
     @field:Comment("Tick block entities in parallel")
     @JvmField var parallelBlockEntities = true
 

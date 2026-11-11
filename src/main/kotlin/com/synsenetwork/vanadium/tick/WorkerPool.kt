@@ -150,7 +150,7 @@ class WorkerPool(threads: Int) : AutoCloseable {
         }
     }
 
-    private class WorkerThread(private val pool: WorkerPool, private val index: Int) : Thread("Vanadium-Worker-${index + 1}") {
+    private class WorkerThread(private val pool: WorkerPool, private val index: Int) : TickThread("Vanadium-Worker-${index + 1}") {
         @Volatile
         private var parked = false
 
@@ -312,6 +312,12 @@ class WorkerPool(threads: Int) : AutoCloseable {
             failure?.let { throw it }
         }
     }
+}
+
+/** A pool worker. [context] gives tick code per-thread state without a thread-local lookup. */
+abstract class TickThread(name: String) : Thread(name) {
+    @JvmField
+    var context: Any? = null
 }
 
 /** Unwinds a worker task that needs the server thread; see [WorkerPool.runDeferrable]. No stack trace is captured. */

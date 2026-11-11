@@ -62,6 +62,7 @@ object Vanadium : ModInitializer {
     private fun onServerStarting(server: MinecraftServer) {
         val workers = VanadiumConfig.resolveWorkers()
         LOGGER.info("Will use {} threads, isolation {} chunks", workers, config.isolation)
+        if (config.flatEntities) LOGGER.info("Entities tick in one flat wave with per-entity ownership")
         val pool = WorkerPool(workers).also { pool = it }
         scheduler = TickScheduler(pool, config.isolation)
         diagnostics = WaveDiagnostics(LOGGER::warn).also { scheduler.diagnostics = it }

@@ -10,8 +10,10 @@ Loaded-chunk lookups are unconditional infrastructure; the former `chunkCache` o
 |---|---|---|
 | `enabled` | `true` | Master switch; `false` uses serial ticking, with structural mixins, locks and loaded-chunk lookups still active |
 | `workers` | `0` | `<= 0` = available logical processors; positive values clamp to 2..max(2, available logical processors) (restart) |
-| `isolation` | `2` | Exclusion radius in chunks (1–16, Chebyshev distance). Work at or within this distance never runs concurrently. Region sizes adapt automatically |
+| `isolation` | `2` | Exclusion radius in chunks (1–16, Chebyshev distance) for region-scheduled stages. Work at or within this distance never runs concurrently. Region sizes adapt automatically |
 | `parallelEntities` | `true` | Tick entities in parallel |
+| `flatEntities` | `true` | Tick all entities in one wave with no regions or isolation, so crowded places use every worker; entity interactions are locked individually. `false` = regions `isolation` chunks apart, as for the other stages |
+| `skipFailedEntityTicks` | `true` | With `flatEntities`: an entity tick that throws is logged and the rest of that tick skipped, instead of stopping the server; three failures in a row by one entity still stop it |
 | `parallelBlockEntities` | `true` | Tick block entities in parallel |
 | `serialEntityTypes` | `[]` | Entity type IDs that tick serially |
 | `serialBlockEntityTypes` | `[]` | Block-entity type IDs that tick serially |

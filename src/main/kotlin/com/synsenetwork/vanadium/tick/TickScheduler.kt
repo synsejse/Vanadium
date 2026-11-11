@@ -1,5 +1,6 @@
 package com.synsenetwork.vanadium.tick
 
+import com.synsenetwork.vanadium.concurrent.Interactions
 import java.util.EnumMap
 import java.util.function.LongConsumer
 
@@ -27,6 +28,9 @@ class TickScheduler(private val pool: WorkerPool, isolation: Int) {
         }
 
     var diagnostics: WaveDiagnostics? = null
+
+    /** The stage whose work [runFlat] ran since its [begin]; its [run] then has nothing left to record. */
+    private var flatRan: Stage? = null
 
     val workerCount: Int get() = pool.workerCount
 
@@ -76,6 +80,15 @@ class TickScheduler(private val pool: WorkerPool, isolation: Int) {
     /** Runs the stage's queued work as one wave, then resets the stage. */
     fun run(stage: Stage) {
         val grid = grids.getValue(stage)
+        if (flatRan == stage) {
+            // The stage's work already ran and was recorded as a flat wave.
+            flatRan = null
+            if (grid.isEmpty) {
+                if (profile != null) preparationStarts[stage] = System.nanoTime()
+                grid.endTick()
+                return
+            }
+        }
         val recording = profile
         val start = if (recording != null) System.nanoTime() else 0
         preparationStarts.remove(stage)?.let { recording?.recordPhase(dimension, "$stage preparation", start - it) }
@@ -89,6 +102,32 @@ class TickScheduler(private val pool: WorkerPool, isolation: Int) {
                 preparationStarts[stage] = end
             }
             grid.endTick()
+        }
+    }
+
+    /**
+     * Runs [tasks] as one wave with no regions or isolation: every task may run beside any other, so each must
+     * protect what it shares ([Interactions] for entities). Call between [begin] and [run] for the stage.
+     */
+    fun runFlat(stage: Stage, tasks: List<Runnable>) {
+        if (tasks.isEmpty()) return
+        val recording = profile
+        val waitRecorder = recording?.let { LongConsumer { nanos -> it.recordWait(stage, nanos) } }
+        val start = System.nanoTime()
+        preparationStarts.remove(stage)?.let { recording?.recordPhase(dimension, "$stage preparation", start - it) }
+        try {
+            diagnostics?.watch(stage, dimension, 0).use { watch ->
+                val wave = watch?.wrap(tasks) ?: tasks
+                Interactions.runWave { pool.runWave(wave, waitRecorder) }
+            }
+        } finally {
+            if (recording != null) {
+                val end = System.nanoTime()
+                recording.recordWaveCapacity(stage, end - start, participants(tasks.size))
+                recording.recordStage(stage, end - start)
+                recording.recordPhase(dimension, "$stage execution", end - start)
+            }
+            flatRan = stage
         }
     }
 
