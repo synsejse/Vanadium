@@ -13,7 +13,8 @@ class VanadiumConfig : ConfigData {
     @field:Comment("Master switch: false disables parallel ticking and optional optimizations; structural mixins, locks and loaded-chunk lookups remain active")
     @JvmField var enabled = true
 
-    @field:Comment("Worker threads for parallel ticking. <= 0 = available logical processors. Positive values "
+    @field:Comment("Worker threads for parallel ticking. <= 0 = two thirds of the available logical processors, "
+            + "leaving the rest to the server thread, chunk workers and the garbage collector. Positive values "
             + "are clamped between 2 and max(2, available logical processors). Takes effect on restart.")
     @JvmField var workers = 0
 
@@ -96,11 +97,15 @@ class VanadiumConfig : ConfigData {
     }
 
     companion object {
-        /** Auto uses available logical processors; explicit values clamp to 2..max(2, available processors). */
+        /**
+         * Auto uses two thirds of the available logical processors: one worker per processor leaves none for the
+         * server thread, chunk workers and the collector, and measured far below fewer workers. Explicit values
+         * clamp to 2..max(2, available processors).
+         */
         @JvmStatic
         fun resolveWorkers(): Int = resolveWorkers(Vanadium.config.workers, Runtime.getRuntime().availableProcessors())
 
         internal fun resolveWorkers(workers: Int, availableProcessors: Int): Int =
-            if (workers <= 0) availableProcessors else workers.coerceIn(2, maxOf(2, availableProcessors))
+            if (workers <= 0) maxOf(1, availableProcessors * 2 / 3) else workers.coerceIn(2, maxOf(2, availableProcessors))
     }
 }

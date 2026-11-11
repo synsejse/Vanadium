@@ -23,16 +23,16 @@ It also optimizes chunk lookups, nearby-player indexing and packet preparation.
 
 ### Performance
 
-| Crowded workload | Workers | Region scheduling | Vanadium | |
-| --- | ---: | ---: | ---: | ---: |
-| 700 mixed mobs in 4×4 chunks | 24 | 282 TPS | 821 TPS | 2.9× |
-| 600 mobs in a one-chunk farm | 8 | 107 TPS | 510 TPS | 4.8× |
-| 2,000 villagers | 24 | 88 TPS | 187 TPS | 2.1× |
-| 600 mobs fighting in an arena | 24 | 21 TPS | 168 TPS | 7.8× |
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/performance-dark.svg">
+  <img src="docs/assets/performance-light.svg" alt="Uncapped TPS by worker count on Minecraft 26.3 with Lithium. Spread out, 4,096 zombies: Lithium alone 20.8, Vanadium 50 at 2 workers, 193 at 24, 220 at 48, 126 at 72. Crowded base, 700 mobs in 4×4 chunks: Lithium alone 119, Vanadium 237 at 2 workers, 945 at 24, 333 at 72. Combat, 600 mobs: Lithium alone 25.2, Vanadium 55 at 2 workers, 175 at 24, 88 at 48, 108 at 72.">
+</picture>
 
-Minecraft 26.3 with Lithium on the dual Xeon test VM, uncapped tick rate, no players. "Region
-scheduling" is Vanadium's previous entity scheduler, which kept nearby work apart and so gained
-little where mobs are packed together. [Data, method and limits →](docs/PERFORMANCE.md)
+Minecraft 26.3 on the dual Xeon test VM (36 cores, 72 threads), uncapped tick rate, no players. With
+24 workers Vanadium ran these worlds 7–9× faster than the same server with Lithium alone. More
+workers are not always better: past the core count throughput fell, and one worker per logical
+processor ran 38–65% below the best setting. The default is two thirds of the logical processors;
+try a few values of `workers` on your own machine. [Data, method and limits →](docs/PERFORMANCE.md)
 
 ### Getting started
 
