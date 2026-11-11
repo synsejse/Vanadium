@@ -8,7 +8,7 @@ Edit `config/vanadium.toml`, then run `/vanadium reload` to apply changes live.
 | Option | Default | Effect |
 |---|---|---|
 | `enabled` | `true` | Master switch; `false` uses serial ticking, with structural mixins, locks and loaded-chunk lookups still active |
-| `workers` | `0` | `<= 0` = available logical processors; positive values clamp to 2..max(2, available logical processors) (restart) |
+| `workers` | `0` | `<= 0` = two thirds of the available logical processors (at least one); positive values clamp to 2..max(2, available logical processors) (restart) |
 | `isolation` | `2` | Exclusion radius in chunks (1–16, Chebyshev distance) for block entities, chunk ticks, scheduled ticks and spawning. Work at or within this distance never runs concurrently. Region sizes adapt automatically. Entities are not affected |
 | `parallelEntities` | `true` | Tick entities in parallel: all of them in one wave, wherever they are. Each owns itself while it ticks; what entities do to each other is locked per interaction |
 | `skipFailedEntityTicks` | `true` | An entity tick that throws during parallel entity ticking is logged and the rest of that tick skipped, instead of stopping the server; three failures in a row by one entity still stop it |
@@ -26,6 +26,12 @@ Edit `config/vanadium.toml`, then run `/vanadium reload` to apply changes live.
 | `detailedTickDiagnostics` | `false` | Add current task/type labels while wave diagnostics are enabled |
 
 ## Commands
+
+`workers = 0` picks two thirds of the logical processors, because one worker per processor leaves
+none for the server thread, C2ME and the garbage collector: on the 36-core, 72-thread test machine 72
+workers ran 38–65% below the best setting. The best count still depends on the machine and the world
+(24 there, where the default gives 48), so compare a few values with `/vanadium benchmark`; see
+[worker count](PERFORMANCE.md#worker-count).
 
 `isolation` sets the spatial exclusion distance independently of worker count, not the size of a region.
 

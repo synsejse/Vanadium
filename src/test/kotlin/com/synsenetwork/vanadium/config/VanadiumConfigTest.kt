@@ -10,8 +10,9 @@ import kotlin.test.assertTrue
 class VanadiumConfigTest {
     @Test
     fun workerCountResolution() {
-        assertEquals(72, VanadiumConfig.resolveWorkers(0, 72), "<= 0 means available processors")
-        assertEquals(8, VanadiumConfig.resolveWorkers(-1, 8))
+        assertEquals(48, VanadiumConfig.resolveWorkers(0, 72), "<= 0 means two thirds of the available processors")
+        assertEquals(5, VanadiumConfig.resolveWorkers(-1, 8), "rounded down")
+        assertEquals(1, VanadiumConfig.resolveWorkers(0, 2), "but never below one")
         assertEquals(16, VanadiumConfig.resolveWorkers(16, 72))
         assertEquals(2, VanadiumConfig.resolveWorkers(1, 72), "explicit values are floored at two")
         assertEquals(72, VanadiumConfig.resolveWorkers(200, 72), "and capped at available processors")
