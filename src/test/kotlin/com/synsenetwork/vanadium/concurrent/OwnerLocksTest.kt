@@ -141,6 +141,43 @@ class OwnerLocksTest {
     }
 
     @Test
+    fun pairScopesOnEachOtherQueueWithoutACycle() {
+        val locks = OwnerLocks(long)
+        val a = OwnerLocks.Lock()
+        val b = OwnerLocks.Lock()
+        val inside = AtomicInteger()
+        val overlapped = AtomicInteger()
+        val bothRunning = CyclicBarrier(2)
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            val jobs = listOf(Triple(a, b, true), Triple(b, a, false)).map { (own, other, ownFirst) ->
+                pool.submit {
+                    val context = OwnerLocks.Context()
+                    locks.beginOwn(context, own)
+                    bothRunning.await(10, TimeUnit.SECONDS)
+                    repeat(2_000) {
+                        locks.enterPair(context, other, ownFirst)
+                        if (inside.incrementAndGet() != 1 || !own.isHeldByCurrentThread || !other.isHeldByCurrentThread) {
+                            overlapped.incrementAndGet()
+                        }
+                        inside.decrementAndGet()
+                        locks.exitForeign(context)
+                        locks.exitForeign(context)
+                        check(own.isHeldByCurrentThread && !other.isHeldByCurrentThread)
+                    }
+                    locks.endOwn(context)
+                }
+            }
+            jobs.forEach { it.get(20, TimeUnit.SECONDS) }
+        } finally {
+            pool.shutdownNow()
+        }
+        assertEquals(0, overlapped.get(), "two pair scopes on the same pair overlapped")
+        assertEquals(0L, locks.cycles.get() + locks.timeouts.get())
+        assertFalse(a.isLocked || b.isLocked)
+    }
+
+    @Test
     fun nestedWritersWaitingForEachOtherAreReleasedByTheCycleCheck() {
         val locks = OwnerLocks(long) // A timeout would fail this test's own time limit.
         val x = OwnerLocks.Lock()

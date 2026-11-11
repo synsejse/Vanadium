@@ -48,9 +48,9 @@ class TickSchedulerTest {
         val executed = AtomicInteger()
         fun tasksAt(x: Int, z: Int, round: Int) = 1 + (x * 7 + z * 3 + round) % 4
         repeat(40) { round ->
-            scheduler.begin(Stage.ENTITY)
+            scheduler.begin(Stage.BLOCK_ENTITY)
             for (x in 0 until size) for (z in 0 until size) repeat(tasksAt(x, z, round)) {
-                scheduler.enqueue(Stage.ENTITY, x, z, {
+                scheduler.enqueue(Stage.BLOCK_ENTITY, x, z, {
                     running[x][z].incrementAndGet()
                     for (dx in -1..1) for (dz in -1..1) {
                         val nx = x + dx
@@ -64,7 +64,7 @@ class TickSchedulerTest {
                     running[x][z].decrementAndGet()
                 }, null)
             }
-            scheduler.run(Stage.ENTITY)
+            scheduler.run(Stage.BLOCK_ENTITY)
         }
         val expected = (0 until 40).sumOf { round -> (0 until size).sumOf { x -> (0 until size).sumOf { z -> tasksAt(x, z, round) } } }
         assertEquals(expected, executed.get())
@@ -81,9 +81,9 @@ class TickSchedulerTest {
         val violations = AtomicInteger()
         val executed = AtomicInteger()
         repeat(6) {
-            scheduler.begin(Stage.ENTITY)
+            scheduler.begin(Stage.BLOCK_ENTITY)
             for (x in 0 until size) for (z in 0 until size) {
-                scheduler.enqueue(Stage.ENTITY, x, z, {
+                scheduler.enqueue(Stage.BLOCK_ENTITY, x, z, {
                     running[x][z].incrementAndGet()
                     for (dx in -1..1) for (dz in -1..1) {
                         val nx = x + dx
@@ -99,7 +99,7 @@ class TickSchedulerTest {
                     running[x][z].decrementAndGet()
                 }, null)
             }
-            scheduler.run(Stage.ENTITY)
+            scheduler.run(Stage.BLOCK_ENTITY)
         }
         assertEquals(6 * size * size, executed.get())
         assertEquals(0, violations.get(), "chunks within isolation overlapped")

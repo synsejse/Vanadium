@@ -40,6 +40,13 @@ class TickProfile {
         stats.jobs += jobs
     }
 
+    /** A wave with no regions: every task ran on its own. */
+    fun recordFlatWave(stage: Stage, tasks: Int) {
+        val stats = stats(stage)
+        stats.waves++
+        stats.tasks += tasks
+    }
+
     fun recordWave(stage: Stage, regions: List<Region>) {
         if (regions.isEmpty()) return
         val stats = stats(stage)

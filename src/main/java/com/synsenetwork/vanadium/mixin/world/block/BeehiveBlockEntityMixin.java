@@ -7,7 +7,7 @@ import net.minecraft.world.level.block.entity.BeehiveBlockEntity;
 import org.spongepowered.asm.mixin.Mixin;
 
 /**
- * Flat entity wave: bees enter their hive from their own ticks, several in the same tick. Each entry owns
+ * Bees enter their hive from their own ticks, several in the same tick. Each entry owns
  * the hive's occupant list, so the capacity check and the insertion stay together.
  */
 @Mixin(BeehiveBlockEntity.class)

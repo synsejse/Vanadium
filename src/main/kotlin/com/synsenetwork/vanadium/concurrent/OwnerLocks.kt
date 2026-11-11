@@ -17,6 +17,8 @@ import java.util.concurrent.locks.ReentrantLock
  * anyway; a write back to its own object inside the scope takes its lock like any other target.
  *
  * Writes to state with no single owner pass a null target and serialize on one shared lock instead.
+ * Operations that two owners start on each other symmetrically take both locks in an agreed order
+ * ([enterPair]).
  *
  * Nested scopes (a write whose side effects write a third object) hold one lock while waiting for another,
  * so two of them can wait on each other. A waiter therefore follows the chain of lock holders and what each
@@ -74,6 +76,19 @@ class OwnerLocks(private val timeoutNanos: Long) {
             held[depth++] = target.takeIf(locks::acquire)
         }
 
+        internal fun enterPair(locks: OwnerLocks, other: Lock, ownFirst: Boolean) {
+            val own = checkNotNull(own) { "no owner task for a pair scope" }
+            if (depth == 0 && ownHeld) {
+                own.unlock()
+                ownHeld = false
+            }
+            if (depth + 2 > held.size) held = held.copyOf(held.size * 2)
+            val first = if (ownFirst) own else other
+            held[depth++] = first.takeIf(locks::acquire)
+            val second = if (ownFirst) other else own
+            held[depth++] = second.takeIf(locks::acquire)
+        }
+
         internal fun exit(locks: OwnerLocks) {
             check(depth > 0) { "no foreign scope to exit" }
             held[--depth]?.unlock()
@@ -94,6 +109,14 @@ class OwnerLocks(private val timeoutNanos: Long) {
     fun enterForeign(context: Context, target: Lock?) = context.enter(this, target ?: shared)
 
     fun exitForeign(context: Context) = context.exit(this)
+
+    /**
+     * Opens a scope that owns both the caller's object and [other]'s, for an operation the two owners can
+     * each start on the other in the same instant (merging, pairing). Both sides must pass the same order
+     * ([ownFirst] on exactly one of them), so they queue instead of each holding one lock and waiting for the
+     * other. Counts as two scopes: needs two [exitForeign] calls.
+     */
+    fun enterPair(context: Context, other: Lock, ownFirst: Boolean) = context.enterPair(this, other, ownFirst)
 
     private fun acquire(lock: Lock): Boolean {
         if (lock.tryLock()) return true

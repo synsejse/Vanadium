@@ -12,7 +12,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 
 /**
- * Flat entity wave: synced data (health, flags, pose, variants) is where most changes to an entity end up, so
+ * Synced data (health, flags, pose, variants) is where most changes to an entity end up, so
  * a write to another tick's entity waits for that tick here, whatever vanilla or modded code caused it.
  */
 @Mixin(SynchedEntityData.class)

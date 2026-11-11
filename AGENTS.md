@@ -42,7 +42,7 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 `src/main/java/` (mixins and the bootstrap-time classes listed below).
 
 - **Kotlin vs. Java:** Mixin classes must be Java. So are the duck interfaces they implement
-  (`vanadium$`-prefixed methods: `NavigationAccess`, `NavigationState`, `ItemLockAccess`,
+  (`vanadium$`-prefixed methods: `NavigationAccess`, `NavigationState`, `InteractionAccess`,
   `PoiDistanceAccess`, `ChunkTickSink`, `ScheduledTickAccess`) and code that runs during Mixin
   bootstrap (`mixin/SynchronisePlugin.java`, `compat/C2ME.java`, `compat/Lithium.java`). Everything else is Kotlin.
   Kotlin APIs called from mixins use `@JvmField`/`@JvmStatic` (`Vanadium.config`, `Vanadium.scheduler`);
@@ -54,7 +54,7 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - `chunk/`: chunk manager/cache and per-position loading locks.
 - `collections/`: fastutil-compatible adapters over JDK/JCTools collections.
 - `concurrent/`: entity ownership for the flat entity wave (`Interactions`, `OwnerLocks`), striped
-  entity locks and per-thread random sources.
+  locks and per-thread random sources.
 - `tracking/`: area maps and nearby-player indexing for entity tracking.
 - `mixin/server/world/`, `mixin/world/`: stage injection points and vanilla world access changes.
 - Remaining `mixin/` packages: synchronization and concurrent collection replacements.
@@ -75,16 +75,17 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
   belong to the server thread; workers read/run regions only within a wave.
 - Create a fresh scheduler/pool per server lifecycle and close the pool after the final wave.
   Chunk managers own their maintenance executors; `ChunkLockTable` owns no background threads.
-- Entities tick in one flat wave with no regions (`flatEntities`): any two entity ticks may overlap,
+- Entities tick in one flat wave with no regions: any two entity ticks may overlap,
   however close. A tick owns its vehicle tree; pushes go to the target's inbox; every other write to
   another tree, to blocks or to listeners must run inside an `Interactions` scope (`enter`/`enterShared`
   … `exit`). When adding or auditing entity code, look for writes to an entity that is not `this` and
-  for pairwise check-then-act (both sides run the same logic in one tick): scope the whole operation
-  and recheck its condition inside. Avoid reaching a scope while holding another lock or monitor that a
-  scope's body can take: such a deadlock is only broken by the 100 ms timeout. Check the
-  `cycles`/`timeouts` counts (`-Dvanadium.interactionLogWaves=N`) after touching interactions.
-- In region-scheduled stages, work in chunks within `isolation` chunks of each other (Chebyshev distance) never runs
-  concurrently; all tasks in a region run serially in enqueue order. Cheap regions are ordered by
+  for pairwise check-then-act (both sides run the same logic in one tick): give the whole operation a
+  pair scope (`enterPair`) and recheck its condition inside. Avoid reaching a scope while holding
+  another lock or monitor that a scope's body can take: such a deadlock is only broken by the 100 ms
+  timeout. Check the `cycles`/`timeouts` counts (`-Dvanadium.interactionLogWaves=N`) after touching
+  interactions.
+- In region-scheduled stages (everything but entities), work in chunks within `isolation` chunks of
+  each other (Chebyshev distance) never runs concurrently; all tasks in a region run serially in enqueue order. Cheap regions are ordered by
   colour; heavy regions claim dynamically. Keep colouring proper and conflict lists symmetric. Maintain a full
   completion barrier between stages. Order between conflicting regions may vary between ticks.
 - Keep tick-path hot spots lock-free: every moving mob, chunk lookup or random draw on every
@@ -106,14 +107,14 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
   map under the load lock, and never publish unloaded or null chunks.
 - Use floor division/modulo for negative chunk coordinates. Chunks, blocks,
   and packed positions are distinct; verify conversions at zero and negative boundaries.
-- Isolation does not protect every cross-region interaction. Preserve explicit
-  entity locks, world synchronization, and collection semantics, including fastutil views.
+- Isolation does not protect every cross-region interaction. Preserve world synchronization
+  and collection semantics, including fastutil views.
 - SavedDataStorage has asynchronous writes in 26.3: never synchronize saveAndJoin/close
   across their completion wait. Keep cache/snapshot locks separate from disk IO.
 - Preserve disabled-stage fallback paths and the serial exceptions for projectiles/portals.
 - C2ME is required; other mods that rewrite ticking (VMP, Async, Moonrise, ServerCore, MCMT, DimThread)
-  are declared incompatible. Recheck compatibility
-  against the pinned C2ME jar when touching cancellation or Minecraft method injections.
+  are declared incompatible. Recheck compatibility against the pinned C2ME jar when touching
+  cancellation or Minecraft method injections.
 - Lithium is required. When a change touches a method or shared structure Lithium also rewrites,
   either disable that Lithium option in `lithium:options` or make both compose and keep Lithium's
   shared state thread-safe. Lithium state reached by more than one region (per-world maps, listener

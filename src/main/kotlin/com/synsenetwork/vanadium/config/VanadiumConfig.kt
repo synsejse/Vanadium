@@ -17,20 +17,17 @@ class VanadiumConfig : ConfigData {
             + "are clamped between 2 and max(2, available logical processors). Takes effect on restart.")
     @JvmField var workers = 0
 
-    @field:Comment("Minimum distance, in chunks, between work that may run at the same time (1 to 16). "
-            + "Work regions adapt to the world automatically; this only sets the safety margin. Applies next tick.")
+    @field:Comment("Minimum distance, in chunks, between block-entity, chunk, scheduled-tick and spawning work that may "
+            + "run at the same time (1 to 16). Regions adapt to the world automatically; this only sets the safety "
+            + "margin. Entities are not affected: they tick everywhere at once. Applies next tick.")
     @JvmField var isolation = 2
 
-    @field:Comment("Tick entities in parallel")
+    @field:Comment("Tick entities in parallel: all of them in one wave, wherever they are. Each owns itself while it "
+            + "ticks, and what entities do to each other is locked per interaction.")
     @JvmField var parallelEntities = true
 
-    @field:Comment("Tick all entities in one parallel wave regardless of where they are, instead of in regions kept "
-            + "'isolation' chunks apart. Entities own themselves while they tick; what they do to each other is "
-            + "locked per interaction. false = region scheduling, as for the other stages. Applies next tick.")
-    @JvmField var flatEntities = true
-
-    @field:Comment("With flatEntities: when an entity's tick throws, log it and skip the rest of that tick instead of "
-            + "stopping the server. An entity that fails 3 ticks in a row still stops it. false = vanilla behaviour.")
+    @field:Comment("When an entity's tick throws during parallel entity ticking, log it and skip the rest of that tick "
+            + "instead of stopping the server. An entity that fails 3 ticks in a row still stops it. false = vanilla behaviour.")
     @JvmField var skipFailedEntityTicks = true
 
     @field:Comment("Tick block entities in parallel")

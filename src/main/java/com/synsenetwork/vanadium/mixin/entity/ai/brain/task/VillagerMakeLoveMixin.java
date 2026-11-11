@@ -12,7 +12,7 @@ import net.minecraft.world.entity.npc.villager.Villager;
 import org.spongepowered.asm.mixin.Mixin;
 
 /**
- * Flat entity wave: both villagers run this behaviour and reach the birth time together. Each step owns
+ * Both villagers run this behaviour and reach the birth time together. Each step owns
  * both, and rechecks what vanilla checked just before it, so the second finds the first's cooldown.
  */
 @Mixin(VillagerMakeLove.class)
@@ -20,13 +20,13 @@ public abstract class VillagerMakeLoveMixin {
     @WrapMethod(method = "tick(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/entity/npc/villager/Villager;J)V")
     private void vanadium$withPartner(ServerLevel level, Villager body, long time, Operation<Void> original) {
         Optional<AgeableMob> partner = Interactions.active ? body.getBrain().getMemory(MemoryModuleType.BREED_TARGET) : Optional.empty();
-        if (partner.isPresent() && Interactions.enter(partner.get(), Interactions.Kind.OTHER)) {
+        if (partner.isPresent() && Interactions.enterPair(partner.get(), Interactions.Kind.PAIR)) {
             try {
                 if (body.getBrain().hasMemoryValue(MemoryModuleType.BREED_TARGET) && body.canBreed() && partner.get().canBreed()) {
                     original.call(level, body, time);
                 }
             } finally {
-                Interactions.exit();
+                Interactions.exitPair();
             }
         } else {
             original.call(level, body, time);

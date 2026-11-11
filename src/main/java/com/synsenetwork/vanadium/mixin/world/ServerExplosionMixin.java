@@ -6,7 +6,7 @@ import com.synsenetwork.vanadium.concurrent.Interactions;
 import net.minecraft.world.level.ServerExplosion;
 import org.spongepowered.asm.mixin.Mixin;
 
-/** Flat entity wave: an explosion set off by an entity tick changes blocks and many entities as one shared write. */
+/** An explosion set off by an entity tick changes blocks and many entities as one shared write. */
 @Mixin(ServerExplosion.class)
 public abstract class ServerExplosionMixin {
     @WrapMethod(method = "explode")

@@ -3,7 +3,6 @@ package com.synsenetwork.vanadium.concurrent
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.tick.TickThread
 import net.minecraft.world.entity.Entity
-import net.minecraft.world.entity.item.ItemEntity
 import net.minecraft.world.phys.Vec3
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
@@ -16,7 +15,8 @@ import java.util.function.Consumer
  *
  * Every entity tick owns its vehicle tree for the tick ([tick]). Anything it changes on another tree is a
  * foreign write: mixins at the mutation points call [enter] and [exit], which follow [OwnerLocks], so the
- * write waits for the target's own tick and nothing else. Block changes and other writes to state that
+ * write waits for the target's own tick and nothing else. Operations two entities start on each other
+ * (merging, breeding) own both through [enterPair]. Block changes and other writes to state that
  * entity ticks share call [enterShared] and run one at a time. Pushes, by far the most frequent foreign
  * write in a crowd, never wait: [deferPush] adds them to the target's inbox and the target applies them when
  * it next owns itself. Reads of other entities take no lock, as between regions.
@@ -25,7 +25,7 @@ import java.util.function.Consumer
  */
 object Interactions {
     /** What a foreign write changed; indexes [counts]. */
-    enum class Kind { PUSH, VELOCITY, POSITION, REMOVE, DATA, HURT, MEMORY, BLOCK, EXPLOSION, EVENT, OTHER }
+    enum class Kind { PUSH, VELOCITY, POSITION, REMOVE, DATA, HURT, MEMORY, PAIR, BLOCK, EXPLOSION, EVENT, OTHER }
 
     /** True on every thread while a flat entity wave runs. */
     @JvmField
@@ -102,14 +102,13 @@ object Interactions {
     /**
      * Before a write to [target]: true when the caller must pair it with [exit], having taken the target's
      * tree exclusively. That is the case for another tick's entity, and for the caller's own tree while it
-     * is inside a foreign scope (its lock is released there). False for the caller's own tree otherwise, for
-     * threads not ticking an entity, and for items, which have their own pairwise locks.
+     * is inside a foreign scope (its lock is released there). False for the caller's own tree otherwise and
+     * for threads not ticking an entity.
      */
     @JvmStatic
     fun enter(target: Entity, kind: Kind): Boolean {
         val context = context() ?: return false
         val root = context.root ?: return false
-        if (target is ItemEntity) return false
         val targetRoot = if (target === context.self) root else target.rootVehicle
         if (targetRoot === root) {
             if (context.depth == 0) return false
@@ -123,6 +122,31 @@ object Interactions {
         counts[kind.ordinal].increment()
         locks.enterForeign(context, lock)
         return true
+    }
+
+    /**
+     * Before an operation between the ticking entity and [other] that [other]'s tick may start in reverse in
+     * the same instant (two items merging, two parents breeding, a mob taking an item that is merging): true
+     * when the caller now owns both trees and must call [exitPair]. Both sides queue in id order, so the
+     * second sees what the first did; the caller rechecks the operation's condition inside.
+     */
+    @JvmStatic
+    fun enterPair(other: Entity, kind: Kind): Boolean {
+        val context = context() ?: return false
+        val root = context.root ?: return false
+        val own = context.ownLock ?: return false
+        val otherRoot = if (other === context.self) root else other.rootVehicle
+        if (otherRoot === root) return false
+        counts[kind.ordinal].increment()
+        locks.enterPair(context, lock(otherRoot), root.id < otherRoot.id)
+        return true
+    }
+
+    @JvmStatic
+    fun exitPair() {
+        val context = context()!!
+        locks.exitForeign(context)
+        locks.exitForeign(context)
     }
 
     /**

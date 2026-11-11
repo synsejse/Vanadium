@@ -76,8 +76,7 @@ object TickBenchmark {
         }
         val file = Results.publish(server, "benchmark", result)
         val report = PerformanceReport("benchmark", result,
-            "${Vanadium.scheduler.workerCount} helpers + server thread · isolation ${Vanadium.scheduler.isolation}" +
-                if (Vanadium.config.flatEntities) " · flat entities" else "",
+            "${Vanadium.scheduler.workerCount} helpers + server thread · isolation ${Vanadium.scheduler.isolation}",
             file?.let { Results.describe(server, it) })
         lastReport = report
         val message = report.view()

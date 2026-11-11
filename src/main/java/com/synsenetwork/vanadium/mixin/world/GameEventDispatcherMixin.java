@@ -9,7 +9,7 @@ import net.minecraft.world.level.gameevent.GameEventDispatcher;
 import org.spongepowered.asm.mixin.Mixin;
 
 /**
- * Flat entity wave: vibration listeners (sculk sensors, shriekers, wardens) record what they hear in their own
+ * Vibration listeners (sculk sensors, shriekers, wardens) record what they hear in their own
  * state, and several entity ticks can reach one listener at once. Delivery runs after the listener registries
  * have been visited, outside their monitors, so it can take the shared lock; it only happens near such listeners.
  */

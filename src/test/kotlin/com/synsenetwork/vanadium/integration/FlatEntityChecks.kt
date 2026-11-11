@@ -22,7 +22,6 @@ import java.util.function.Consumer
 /** Entities ticking in one wave with no isolation: what they do to each other stays whole and never deadlocks. */
 internal object FlatEntityChecks {
     fun run(level: ServerLevel) {
-        check(Vanadium.config.flatEntities) { "flat entity ticking is not the default" }
         Interactions.takeCounts()
         val unprotected = Interactions.timeouts + Interactions.cycles
         val skipped = Interactions.skipped

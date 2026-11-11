@@ -12,7 +12,7 @@ import net.minecraft.world.entity.animal.Animal;
 import org.spongepowered.asm.mixin.Mixin;
 
 /**
- * Flat entity wave: both parents run this behaviour, and whichever gives birth clears the other's breed
+ * Both parents run this behaviour, and whichever gives birth clears the other's breed
  * target. Each step owns both; the second parent finds its target cleared and stops instead of giving
  * birth again (or reading a memory that is gone).
  */
@@ -21,11 +21,11 @@ public abstract class AnimalMakeLoveMixin {
     @WrapMethod(method = "tick(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/entity/animal/Animal;J)V")
     private void vanadium$withPartner(ServerLevel level, Animal body, long time, Operation<Void> original) {
         Optional<AgeableMob> partner = Interactions.active ? body.getBrain().getMemory(MemoryModuleType.BREED_TARGET) : Optional.empty();
-        if (partner.isPresent() && Interactions.enter(partner.get(), Interactions.Kind.OTHER)) {
+        if (partner.isPresent() && Interactions.enterPair(partner.get(), Interactions.Kind.PAIR)) {
             try {
                 if (body.getBrain().hasMemoryValue(MemoryModuleType.BREED_TARGET)) original.call(level, body, time);
             } finally {
-                Interactions.exit();
+                Interactions.exitPair();
             }
         } else {
             original.call(level, body, time);

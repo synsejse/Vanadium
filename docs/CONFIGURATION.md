@@ -4,16 +4,14 @@
 
 Edit `config/vanadium.toml`, then run `/vanadium reload` to apply changes live.
 `workers` requires a server restart. Commands do not modify or save configuration values.
-Loaded-chunk lookups are unconditional infrastructure; the former `chunkCache` option has been removed.
 
 | Option | Default | Effect |
 |---|---|---|
 | `enabled` | `true` | Master switch; `false` uses serial ticking, with structural mixins, locks and loaded-chunk lookups still active |
 | `workers` | `0` | `<= 0` = available logical processors; positive values clamp to 2..max(2, available logical processors) (restart) |
-| `isolation` | `2` | Exclusion radius in chunks (1–16, Chebyshev distance) for region-scheduled stages. Work at or within this distance never runs concurrently. Region sizes adapt automatically |
-| `parallelEntities` | `true` | Tick entities in parallel |
-| `flatEntities` | `true` | Tick all entities in one wave with no regions or isolation, so crowded places use every worker; entity interactions are locked individually. `false` = regions `isolation` chunks apart, as for the other stages |
-| `skipFailedEntityTicks` | `true` | With `flatEntities`: an entity tick that throws is logged and the rest of that tick skipped, instead of stopping the server; three failures in a row by one entity still stop it |
+| `isolation` | `2` | Exclusion radius in chunks (1–16, Chebyshev distance) for block entities, chunk ticks, scheduled ticks and spawning. Work at or within this distance never runs concurrently. Region sizes adapt automatically. Entities are not affected |
+| `parallelEntities` | `true` | Tick entities in parallel: all of them in one wave, wherever they are. Each owns itself while it ticks; what entities do to each other is locked per interaction |
+| `skipFailedEntityTicks` | `true` | An entity tick that throws during parallel entity ticking is logged and the rest of that tick skipped, instead of stopping the server; three failures in a row by one entity still stop it |
 | `parallelBlockEntities` | `true` | Tick block entities in parallel |
 | `serialEntityTypes` | `[]` | Entity type IDs that tick serially |
 | `serialBlockEntityTypes` | `[]` | Block-entity type IDs that tick serially |
@@ -29,8 +27,7 @@ Loaded-chunk lookups are unconditional infrastructure; the former `chunkCache` o
 
 ## Commands
 
-`cellSize` has been removed; remove it from existing configuration files. `isolation`
-sets the spatial exclusion distance independently of worker count, not the size of a region.
+`isolation` sets the spatial exclusion distance independently of worker count, not the size of a region.
 
 Serial rules match exact registry IDs. Set them as TOML string arrays:
 
@@ -41,8 +38,10 @@ serialBlockEntityTypes = ["minecraft:hopper", "example:machine"]
 
 Use `[]` to clear a rule, then run `/vanadium reload`.
 Unknown but well-formed IDs are allowed and have no effect until that type is present.
-Matching tickers run on the server thread before the stage's queued parallel work;
-projectiles, portals, and existing fallback paths retain their serial treatment.
+Matching tickers run on the server thread before the stage's queued parallel work.
+Projectiles, entities in portals and entities whose ticks mostly change other things (TNT, container
+minecarts, the dragon, the wither, lightning, effect clouds, evoker fangs, copper golems, wardens)
+always tick serially.
 Rules govern these tickers only: they do not isolate a mod's shared state, callbacks,
 scheduled ticks, or tracking. Validate the actual modpack before deployment.
 

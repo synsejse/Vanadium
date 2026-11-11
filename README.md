@@ -23,15 +23,16 @@ It also optimizes chunk lookups, nearby-player indexing and packet preparation.
 
 ### Performance
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/performance-dark.svg">
-  <img src="docs/assets/performance-light.svg" alt="Minecraft 26.3 benchmarks: the fixed-grid worker sweep peaks at 119.1 TPS with 32 helpers and falls to 85.9 at 64. Separate adaptive-region comparisons show unchanged uniform throughput and an 11.4% clustered-workload gain.">
-</picture>
+| Crowded workload | Workers | Region scheduling | Vanadium | |
+| --- | ---: | ---: | ---: | ---: |
+| 700 mixed mobs in 4×4 chunks | 24 | 282 TPS | 821 TPS | 2.9× |
+| 600 mobs in a one-chunk farm | 8 | 107 TPS | 510 TPS | 4.8× |
+| 2,000 villagers | 24 | 88 TPS | 187 TPS | 2.1× |
+| 600 mobs fighting in an arena | 24 | 21 TPS | 168 TPS | 7.8× |
 
-Minecraft 26.3 on the dual Xeon test VM. The fixed-grid scaling sweep and adaptive-region A/B
-are separate experiments, measured before entities moved to the flat wave. In crowded places the
-flat wave measured 1.6× to 7.8× the throughput of region scheduling (a one-chunk mob farm: 107 → 510
-TPS on 8 workers). [Data, method and limits →](docs/PERFORMANCE.md)
+Minecraft 26.3 with Lithium on the dual Xeon test VM, uncapped tick rate, no players. "Region
+scheduling" is Vanadium's previous entity scheduler, which kept nearby work apart and so gained
+little where mobs are packed together. [Data, method and limits →](docs/PERFORMANCE.md)
 
 ### Getting started
 

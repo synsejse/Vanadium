@@ -14,7 +14,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Flat entity wave: paired behaviours (socializing, breeding, trading) write the other mob's memories. A brain
+ * Paired behaviours (socializing, breeding, trading) write the other mob's memories. A brain
  * learns its owner when it first ticks; after that, memory writes from another entity's tick wait for the owner's.
  */
 @Mixin(Brain.class)

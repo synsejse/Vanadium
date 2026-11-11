@@ -23,7 +23,7 @@ object EntityTickRules {
         val config = Vanadium.config
         return entity is Projectile ||
                 entity.portalProcess?.isInsidePortalThisTick == true ||
-                config.flatEntities && changesManyOthers(entity) ||
+                changesManyOthers(entity) ||
                 config.hasSerialEntityRules() && config.isSerialEntity(BuiltInRegistries.ENTITY_TYPE.getKey(entity.type)) ||
                 entity.passengers.any(::requiresSerial)
     }
@@ -31,8 +31,8 @@ object EntityTickRules {
     /**
      * Entities whose ticks mostly change other things: blocks and entities in bulk (explosives, bosses,
      * lightning, effect clouds, fangs), containers (hopper and chest minecarts, copper golems) or listeners
-     * that other ticks write to (wardens). In a flat wave each of their writes would queue for the shared
-     * lock, so they run on the server thread before it, as projectiles do.
+     * that other ticks write to (wardens). In the entity wave each of their writes would queue for a lock,
+     * so they run on the server thread before it, as projectiles do.
      */
     private fun changesManyOthers(entity: Entity): Boolean =
         entity is PrimedTnt || entity is MinecartTNT || entity is AbstractMinecartContainer || entity is EnderDragon ||

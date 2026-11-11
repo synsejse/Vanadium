@@ -67,7 +67,7 @@ public abstract class LivingEntityMixin extends Entity {
         original.call(damageSource);
     }
 
-    /** Flat entity wave: damage from another entity's tick waits for this entity's own tick, then runs whole. */
+    /** Damage from another entity's tick waits for this entity's own tick, then runs whole. */
     @WrapMethod(method = "hurtServer")
     private boolean vanadium$hurtServer(ServerLevel level, DamageSource source, float damage, Operation<Boolean> original) {
         if (Interactions.active && Interactions.enter(this, Interactions.Kind.HURT)) {
@@ -80,7 +80,7 @@ public abstract class LivingEntityMixin extends Entity {
         return original.call(level, source, damage);
     }
 
-    /** Flat entity wave: effects applied by another entity's tick (stings, auras) change this entity's effect map. */
+    /** Effects applied by another entity's tick (stings, auras) change this entity's effect map. */
     @WrapMethod(method = "addEffect(Lnet/minecraft/world/effect/MobEffectInstance;Lnet/minecraft/world/entity/Entity;)Z")
     private boolean vanadium$addEffect(MobEffectInstance effect, Entity source, Operation<Boolean> original) {
         if (Interactions.active && Interactions.enter(this, Interactions.Kind.OTHER)) {

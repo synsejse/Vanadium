@@ -10,7 +10,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 
 /**
- * Flat entity wave: both parents run this goal and reach the birth tick together. Vanilla's first parent
+ * Both parents run this goal and reach the birth tick together. Vanilla's first parent
  * resets both, which stops the second; here the birth owns both parents and the second sees that reset.
  */
 @Mixin(BreedGoal.class)
@@ -25,11 +25,11 @@ public abstract class BreedGoalMixin {
     @WrapMethod(method = "breed")
     private void vanadium$breedOnce(Operation<Void> original) {
         Animal other = partner;
-        if (Interactions.active && other != null && Interactions.enter(other, Interactions.Kind.OTHER)) {
+        if (Interactions.active && other != null && Interactions.enterPair(other, Interactions.Kind.PAIR)) {
             try {
                 if (animal.isInLove() && other.isInLove()) original.call();
             } finally {
-                Interactions.exit();
+                Interactions.exitPair();
             }
         } else {
             original.call();

@@ -47,7 +47,7 @@ public abstract class EntityMixin implements InteractionAccess {
     }
 
     /**
-     * Flat entity wave: a push from another entity's tick goes to this entity's inbox, so crowds never wait on
+     * A push from another entity's tick goes to this entity's inbox, so crowds never wait on
      * each other and no push is lost to this entity's own movement update running at the same time.
      */
     @WrapMethod(method = "push(DDD)V")
@@ -59,7 +59,7 @@ public abstract class EntityMixin implements InteractionAccess {
         original.call(x, y, z);
     }
 
-    /** Flat entity wave: velocity, position and removal of another tick's entity wait for that tick. */
+    /** Velocity, position and removal of another tick's entity wait for that tick. */
     @WrapMethod(method = "setDeltaMovement(Lnet/minecraft/world/phys/Vec3;)V")
     private void vanadium$setDeltaMovement(Vec3 movement, Operation<Void> original) {
         if (Interactions.active && Interactions.enter((Entity) (Object) this, Interactions.Kind.VELOCITY)) {
@@ -104,7 +104,7 @@ public abstract class EntityMixin implements InteractionAccess {
         NavigationIndex.invalidate((Entity) (Object) this);
     }
 
-    /** Flat entity wave: mounting joins two vehicle trees, so it owns both; one of them is the caller's. */
+    /** Mounting joins two vehicle trees, so it owns both; one of them is the caller's. */
     @WrapMethod(method = "startRiding(Lnet/minecraft/world/entity/Entity;ZZ)Z")
     private boolean vanadium$startRiding(Entity vehicle, boolean force, boolean events, Operation<Boolean> original) {
         if (!Interactions.active) return original.call(vehicle, force, events);

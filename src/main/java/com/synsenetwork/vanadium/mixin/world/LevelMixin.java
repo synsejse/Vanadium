@@ -36,7 +36,7 @@ public abstract class LevelMixin {
         return new PerThreadRandomSource(RandomSupport.generateUniqueSeed());
     }
 
-    /** Flat entity wave: block changes made by entity ticks are shared writes, one at a time. */
+    /** Block changes made by entity ticks are shared writes, one at a time. */
     @WrapMethod(method = "setBlock(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;II)Z")
     private boolean vanadium$setBlock(BlockPos pos, BlockState state, int flags, int limit, Operation<Boolean> original) {
         boolean scoped = Interactions.active && Interactions.enterShared(Interactions.Kind.BLOCK);
@@ -69,7 +69,6 @@ public abstract class LevelMixin {
     @Inject(method = "tickBlockEntities", at = @At("HEAD"))
     private void beginBlockEntityTicks(CallbackInfo ci) {
         if ((Object) this instanceof ServerLevel) {
-            Vanadium.scheduler.run(Stage.ENTITY);
             // Only the server thread mutates the active list. Registrations during a wave
             // stay queued until the next block-entity phase, as with vanilla pending tickers.
             TickingBlockEntity ticker;
