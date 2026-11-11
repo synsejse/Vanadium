@@ -11,7 +11,7 @@ class PrepareLiveRun(
     private val run: File,
     private val configurationCache: Boolean,
     private val eula: File,
-    private val runtimeMod: File,
+    private val runtimeMods: List<File>,
     private val fixture: File,
     private val mode: String,
 ) : Action<Task> {
@@ -23,7 +23,7 @@ class PrepareLiveRun(
         check(!run.exists()) { "Refusing to reuse a live-test world: $run" }
         run.resolve("mods").mkdirs()
         run.resolve("config").mkdirs()
-        runtimeMod.copyTo(run.resolve("mods/${runtimeMod.name}"))
+        runtimeMods.forEach { it.copyTo(run.resolve("mods/${it.name}")) }
         fixture.copyTo(run.resolve("mods/${fixture.name}"))
         eula.copyTo(run.resolve("eula.txt"))
         val port = ServerSocket(0).use { it.localPort }

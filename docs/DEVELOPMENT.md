@@ -43,9 +43,11 @@ Then run:
 ./gradlew runIntegration -Plive.jfr=true
 ```
 
-`prepareRuntimeMods` downloads and SHA-512-verifies the pinned C2ME release into
-`.vanadium/mods/`. C2ME is never flattened into Loom's development classpath. Fabric API,
-Fabric Language Kotlin and Cloth Config are normal Gradle dependencies.
+`prepareRuntimeMods` downloads and SHA-512-verifies the pinned C2ME and Lithium releases into
+`.vanadium/mods/`. Neither is flattened into Loom's development runtime classpath: live runs copy both
+release jars into the run's `mods/`. Vanadium compiles against the verified Lithium jar (`compileOnly`),
+and unit tests use it to check mixin bindings, including injections into methods Lithium merges.
+Fabric API, Fabric Language Kotlin and Cloth Config are normal Gradle dependencies.
 
 `runIntegration` builds a test-only Fabric mod from `src/test/kotlin/`, starts a dedicated
 server through Loom, and runs the live assertions in-process. It also executes the mod's
@@ -101,8 +103,8 @@ publishing new measurements. Stage and world profile intervals overlap; do not a
 ## Interactive development
 
 `./gradlew runServer` and `runClient` retain their normal Loom behavior. For interactive
-use, place the verified C2ME release in that run directory's `mods/`, avoiding duplicate
-versions. `-PvanadiumRunDir=/absolute/path` selects a separate interactive server directory.
+use, place the verified C2ME and Lithium releases in that run directory's `mods/`,
+avoiding duplicate versions. `-PvanadiumRunDir=/absolute/path` selects a separate interactive server directory.
 The Nix shell supplies JDK diagnostic tools and Linux Vulkan/OpenGL loaders; graphical
 clients still require a working host display/driver. Do not delete live Gradle cache locks
 if IDE imports contend with the CLI; let the other operation finish instead.

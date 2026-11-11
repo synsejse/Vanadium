@@ -56,27 +56,45 @@ liveRuns.keys.forEach { fixture ->
     }
 }
 
-val runtimeMod = layout.projectDirectory.file(".vanadium/mods/c2me-fabric-mc${property("minecraft_version")}-${property("c2me_version")}.jar")
-val runtimeUrl = providers.gradleProperty("c2me_url").get()
-val runtimeHash = providers.gradleProperty("c2me_sha512").get()
-
-val prepareRuntimeMods = tasks.register<PrepareRuntimeMod>("prepareRuntimeMods") {
+fun registerRuntimeMod(name: String, fileName: String) = tasks.register<PrepareRuntimeMod>("prepare${name.replaceFirstChar(Char::uppercase)}") {
     group = "fabric"
-    description = "Downloads and verifies pinned C2ME without adding its nested mods to the dev classpath"
-    downloadUrl.set(runtimeUrl)
-    sha512.set(runtimeHash)
-    destination.set(runtimeMod)
+    description = "Downloads and verifies the pinned $name release jar"
+    downloadUrl.set(providers.gradleProperty("${name}_url"))
+    sha512.set(providers.gradleProperty("${name}_sha512"))
+    destination.set(layout.projectDirectory.file(".vanadium/mods/$fileName"))
+}
+
+// Release jars only: C2ME's nested mods must not enter Loom's development classpath.
+val minecraftVersion = property("minecraft_version")
+val prepareC2me = registerRuntimeMod("c2me", "c2me-fabric-mc$minecraftVersion-${property("c2me_version")}.jar")
+val prepareLithium = registerRuntimeMod("lithium", "lithium-fabric-${property("lithium_version")}+mc$minecraftVersion.jar")
+val runtimeMods = listOf(prepareC2me, prepareLithium)
+
+// Lithium is required: Vanadium compiles against the verified release jar and tests run with it.
+val lithiumJar = files(prepareLithium.flatMap { it.destination }).builtBy(prepareLithium)
+dependencies {
+    "compileOnly"(lithiumJar)
+    "testCompileOnly"(lithiumJar)
+}
+tasks.named<Test>("test") {
+    classpath += lithiumJar
+}
+
+val prepareRuntimeMods = tasks.register("prepareRuntimeMods") {
+    group = "fabric"
+    description = "Downloads and verifies pinned C2ME and Lithium without adding them to the dev classpath"
+    dependsOn(prepareC2me, prepareLithium)
 }
 
 val configurationCache = objects.newInstance(BuildFeaturesAccess::class.java).features.configurationCache.requested.getOrElse(false)
 liveRuns.forEach { (fixture, directory) ->
     tasks.named<JavaExec>("run${fixture.runName.replaceFirstChar(Char::uppercase)}") {
         group = "verification"
-        dependsOn(prepareRuntimeMods, fixture.jarTask)
+        dependsOn(runtimeMods, fixture.jarTask)
         timeout.set(Duration.ofMinutes(fixture.timeoutMinutes))
         args("nogui")
         doFirst(PrepareLiveRun(directory.asFile, configurationCache, layout.projectDirectory.file(".vanadium/eula.txt").asFile,
-            runtimeMod.asFile, layout.buildDirectory.file("test-mods/${fixture.jarName}").get().asFile, fixture.runName))
+            runtimeMods.map { it.get().destination.get().asFile }, layout.buildDirectory.file("test-mods/${fixture.jarName}").get().asFile, fixture.runName))
         doLast(VerifyLiveRun(fixture.runName, providers.gradleProperty("live.jfr").getOrElse("false").toBoolean()))
     }
 }

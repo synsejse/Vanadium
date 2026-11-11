@@ -20,7 +20,7 @@ Do not upgrade Minecraft, mappings, Loom, Gradle, Kotlin, or runtime mods as inc
 - `./gradlew benchScheduler`: synthetic scheduler overhead/allocation benchmark.
 - `./gradlew benchWorkerPool`: small/large, balanced/uneven wave timing and allocation benchmark.
 - `./gradlew benchAreaMap`: tracking-index movement, resize, and teleport microbenchmark.
-- `./gradlew prepareRuntimeMods`: download and verify pinned C2ME into `.vanadium/mods`.
+- `./gradlew prepareRuntimeMods`: download and verify pinned C2ME and Lithium into `.vanadium/mods`.
 - `./gradlew runIntegration`: live Kotlin/Java tests plus startup/tick/save/shutdown in a fresh
   `.vanadium/runs/` directory. Requires accepted `.vanadium/eula.txt`; never touches personal `run/`.
   Live runs require configuration caching off (the repository default); use `--no-configuration-cache` if overriding it.
@@ -44,7 +44,7 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - **Kotlin vs. Java:** Mixin classes must be Java. So are the duck interfaces they implement
   (`vanadium$`-prefixed methods: `NavigationAccess`, `NavigationState`, `ItemLockAccess`,
   `PoiDistanceAccess`, `ChunkTickSink`, `ScheduledTickAccess`) and code that runs during Mixin
-  bootstrap (`mixin/SynchronisePlugin.java`, `compat/C2ME.java`). Everything else is Kotlin.
+  bootstrap (`mixin/SynchronisePlugin.java`, `compat/C2ME.java`, `compat/Lithium.java`). Everything else is Kotlin.
   Kotlin APIs called from mixins use `@JvmField`/`@JvmStatic` (`Vanadium.config`, `Vanadium.scheduler`);
   call `vanadium$` methods from Kotlin with backticks. Keep collection adapters on fastutil's
   `Abstract*` bases and override every method that would read unused superclass storage.
@@ -59,6 +59,9 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - Remaining `mixin/` packages: synchronization and concurrent collection replacements.
 - `mixin/SynchronisePlugin.java`: ASM synchronization applied to `SyncAllMixin` targets.
 - `compat/C2ME.java`: MixinSquared cancellation of two C2ME thread-detection mixins.
+- `compat/LithiumCompat.kt`, `compat/Lithium.java` (MixinSquared canceller), `mixin/compat/lithium/`:
+  Lithium support (required, compiled against the pinned jar); `lithium:options` in `fabric.mod.json`
+  disables the Lithium options whose job Vanadium does itself.
 - `config/`, `commands/`: TOML config, status, live reload, tick benchmark.
 - `src/main/resources/vanadium.mixins.json`: required mixin registration.
 - `src/main/resources/vanadium.accesswidener`: access required by mixins.
@@ -99,8 +102,17 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - SavedDataStorage has asynchronous writes in 26.3: never synchronize saveAndJoin/close
   across their completion wait. Keep cache/snapshot locks separate from disk IO.
 - Preserve disabled-stage fallback paths and the serial exceptions for projectiles/portals.
-- C2ME is required; Lithium and VMP are declared incompatible. Recheck compatibility
+- C2ME is required; VMP is declared incompatible. Recheck compatibility
   against the pinned C2ME jar when touching cancellation or Minecraft method injections.
+- Lithium is required. When a change touches a method or shared structure Lithium also rewrites,
+  either disable that Lithium option in `lithium:options` or make both compose and keep Lithium's
+  shared state thread-safe. Lithium state reached by more than one region (per-world maps, listener
+  registries, lazily filled caches) needs the same care as vanilla's. Injections into methods Lithium
+  merges use priority > 1000 and `require = 0` (users can disable Lithium options).
+- The server thread runs chunk-system work (status changes, mods' load/unload callbacks) when it loads
+  during a wave; prefer `WorkerPool.runDeferrable`, or queue callbacks with `runAfterParallelWave`.
+- Do not rely on `@Shadow` field initializers to replace vanilla collections: once a mixin adds other
+  initialized fields, Mixin may drop them. Install replacements explicitly at `<init>` RETURN.
 
 ## Change and validation discipline
 

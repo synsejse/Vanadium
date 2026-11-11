@@ -35,10 +35,12 @@ Use **Minecraft 26.3**, **Fabric Loader 0.20.1+** and **Java 25+**. Build with `
 ([setup](docs/DEVELOPMENT.md)), then place the release jar from `build/libs/` in `mods/` alongside:
 
 - [Fabric API](https://modrinth.com/mod/fabric-api) and [Fabric Language Kotlin](https://modrinth.com/mod/fabric-language-kotlin)
-- [Cloth Config](https://modrinth.com/mod/cloth-config) and [C2ME](https://modrinth.com/mod/c2me-fabric)
+- [Cloth Config](https://modrinth.com/mod/cloth-config), [C2ME](https://modrinth.com/mod/c2me-fabric)
+  and [Lithium](https://modrinth.com/mod/lithium) 0.26.3+
 
-**C2ME is required:** it handles parallel generation/loading while Vanadium handles ticking.
-**Lithium and VMP are incompatible.** Test your world and modpack before deployment.
+**C2ME and Lithium are required:** C2ME handles parallel generation/loading, Lithium makes each tick
+cheaper, and Vanadium spreads ticks across cores. Vanadium turns off the few Lithium options whose job it
+does itself in a thread-safe way, and keeps the rest safe for parallel ticks. **VMP is incompatible.** Test your world and modpack before deployment.
 
 Configure `config/vanadium.toml`; use `/vanadium reload` to apply changes and
 `/vanadium status` to inspect them. Worker-count changes require a restart.

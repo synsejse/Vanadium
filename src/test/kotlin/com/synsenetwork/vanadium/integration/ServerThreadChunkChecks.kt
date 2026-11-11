@@ -49,28 +49,18 @@ internal object ServerThreadChunkChecks {
                 }, "structure start lookup was not deferred")
             }
 
-            // Spawning: whichever participant takes a task, every spawn runs once, on the server thread.
+            // Spawning: whichever participant takes a task, every spawn runs once, on the server thread, after the wave.
             val spawns = SpawnTasks(source)
             val ran = ConcurrentLinkedQueue<Thread>()
             val server = Thread.currentThread()
-            var inWave = true
-            val spawn = Runnable {
-                if (inWave && Thread.currentThread() === server) {
-                    // Hold the caller until the helper has taken and deferred the other task.
-                    val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
-                    while (spawns.pending == 0) {
-                        check(System.nanoTime() < deadline, "helper did not defer a spawn task")
-                        Thread.onSpinWait()
-                    }
-                }
-                ran.add(Thread.currentThread())
-            }
+            val spawn = Runnable { ran.add(Thread.currentThread()) }
             pool.runWave(listOf(spawns.task(fixture, spawn), spawns.task(fixture, spawn)))
-            inWave = false
             val direct = ran.size
             check(ran.all { it === server }, "a spawn ran on a worker with its structure start missing")
+            // The server thread defers too: loading there mid-wave would run chunk-system work beside the helper.
+            check(direct == 0, "the server thread spawned with a structure start missing while a helper ran")
             spawns.runDeferred()
-            check(spawns.lastDeferred >= 1 && direct + spawns.lastDeferred == 2 && ran.size == 2,
+            check(spawns.lastDeferred == 2 && ran.size == 2,
                 "spawn deferral lost or repeated work: direct=$direct deferred=${spawns.lastDeferred} ran=${ran.size}")
             check(ran.all { it === server }, "a deferred spawn did not run on the server thread")
             check(source.getVisibleChunkIfPresent(far.pack()) == null, "worker lookups scheduled the missing chunk")

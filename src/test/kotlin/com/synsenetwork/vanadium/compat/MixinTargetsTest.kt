@@ -10,7 +10,10 @@ import org.objectweb.asm.tree.ClassNode
 import java.io.IOException
 import kotlin.test.assertTrue
 
-/** Checks vanilla member bindings without initializing Minecraft or applying mixins. */
+/**
+ * Checks member bindings without initializing Minecraft or applying mixins, against vanilla and the pinned
+ * Lithium jar on the test classpath. Injections may target methods Lithium's own mixins merge into a class.
+ */
 class MixinTargetsTest {
     @TestFactory
     fun vanillaBindings(): List<DynamicTest> {
@@ -59,11 +62,31 @@ class MixinTargetsTest {
                     if ('*' in selector) continue
                     val name = selector.substringBefore('(')
                     val desc = if ('(' in selector) "(" + selector.substringAfter('(') else null
-                    if (target.methods.none { it.name == name && (desc == null || it.desc == desc) }) missing.add("injection $selector")
+                    val merged = lithiumMerged[target.name].orEmpty()
+                    if (target.methods.none { it.name == name && (desc == null || it.desc == desc) } &&
+                            merged.none { it.first == name && (desc == null || it.second == desc) }) missing.add("injection $selector")
                 }
             }
         }
         assertTrue(missing.isEmpty(), missing.joinToString("\n"))
+    }
+
+    /** Methods each Lithium mixin class adds to its targets, by target internal name. */
+    private val lithiumMerged: Map<String, List<Pair<String, String>>> by lazy {
+        val config = javaClass.classLoader.getResourceAsStream("lithium.mixins.json")!!.reader().use {
+            JsonParser.parseReader(it).asJsonObject
+        }
+        val pkg = config["package"].asString
+        val merged = HashMap<String, MutableList<Pair<String, String>>>()
+        for (name in config.getAsJsonArray("mixins")) {
+            val mixin = read("$pkg.${name.asString}".replace('.', '/'))
+            val annotation = mixin.annotations().firstOrNull { it.desc.endsWith("/Mixin;") } ?: continue
+            val targets = (annotation["value"] as List<*>?).orEmpty().map { (it as Type).internalName } +
+                    (annotation["targets"] as List<*>?).orEmpty().map { (it as String).replace('.', '/') }
+            val methods = mixin.methods.map { it.name to it.desc }
+            for (target in targets) merged.getOrPut(target) { ArrayList() }.addAll(methods)
+        }
+        merged
     }
 
     private fun hasSuperclass(target: ClassNode, name: String): Boolean =
