@@ -15,19 +15,24 @@
 </p>
 
 Vanadium parallelizes entity, block-entity, scheduled and chunk ticking, natural spawning,
-and entity tracking. A shared worker pool runs work in separate parts of the world concurrently:
-regions adapt to where the work is, nearby work never overlaps, and each stage completes before the next.
+and entity tracking. Entities tick in one wave across every worker wherever they are, in a crowded base
+as well as across the map: each owns itself while it ticks, and what entities do to each other is locked
+per interaction. The other stages run separate parts of the world concurrently: regions adapt to where
+the work is, nearby work never overlaps, and each stage completes before the next.
 It also optimizes chunk lookups, nearby-player indexing and packet preparation.
 
 ### Performance
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/performance-dark.svg">
-  <img src="docs/assets/performance-light.svg" alt="Minecraft 26.3 benchmarks: the fixed-grid worker sweep peaks at 119.1 TPS with 32 helpers and falls to 85.9 at 64. Separate adaptive-region comparisons show unchanged uniform throughput and an 11.4% clustered-workload gain.">
-</picture>
+| Crowded workload | Workers | Region scheduling | Vanadium | |
+| --- | ---: | ---: | ---: | ---: |
+| 700 mixed mobs in 4×4 chunks | 24 | 282 TPS | 821 TPS | 2.9× |
+| 600 mobs in a one-chunk farm | 8 | 107 TPS | 510 TPS | 4.8× |
+| 2,000 villagers | 24 | 88 TPS | 187 TPS | 2.1× |
+| 600 mobs fighting in an arena | 24 | 21 TPS | 168 TPS | 7.8× |
 
-Minecraft 26.3 on the dual Xeon test VM. The fixed-grid scaling sweep and adaptive-region A/B
-are separate experiments. [Data, method and limits →](docs/PERFORMANCE.md)
+Minecraft 26.3 with Lithium on the dual Xeon test VM, uncapped tick rate, no players. "Region
+scheduling" is Vanadium's previous entity scheduler, which kept nearby work apart and so gained
+little where mobs are packed together. [Data, method and limits →](docs/PERFORMANCE.md)
 
 ### Getting started
 
@@ -40,7 +45,13 @@ Use **Minecraft 26.3**, **Fabric Loader 0.20.1+** and **Java 25+**. Build with `
 
 **C2ME and Lithium are required:** C2ME handles parallel generation/loading, Lithium makes each tick
 cheaper, and Vanadium spreads ticks across cores. Vanadium turns off the few Lithium options whose job it
-does itself in a thread-safe way, and keeps the rest safe for parallel ticks. **VMP is incompatible.** Test your world and modpack before deployment.
+does itself in a thread-safe way, and keeps the rest safe for parallel ticks.
+
+**Other mods that change how the server ticks are declared incompatible** (Async, DimThread, MCMT,
+Moonrise, ServerCore, VMP): Vanadium owns entity ticking, the chunk lookup path and the tick loop's
+stages, and a second mod rewriting them cannot be made safe from here. Content mods are fine; their
+entities tick in parallel like vanilla's, and `serialEntityTypes` moves any that misbehave back to the
+server thread. Test your world and modpack before deployment.
 
 Configure `config/vanadium.toml`; use `/vanadium reload` to apply changes and
 `/vanadium status` to inspect them. Worker-count changes require a restart.

@@ -68,9 +68,9 @@ class FeatureBench : ModInitializer {
         measurements.compare("profiler-128-cells-work-$work", { on -> Vanadium.scheduler.profile = if (on) profile else null }) {
             val scheduler = Vanadium.scheduler
             scheduler.setDimension("benchmark")
-            scheduler.begin(Stage.ENTITY)
-            tasks.forEachIndexed { i, task -> scheduler.enqueue(Stage.ENTITY, i % 16 * 2, i / 16 * 2, task, null) }
-            scheduler.run(Stage.ENTITY)
+            scheduler.begin(Stage.BLOCK_ENTITY)
+            tasks.forEachIndexed { i, task -> scheduler.enqueue(Stage.BLOCK_ENTITY, i % 16 * 2, i / 16 * 2, task, null) }
+            scheduler.run(Stage.BLOCK_ENTITY)
             scheduler.finishWorld()
         }
         Vanadium.scheduler.profile = null

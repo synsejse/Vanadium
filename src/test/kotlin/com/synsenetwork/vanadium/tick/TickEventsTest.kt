@@ -20,9 +20,9 @@ class TickEventsTest {
                 tick.begin()
                 val scheduler = TickScheduler(pool, 2)
                 scheduler.setDimension("test:world")
-                scheduler.begin(Stage.ENTITY)
-                for (x in intArrayOf(0, 0, 4, 8)) scheduler.enqueue(Stage.ENTITY, x, 0, {}, null)
-                scheduler.run(Stage.ENTITY)
+                scheduler.begin(Stage.BLOCK_ENTITY)
+                for (x in intArrayOf(0, 0, 4, 8)) scheduler.enqueue(Stage.BLOCK_ENTITY, x, 0, {}, null)
+                scheduler.run(Stage.BLOCK_ENTITY)
                 scheduler.prepare(Preparation.TRACKING_DIFFS, List(5) { Runnable {} })
                 tick.commit()
                 recording.stop()
@@ -30,7 +30,7 @@ class TickEventsTest {
             }
             val events = RecordingFile.readAllEvents(file).groupBy { it.eventType.name }
             val wave = events.getValue("vanadium.Wave").single()
-            assertEquals("ENTITY", wave.getString("stage"))
+            assertEquals("BLOCK_ENTITY", wave.getString("stage"))
             assertEquals("test:world", wave.getString("dimension"))
             assertEquals(3, wave.getInt("regions"))
             assertEquals(4, wave.getInt("tasks"))

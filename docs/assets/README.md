@@ -13,9 +13,6 @@ single blue accent.
 | Accent | `#346bf1` | `#1b4ed8` |
 
 - `vanadium.svg`: editable 256 × 256 icon source; the README uses it directly.
-- `performance-dark.svg`, `performance-light.svg`: the 26.3 benchmark chart for each GitHub theme,
-  with accessible title and description.
-- `performance.csv`: plotted values; provenance is in [performance notes](../PERFORMANCE.md).
 
 The runtime PNG is rendered from `vanadium.svg` at 256 × 256. With librsvg available:
 
@@ -23,5 +20,4 @@ The runtime PNG is rendered from `vanadium.svg` at 256 × 256. With librsvg avai
 rsvg-convert -w 256 -h 256 docs/assets/vanadium.svg -o src/main/resources/assets/vanadium/vanadium.png
 ```
 
-When editing a chart, change both variants and keep them in step with `performance.csv`.
 These original project assets use the repository's [GPLv3 license](../../LICENSE).

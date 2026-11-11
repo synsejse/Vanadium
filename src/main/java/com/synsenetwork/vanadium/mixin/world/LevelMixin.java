@@ -1,6 +1,11 @@
 package com.synsenetwork.vanadium.mixin.world;
 
+import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.synsenetwork.vanadium.Vanadium;
+import com.synsenetwork.vanadium.concurrent.Interactions;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.block.state.BlockState;
 import com.synsenetwork.vanadium.concurrent.PerThreadRandomSource;
 import com.synsenetwork.vanadium.tick.Stage;
 import java.util.List;
@@ -31,6 +36,17 @@ public abstract class LevelMixin {
         return new PerThreadRandomSource(RandomSupport.generateUniqueSeed());
     }
 
+    /** Block changes made by entity ticks are shared writes, one at a time. */
+    @WrapMethod(method = "setBlock(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;II)Z")
+    private boolean vanadium$setBlock(BlockPos pos, BlockState state, int flags, int limit, Operation<Boolean> original) {
+        boolean scoped = Interactions.active && Interactions.enterShared(Interactions.Kind.BLOCK);
+        try {
+            return original.call(pos, state, flags, limit);
+        } finally {
+            if (scoped) Interactions.exit();
+        }
+    }
+
     @Shadow
     @Final
     private Thread thread;
@@ -53,7 +69,6 @@ public abstract class LevelMixin {
     @Inject(method = "tickBlockEntities", at = @At("HEAD"))
     private void beginBlockEntityTicks(CallbackInfo ci) {
         if ((Object) this instanceof ServerLevel) {
-            Vanadium.scheduler.run(Stage.ENTITY);
             // Only the server thread mutates the active list. Registrations during a wave
             // stay queued until the next block-entity phase, as with vanilla pending tickers.
             TickingBlockEntity ticker;

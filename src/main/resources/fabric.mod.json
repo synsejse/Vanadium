@@ -42,6 +42,11 @@
   },
   "suggests": {},
   "breaks": {
+    "async": "*",
+    "dimthread": "*",
+    "mcmtfabric": "*",
+    "moonrise": "*",
+    "servercore": "*",
     "vmp": "*"
   },
   "custom": {
@@ -53,7 +58,8 @@
       "mixin.collections.entity_ticking": false,
       "mixin.entity.fast_retrieval": false,
       "mixin.profiler": false,
-      "mixin.alloc.chunk_random": false
+      "mixin.alloc.chunk_random": false,
+      "mixin.entity.collisions.unpushable_cramming": false
     }
   }
 }

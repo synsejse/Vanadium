@@ -32,10 +32,11 @@ class BatchEnqueue<T : Any>(private val kind: Preparation, private val mapper: M
 
     /**
      * Maps every recorded item, runs [SERIAL] items through [serial] in recording order, and enqueues
-     * the rest into [stage]. Clears the batch, including on failure.
+     * the rest into [stage], or appends them to [flat] in recording order when one is given.
+     * Clears the batch, including on failure.
      */
     @Suppress("UNCHECKED_CAST")
-    fun dispatch(scheduler: TickScheduler, stage: Stage, serial: (T) -> Unit) {
+    fun dispatch(scheduler: TickScheduler, stage: Stage, flat: MutableList<Runnable>? = null, serial: (T) -> Unit) {
         val n = count
         try {
             if (n >= MIN_PARALLEL_ITEMS) {
@@ -49,7 +50,8 @@ class BatchEnqueue<T : Any>(private val kind: Preparation, private val mapper: M
                 when (val key = keys[i]) {
                     SKIP -> continue
                     SERIAL -> serial(items[i] as T)
-                    else -> scheduler.enqueue(stage, ChunkPos.getX(key), ChunkPos.getZ(key), tasks[i]!!, null)
+                    else -> if (flat != null) flat.add(tasks[i]!!) else
+                        scheduler.enqueue(stage, ChunkPos.getX(key), ChunkPos.getZ(key), tasks[i]!!, null)
                 }
             }
         } finally {

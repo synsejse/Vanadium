@@ -37,10 +37,10 @@ class BatchEnqueueTest {
             repeat(2) {
                 mapper.ran.clear()
                 serial.clear()
-                scheduler.begin(Stage.ENTITY)
+                scheduler.begin(Stage.BLOCK_ENTITY)
                 for (i in 0 until size) batch.add(Item(i))
-                batch.dispatch(scheduler, Stage.ENTITY) { serial.add(it.index) }
-                scheduler.run(Stage.ENTITY)
+                batch.dispatch(scheduler, Stage.BLOCK_ENTITY) { serial.add(it.index) }
+                scheduler.run(Stage.BLOCK_ENTITY)
 
                 val kept = (0 until size).filter { it % 11 != 0 }
                 assertEquals(kept.filter { it % 7 == 0 }, serial)
