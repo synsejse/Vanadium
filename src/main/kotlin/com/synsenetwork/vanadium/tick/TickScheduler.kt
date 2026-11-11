@@ -1,15 +1,18 @@
 package com.synsenetwork.vanadium.tick
 
+import com.synsenetwork.vanadium.concurrent.Interactions
 import java.util.EnumMap
 import java.util.function.LongConsumer
 
 /**
- * Server-thread stage collection and dispatch. Worlds run sequentially, with a barrier per stage. Each
- * stage's tasks are planned into regions that adapt to where the work is ([RegionGrid]); regions within
- * [isolation] chunks of each other never run at the same time.
+ * Server-thread stage collection and dispatch. Worlds run sequentially, with a barrier per stage. Entities
+ * run as one flat wave ([runFlat]). Every other stage's tasks are planned into regions that adapt to where
+ * the work is ([RegionGrid]); regions within [isolation] chunks of each other never run at the same time.
  */
 class TickScheduler(private val pool: WorkerPool, isolation: Int) {
-    private val grids = EnumMap<Stage, RegionGrid>(Stage::class.java).apply { Stage.entries.forEach { put(it, RegionGrid()) } }
+    private val grids = EnumMap<Stage, RegionGrid>(Stage::class.java).apply {
+        Stage.entries.forEach { if (it != Stage.ENTITY) put(it, RegionGrid()) }
+    }
     private val preparationStarts = EnumMap<Stage, Long>(Stage::class.java)
     private var dimension = "unknown"
     private var worldStart = 0L
@@ -62,10 +65,10 @@ class TickScheduler(private val pool: WorkerPool, isolation: Int) {
         profile?.recordPhase(dimension, "world total", System.nanoTime() - worldStart)
     }
 
-    /** Starts a stage's tick: ages idle chunks and clears leftover work. */
+    /** Starts a stage's tick: for a region stage, ages idle chunks and clears leftover work. */
     fun begin(stage: Stage) {
         if (profile != null) preparationStarts[stage] = System.nanoTime()
-        grids.getValue(stage).beginTick()
+        grids[stage]?.beginTick()
     }
 
     /** Queues a tick task at its chunk. Pass null for the label unless detailed diagnostics are enabled. */
@@ -89,6 +92,42 @@ class TickScheduler(private val pool: WorkerPool, isolation: Int) {
                 preparationStarts[stage] = end
             }
             grid.endTick()
+        }
+    }
+
+    /**
+     * Runs [tasks] as one wave with no regions or isolation: every task may run beside any other, so each must
+     * protect what it shares ([Interactions] for entities). Call after the stage's [begin].
+     */
+    fun runFlat(stage: Stage, tasks: List<Runnable>) {
+        if (tasks.isEmpty()) return
+        val recording = profile
+        recording?.recordFlatWave(stage, tasks.size)
+        val waitRecorder = recording?.let { LongConsumer { nanos -> it.recordWait(stage, nanos) } }
+        val participants = participants(tasks.size)
+        val event = WaveEvent()
+        event.begin()
+        val start = System.nanoTime()
+        preparationStarts.remove(stage)?.let { recording?.recordPhase(dimension, "$stage preparation", start - it) }
+        try {
+            diagnostics?.watch(stage, dimension, 0).use { watch ->
+                val wave = watch?.wrap(tasks) ?: tasks
+                Interactions.runWave { pool.runWave(wave, waitRecorder) }
+            }
+        } finally {
+            if (recording != null) {
+                val elapsed = System.nanoTime() - start
+                recording.recordWaveCapacity(stage, elapsed, participants)
+                recording.recordStage(stage, elapsed)
+                recording.recordPhase(dimension, "$stage execution", elapsed)
+            }
+            if (event.shouldCommit()) {
+                event.stage = stage.name
+                event.dimension = dimension
+                event.tasks = tasks.size
+                event.participants = participants
+                event.commit()
+            }
         }
     }
 
