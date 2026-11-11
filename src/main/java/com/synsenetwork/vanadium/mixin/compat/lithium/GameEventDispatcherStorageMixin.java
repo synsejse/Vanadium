@@ -4,22 +4,22 @@ import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import java.util.concurrent.locks.StampedLock;
+import net.caffeinemc.mods.lithium.common.world.GameEventDispatcherStorage;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Pseudo;
 import org.spongepowered.asm.mixin.Unique;
 
 /**
  * Lithium keeps one map of chunk game-event dispatchers per world. Entities with moving vibration listeners
  * update it on workers while every game event reads it. Writes take a shared write lock; reads are
  * optimistic and retry under a read lock if a write overlapped them (a torn read may throw or miss).
+ * Chunk load and unload callbacks also write it; see {@code ChunkStatusTrackerMixin}.
  */
-@Pseudo
-@Mixin(targets = "net.caffeinemc.mods.lithium.common.world.GameEventDispatcherStorage", remap = false)
+@Mixin(GameEventDispatcherStorage.class)
 public abstract class GameEventDispatcherStorageMixin {
     @Unique
     private static final StampedLock vanadium$lock = new StampedLock();
 
-    @WrapMethod(method = "addChunk", remap = false)
+    @WrapMethod(method = "addChunk")
     private void vanadium$addChunk(long pos, Int2ObjectMap<?> dispatchers, Operation<Void> original) {
         long stamp = vanadium$lock.writeLock();
         try {
@@ -29,7 +29,7 @@ public abstract class GameEventDispatcherStorageMixin {
         }
     }
 
-    @WrapMethod(method = "removeChunk", remap = false)
+    @WrapMethod(method = "removeChunk")
     private void vanadium$removeChunk(long pos, Operation<Void> original) {
         long stamp = vanadium$lock.writeLock();
         try {
@@ -39,7 +39,7 @@ public abstract class GameEventDispatcherStorageMixin {
         }
     }
 
-    @WrapMethod(method = "replace", remap = false)
+    @WrapMethod(method = "replace")
     private void vanadium$replace(long pos, Int2ObjectMap<?> dispatchers, Operation<Void> original) {
         long stamp = vanadium$lock.writeLock();
         try {
@@ -49,7 +49,7 @@ public abstract class GameEventDispatcherStorageMixin {
         }
     }
 
-    @WrapMethod(method = "get", remap = false)
+    @WrapMethod(method = "get")
     private Int2ObjectMap<?> vanadium$get(long pos, Operation<Int2ObjectMap<?>> original) {
         long stamp = vanadium$lock.tryOptimisticRead();
         if (stamp != 0L) {

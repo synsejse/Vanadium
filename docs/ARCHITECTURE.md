@@ -12,7 +12,7 @@ server-owned scheduler and worker pool; it is not a server-per-region engine.
 | `tracking` | Nearby-player ranges, tracker diffs and navigation invalidation |
 | `entity` | Spatial indexing of entity sections |
 | `collections` | Fastutil-compatible adapters over JDK/JCTools collections |
-| `concurrent` | Striped interaction locks and per-thread world random streams |
+| `concurrent` | Striped interaction locks, per-thread world random streams and random-tick LCG |
 | `commands`, `config` | Operator reports, configuration and serial-type rules |
 | `mixin` | Java integration with vanilla; bootstrap compatibility stays Java too |
 
@@ -106,7 +106,10 @@ conservative fallback. It does not run pathfinding asynchronously.
   only if C2ME has already completed the requested status. Otherwise a task run through
   `WorkerPool.runDeferrable` unwinds with `ServerThreadRequired` and reruns on the server
   thread after the wave; other callers log a rate-limited warning and wait as before.
-  Spawning is deferrable: it prechecks the chunk's referenced structure starts, so the
+  The server thread defers deferrable tasks the same way while helpers run: it could load,
+  but the chunk-system work (status changes, entity and POI loading, mods' load callbacks)
+  would then overlap the workers. `WorkerPool.runAfterParallelWave` queues other such
+  server-thread work until the wave's tasks have all finished. Spawning is deferrable: it prechecks the chunk's referenced structure starts, so the
   usual deferral (joins and exploration) happens before any spawn attempt.
 - `ChunkLockTable` reserves entries atomically against eviction. Unlock before dropping a
   reservation; maintenance must not evict a held or pending lock.
@@ -114,11 +117,15 @@ conservative fallback. It does not run pathfinding asynchronously.
   to the server thread; workers never mutate the ordered eager-save set or wait for disk IO.
 - Section storage (POI) gets its concurrent map and dirty set when constructed. Callers loading the
   same column wait for its first loader, which reads off the server thread; vanilla let a second
-  caller read the column before its sections were stored.
+  caller read the column before its sections were stored. POI sections synchronize their methods,
+  and their per-type map and sets are concurrent: vanilla's record streams and Lithium's iterators
+  are consumed after the section's lock is released, while other regions add POI.
 - Saved-data cache hits are concurrent; misses and snapshot creation synchronize separately
   from asynchronous disk writes. Never hold that monitor across `saveAndJoin` or close waits.
 - Immutable path-type entries prevent torn key/type reads. POI and simulation levels use
-  the byte-map adapter. Per-thread random streams avoid a shared world-random monitor.
+  the byte-map adapter. Per-thread random streams avoid a shared world-random monitor, and
+  `Level.randValue`, the random-tick position LCG, is per-thread: `SynchronisePlugin` rewrites
+  every access in `Level` and `ServerLevel` after all mixins, covering Lithium's shortcuts too.
 
 Isolation does not protect arbitrary cross-region interactions. Entity/item locks, shared
 world monitors and collection contracts are still required. Item pairs lock in ID order;
@@ -139,20 +146,32 @@ batch order and vanilla packet contents, and falls back inline for small batches
 C2ME owns generation, holder promotion and ticket scheduling. It is required. Two named
 thread-detection mixins are cancelled by the Java bootstrap integration. VMP is incompatible.
 
-Lithium 0.26.3+ is optional. `fabric.mod.json` disables, through `lithium:options`, the Lithium
-options that rewrite paths Vanadium owns: chunk access, entity-section collections and retrieval,
-the entity tick list, navigation tracking and the profiler; Lithium then turns off the cramming and
-projectile-collision options that depend on them. The rest stay enabled. Lithium state that parallel
-stages share is made safe:
+Lithium 0.26.3+ is required; Vanadium compiles against it. `fabric.mod.json` disables, through
+`lithium:options`, the Lithium options whose job Vanadium does with thread-safe structures: chunk
+access, entity class filtering and per-type lists, entity retrieval, the entity tick list, navigation
+tracking and the profiler. It also disables `alloc.chunk_random`, which shares one mutable position per
+world between parallel random ticks. The rest stay enabled, and Lithium state that parallel stages
+share is made safe:
 
+- Entity class groups (`ClassGroupFilterableList`) come from Vanadium's copy-on-write
+  `ClassInstanceMultiMap`; `compat.Lithium` cancels Lithium's single-threaded lists. Lithium's entity
+  collision, cramming and projectile-collision shortcuts depend on them and stay on. A section's
+  cramming filter is started by its readers; readers of one section serialize, which matters only at
+  isolation 1, where two regions can read a boundary section at once.
 - POI section storage keeps Lithium's per-column index on a concurrent listening map; writes to one
   column and their index updates hold a column stripe lock, and reads take none.
-- Game-event dispatcher storage takes a write lock for its rare updates; reads are optimistic and
-  retry under a read lock only if a write overlapped them.
-- Tracker interning and chunk-section callback registration (hoppers) are synchronized; both are rare.
+- Game-event dispatch reads per-chunk listener maps without the chunk's monitor, so those maps are
+  concurrent and removal takes the monitor that creation already held. The per-world dispatcher
+  storage takes a write lock for its rare updates; reads are optimistic and retry under a read lock
+  only if a write overlapped them.
+- Chunk load/unload callbacks (`ChunkStatusTracker`) run on the server thread, which can change chunk
+  status mid-wave; they are queued until the wave's tasks finish, before the chunk unloads.
+- Tracker interning, the world-border listener registry (every block-entity ticker re-registers after
+  a border change) and chunk-section callback registration (hoppers) are synchronized; all are rare.
 
-These compatibility mixins are `@Pseudo` and inert without Lithium. `MixinTargetsTest` checks their
-bindings against the pinned Lithium jar, and live runs include Lithium unless `-Plive.lithium=false`.
+Users may still disable Lithium options in `config/lithium.properties`; injections into methods those
+options add are optional (`require = 0`), and section storage falls back to Vanadium's concurrent map.
+`MixinTargetsTest` checks bindings against the pinned Lithium jar, and every live run includes Lithium.
 
 ## Validation boundaries
 

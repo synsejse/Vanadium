@@ -45,16 +45,33 @@ class WorkerPool(threads: Int) : AutoCloseable {
         val rejected = closed
         val helpers = if (rejected) 0 else minOf(workers.size, n - 1) // At most n participants with the caller.
         val batch = WorkBatch(indexed, helpers + 1, Thread.currentThread())
-        if (helpers > 0) {
+        val caller = if (helpers > 0) CALLER.get() else null
+        if (caller != null) {
+            caller.parallelWaves++
             current = batch
             for (i in 0 until helpers) workers[i].wake()
         }
-        batch.participate()
-        val waitStart = if (callerWait != null) System.nanoTime() else 0
+        var waveFailure: Throwable? = null
         try {
-            batch.awaitCompletion()
+            batch.participate()
+            val waitStart = if (callerWait != null) System.nanoTime() else 0
+            try {
+                batch.awaitCompletion()
+            } finally {
+                callerWait?.accept(System.nanoTime() - waitStart)
+            }
+        } catch (t: Throwable) {
+            waveFailure = t
+            throw t
         } finally {
-            callerWait?.accept(System.nanoTime() - waitStart)
+            if (caller != null && --caller.parallelWaves == 0) {
+                try {
+                    caller.runAfterWave()
+                } catch (t: Throwable) {
+                    // The wave's own failure stays primary.
+                    waveFailure?.addSuppressed(t) ?: throw t
+                }
+            }
         }
         if (rejected) throw RejectedExecutionException("Vanadium worker pool is closed")
     }
@@ -137,11 +154,8 @@ class WorkerPool(threads: Int) : AutoCloseable {
         @Volatile
         private var parked = false
 
-        /** Set by [runDeferrable] for the task running on this thread; touched only by this thread. */
-        var deferrable = false
-
-        /** The running deferrable task asked for the server thread, even if a caller swallowed the signal. */
-        var deferred = false
+        /** The deferral state of the task running on this thread; touched only by this thread. */
+        val deferral = Deferral()
 
         init {
             isDaemon = true
@@ -188,51 +202,114 @@ class WorkerPool(threads: Int) : AutoCloseable {
         /** Caller spin while waiting for the wave tail before parking. */
         private val CALLER_SPIN_NANOS = java.lang.Long.getLong("vanadium.callerSpinMicros", 200) * 1_000L
 
+        /** Wave callers' state; read only on the calling thread, outside per-task hot paths. */
+        private val CALLER = ThreadLocal.withInitial(::CallerState)
+
         /** True when called from a thread owned by a WorkerPool. */
         @JvmStatic
         fun isWorkerThread(): Boolean = Thread.currentThread() is WorkerThread
 
         /**
-         * Runs [task], letting work that needs the server thread unwind it with [ServerThreadRequired]. The server
-         * thread participates in the same wave, so a worker waiting for it would never be released. Returns false
-         * when the task was abandoned and must be rerun on the server thread after the wave; anything it did
-         * before that point stays done. Off a worker thread the task just runs: the server thread may block.
+         * True on the thread that is running a wave with helpers (the server thread) until every task has
+         * finished. Work it does then overlaps the workers, so it must not run chunk-system work either.
+         */
+        @JvmStatic
+        fun isParallelWaveCaller(): Boolean = Thread.currentThread() !is WorkerThread && CALLER.get().parallelWaves > 0
+
+        /**
+         * Runs [task] once the current parallel wave has finished, on the thread that ran it, when called by that
+         * wave's caller; otherwise runs it now. Queued tasks run in order, before [runWave] returns.
+         */
+        @JvmStatic
+        fun runAfterParallelWave(task: Runnable) {
+            if (Thread.currentThread() !is WorkerThread) {
+                val caller = CALLER.get()
+                if (caller.parallelWaves > 0) {
+                    caller.afterWave.add(task)
+                    return
+                }
+            }
+            task.run()
+        }
+
+        /** The deferral state for the current thread, or null where work may simply block. */
+        private fun currentDeferral(): Deferral? {
+            val thread = Thread.currentThread()
+            if (thread is WorkerThread) return thread.deferral
+            return CALLER.get().takeIf { it.parallelWaves > 0 }
+        }
+
+        /**
+         * Runs [task], letting work that needs the server thread to itself unwind it with [ServerThreadRequired].
+         * A worker waiting for the server thread would never be released (it participates in the same wave), and
+         * chunk-system work the server thread did mid-wave would overlap the workers. Returns false when the task
+         * was abandoned and must be rerun on the server thread after the wave; anything it did before that point
+         * stays done. Outside parallel waves the task just runs: the server thread may block.
          */
         @JvmStatic
         fun runDeferrable(task: Runnable): Boolean {
-            val worker = Thread.currentThread() as? WorkerThread
-            if (worker == null) {
+            val state = currentDeferral()
+            if (state == null) {
                 task.run()
                 return true
             }
-            val outerDeferrable = worker.deferrable
-            val outerDeferred = worker.deferred
-            worker.deferrable = true
-            worker.deferred = false
+            val outerDeferrable = state.deferrable
+            val outerDeferred = state.deferred
+            state.deferrable = true
+            state.deferred = false
             try {
                 task.run()
-                return !worker.deferred
+                return !state.deferred
             } catch (t: Throwable) {
                 // A failure after a swallowed signal is a consequence of it; the server-thread rerun shows real bugs.
-                if (t !is ServerThreadRequired && !worker.deferred) throw t
+                if (t !is ServerThreadRequired && !state.deferred) throw t
                 return false
             } finally {
                 // The rerun belongs to this task's caller; an enclosing deferrable task keeps only its own state.
-                worker.deferrable = outerDeferrable
-                worker.deferred = outerDeferred
+                state.deferrable = outerDeferrable
+                state.deferred = outerDeferred
             }
         }
 
         /**
-         * On a worker inside [runDeferrable], marks the task for the server thread and returns the signal to throw;
-         * otherwise null, and the caller must handle [what] itself. Marking survives a caller swallowing the signal.
+         * Inside [runDeferrable] during a parallel wave, marks the task for the server thread and returns the signal
+         * to throw; otherwise null, and the caller must handle [what] itself. Marking survives a caller swallowing
+         * the signal.
          */
         @JvmStatic
         fun deferToServerThread(what: String): ServerThreadRequired? {
-            val worker = Thread.currentThread() as? WorkerThread ?: return null
-            if (!worker.deferrable) return null
-            worker.deferred = true
+            val state = currentDeferral() ?: return null
+            if (!state.deferrable) return null
+            state.deferred = true
             return ServerThreadRequired(what)
+        }
+    }
+
+    /** Whether the running task may be deferred, and whether it asked to be. */
+    private open class Deferral {
+        var deferrable = false
+        var deferred = false
+    }
+
+    private class CallerState : Deferral() {
+        /** Nesting depth of waves with helpers that this thread is running. */
+        var parallelWaves = 0
+        val afterWave = ArrayList<Runnable>()
+
+        /** Runs every queued task, including ones queued by them, then rethrows the first failure. */
+        fun runAfterWave() {
+            var failure: Throwable? = null
+            var i = 0
+            while (i < afterWave.size) {
+                try {
+                    afterWave[i].run()
+                } catch (t: Throwable) {
+                    if (failure == null) failure = t else failure.addSuppressed(t)
+                }
+                i++
+            }
+            afterWave.clear()
+            failure?.let { throw it }
         }
     }
 }

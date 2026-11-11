@@ -57,9 +57,13 @@
     "world.poi.PoiManagerMixin",
     "world.storage.SectionStorageMixin",
     "world.storage.SavedDataStorageMixin",
+    "world.RandValueMixin",
+    "world.poi.PoiSectionMixin",
+    "compat.lithium.ChunkStatusTrackerMixin",
+    "compat.lithium.EntitySectionMixin",
     "compat.lithium.GameEventDispatcherStorageMixin",
-    "compat.lithium.LithiumDataMixin",
-    "compat.lithium.LithiumInternerMixin"
+    "compat.lithium.ListeningLong2ObjectOpenHashMapAccessor",
+    "compat.lithium.LithiumDataMixin"
   ],
   "client": [],
   "server": [],

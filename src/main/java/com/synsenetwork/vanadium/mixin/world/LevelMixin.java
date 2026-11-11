@@ -6,7 +6,6 @@ import com.synsenetwork.vanadium.tick.Stage;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.Level;
@@ -17,7 +16,6 @@ import net.minecraft.world.level.levelgen.RandomSupport;
 import org.objectweb.asm.Opcodes;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -31,23 +29,6 @@ public abstract class LevelMixin {
     @Redirect(method = "<init>", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/RandomSource;create()Lnet/minecraft/util/RandomSource;"))
     private RandomSource perThreadRandom() {
         return new PerThreadRandomSource(RandomSupport.generateUniqueSeed());
-    }
-
-    @Shadow
-    @Final
-    protected RandomSource random;
-
-    /**
-     * Vanilla advances one shared LCG field per random tick; a world-wide lock kept it consistent
-     * under parallel chunk ticks. The calling thread's own stream provides the same uniform bits.
-     *
-     * @author Vanadium
-     * @reason Lock-free random tick positions for parallel chunk ticking.
-     */
-    @Overwrite
-    public BlockPos getBlockRandomPos(int xo, int yo, int zo, int yMask) {
-        int val = ((PerThreadRandomSource) this.random).current().nextInt() >> 2;
-        return new BlockPos(xo + (val & 15), yo + (val >> 16 & yMask), zo + (val >> 8 & 15));
     }
 
     @Shadow

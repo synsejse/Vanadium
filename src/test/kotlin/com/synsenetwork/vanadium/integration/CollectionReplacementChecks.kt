@@ -7,7 +7,11 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.util.ClassInstanceMultiMap
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.ai.behavior.ShowTradesToPlayer
+import net.minecraft.core.BlockPos
+import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.world.entity.ai.village.poi.PoiManager
+import net.minecraft.world.entity.ai.village.poi.PoiSection
+import net.minecraft.world.entity.ai.village.poi.PoiTypes
 import net.minecraft.world.level.entity.EntityLookup
 import net.minecraft.world.level.entity.EntityTickList
 import net.minecraft.world.level.storage.SavedDataStorage
@@ -39,9 +43,22 @@ internal object CollectionReplacementChecks {
             expect(ClassInstanceMultiMap(Entity::class.java), ClassInstanceMultiMap::class.java, "allInstances", "java.util.concurrent.CopyOnWriteArrayList"),
             expect(ShowTradesToPlayer(1, 2), ShowTradesToPlayer::class.java, "displayItems", "java.util.concurrent.CopyOnWriteArrayList"),
             expect(level.getBlockTicks(), null, "toRunThisTick", "com.synsenetwork.vanadium.tick.ScheduledTickQueue"),
+            expect(poiSection(), PoiSection::class.java, "byType", "java.util.concurrent.ConcurrentHashMap"),
+            poiTypeSet(),
         )
         check(failures.isEmpty()) { "Vanilla collections were not replaced:\n" + failures.joinToString("\n") }
         println("COLLECTION_REPLACEMENT_CHECKS_PASSED")
+    }
+
+    private fun poiSection(): PoiSection = PoiSection {}.apply {
+        add(BlockPos(1, 2, 3), BuiltInRegistries.POINT_OF_INTEREST_TYPE.getOrThrow(PoiTypes.HOME))
+    }
+
+    /** Sets inside the per-type map are created on first use, by the section's add. */
+    private fun poiTypeSet(): String? {
+        val byType = field(poiSection(), PoiSection::class.java, "byType") as Map<*, *>
+        val set = byType.values.single()!!.javaClass.name
+        return if (set == "java.util.concurrent.ConcurrentHashMap\$KeySetView") null else "PoiSection type set is $set"
     }
 
     private fun declared(type: Class<*>, name: String): java.lang.reflect.Field {

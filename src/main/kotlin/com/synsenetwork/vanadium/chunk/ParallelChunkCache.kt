@@ -58,12 +58,15 @@ class ParallelChunkCache(
         }
         val pos = ChunkPos.pack(chunkX, chunkZ)
         loadedFull(pos, requiredStatus)?.let { return it }
-        if (WorkerPool.isWorkerThread()) {
-            // The server thread is in this wave: only a chunk the chunk system has already completed can be used.
+        val worker = WorkerPool.isWorkerThread()
+        if (worker || WorkerPool.isParallelWaveCaller()) {
+            // A worker: the server thread is in this wave, so only a chunk the chunk system has already completed
+            // can be used. The server thread itself can load, but chunk-system work would overlap the workers, so a
+            // deferrable task waits for the end of the wave instead.
             val holder = getVisibleChunkIfPresent(pos)
             if (holder != null) completed(holder, requiredStatus)?.let { return it } else if (!load) return null
             WorkerPool.deferToServerThread("chunk ($chunkX, $chunkZ) at $requiredStatus")?.let { throw it }
-            warnWorkerWait(chunkX, chunkZ, requiredStatus)
+            if (worker) warnWorkerWait(chunkX, chunkZ, requiredStatus)
         }
         if (Vanadium.config.parallelChunkLoads) {
             val held = loadingLocks.lock(pos)
@@ -112,6 +115,9 @@ class ParallelChunkCache(
     }
 
     /** A full chunk without the shared four-entry vanilla cache, which is unsafe across threads. */
+    /** Packed positions of the published full chunks, for diagnostics and live checks. */
+    fun loadedChunkPositions(): LongArray = loadedChunks.keySetLong()
+
     override fun getChunkNow(chunkX: Int, chunkZ: Int): LevelChunk? =
         loadedChunks[ChunkPos.pack(chunkX, chunkZ)]
 

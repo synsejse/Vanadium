@@ -22,7 +22,8 @@
       }
     ],
     "mixinsquared": [
-      "com.synsenetwork.vanadium.compat.C2ME"
+      "com.synsenetwork.vanadium.compat.C2ME",
+      "com.synsenetwork.vanadium.compat.Lithium"
     ]
   },
   "accessWidener": "vanadium.accesswidener",
@@ -36,23 +37,23 @@
     "minecraft": "26.3",
     "java": ">=25",
     "cloth-config2": ">=26.3.159",
-    "c2me": ">=0.4.2-alpha.0.116"
+    "c2me": ">=0.4.2-alpha.0.116",
+    "lithium": ">=0.26.3"
   },
   "suggests": {},
   "breaks": {
-    "lithium": "<0.26.3",
     "vmp": "*"
   },
   "custom": {
     "lithium:options": {
       "mixin.world.chunk_access": false,
       "mixin.entity.inactive_navigations": false,
-      "mixin.chunk.entity_class_groups": false,
       "mixin.collections.entity_filtering": false,
       "mixin.collections.entity_by_type": false,
       "mixin.collections.entity_ticking": false,
       "mixin.entity.fast_retrieval": false,
-      "mixin.profiler": false
+      "mixin.profiler": false,
+      "mixin.alloc.chunk_random": false
     }
   }
 }

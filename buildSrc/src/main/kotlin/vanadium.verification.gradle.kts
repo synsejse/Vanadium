@@ -68,13 +68,16 @@ fun registerRuntimeMod(name: String, fileName: String) = tasks.register<PrepareR
 val minecraftVersion = property("minecraft_version")
 val prepareC2me = registerRuntimeMod("c2me", "c2me-fabric-mc$minecraftVersion-${property("c2me_version")}.jar")
 val prepareLithium = registerRuntimeMod("lithium", "lithium-fabric-${property("lithium_version")}+mc$minecraftVersion.jar")
-val liveLithium = providers.gradleProperty("live.lithium").getOrElse("true").toBoolean()
-val runtimeMods = listOfNotNull(prepareC2me, prepareLithium.takeIf { liveLithium })
+val runtimeMods = listOf(prepareC2me, prepareLithium)
 
-// The verified Lithium jar lets MixinTargetsTest check Vanadium's optional Lithium compatibility mixins.
+// Lithium is required: Vanadium compiles against the verified release jar and tests run with it.
+val lithiumJar = files(prepareLithium.flatMap { it.destination }).builtBy(prepareLithium)
+dependencies {
+    "compileOnly"(lithiumJar)
+    "testCompileOnly"(lithiumJar)
+}
 tasks.named<Test>("test") {
-    dependsOn(prepareLithium)
-    classpath += files(prepareLithium.flatMap { it.destination })
+    classpath += lithiumJar
 }
 
 val prepareRuntimeMods = tasks.register("prepareRuntimeMods") {

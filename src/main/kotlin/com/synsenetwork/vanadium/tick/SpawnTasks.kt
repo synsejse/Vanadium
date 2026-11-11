@@ -8,9 +8,9 @@ import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
  * One world's natural-spawning tasks. Spawn checks look up structure starts, which can be chunks that only the
- * server thread can still load or generate, and the server thread is busy in the same wave. Such a chunk's
- * spawning is deferred instead of blocking, then reruns on the server thread after the wave, where vanilla's
- * blocking lookup is safe. Deferred chunks keep their thunder-then-spawn order; deferral is rare outside
+ * server thread can still load or generate, and the server thread is busy in the same wave (and loading there
+ * would run chunk-system work alongside the workers). Such a chunk's spawning is deferred instead, then reruns
+ * on the server thread after the wave, where vanilla's blocking lookup is safe. Deferred chunks keep their thunder-then-spawn order; deferral is rare outside
  * joins and exploration, when nearby structure chunks are still generating.
  */
 class SpawnTasks(chunks: ServerChunkCache) {
@@ -35,7 +35,7 @@ class SpawnTasks(chunks: ServerChunkCache) {
         scheduler.enqueue(Stage.SPAWNING, pos.x(), pos.z(), task(chunk, spawn), null)
     }
 
-    /** The wave task for [spawn]: on a worker it defers instead of waiting for the server thread. */
+    /** The wave task for [spawn]: during a parallel wave it defers instead of waiting for chunk work. */
     internal fun task(chunk: ChunkAccess, spawn: Runnable): Runnable = Task(chunk, spawn)
 
     /** Server thread, after the spawning wave: reruns deferred chunks in the order they were deferred. */
@@ -59,7 +59,7 @@ class SpawnTasks(chunks: ServerChunkCache) {
     /** Whether every structure start referenced by [chunk] can be read without the server thread. */
     private fun structureStartsAvailable(chunk: ChunkAccess): Boolean {
         val cache = chunks ?: return true
-        if (!WorkerPool.isWorkerThread()) return true
+        if (!WorkerPool.isWorkerThread() && !WorkerPool.isParallelWaveCaller()) return true
         val references = chunk.allReferences
         if (references.isEmpty()) return true
         for (starts in references.values) {

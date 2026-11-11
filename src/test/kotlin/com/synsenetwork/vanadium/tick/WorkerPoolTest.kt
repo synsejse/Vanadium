@@ -345,13 +345,82 @@ class WorkerPoolTest {
     }
 
     @Test
-    fun deferrableTasksRunDirectlyOffWorkers() {
+    fun deferrableTasksRunDirectlyOutsideParallelWaves() {
         var ran = false
+        assertFalse(WorkerPool.isParallelWaveCaller())
         assertTrue(WorkerPool.runDeferrable {
-            assertNull(WorkerPool.deferToServerThread("chunk"), "the server thread was offered deferral")
+            assertNull(WorkerPool.deferToServerThread("chunk"), "the server thread was offered deferral outside a wave")
             ran = true
         })
         assertTrue(ran)
+        // A one-task wave runs inline with no helpers: nothing overlaps it.
+        WorkerPool(2).use { pool ->
+            pool.runWave(listOf(Runnable {
+                assertFalse(WorkerPool.isParallelWaveCaller(), "an inline wave counted as parallel")
+                assertTrue(WorkerPool.runDeferrable { WorkerPool.deferToServerThread("chunk")?.let { throw it } })
+            }))
+        }
+    }
+
+    @Test
+    fun callerDefersAndQueuesWorkWhileHelpersRun() {
+        val outcomes = ConcurrentHashMap<String, Any>()
+        val order = java.util.Collections.synchronizedList(ArrayList<String>())
+        val callerDone = CountDownLatch(1)
+        val workerDone = CountDownLatch(1)
+        // Each participant takes one task: the caller waits for the helper's, which waits for the caller's checks.
+        val task = Runnable {
+            if (WorkerPool.isWorkerThread()) {
+                await(callerDone)
+                outcomes["workerQueued"] = true
+                WorkerPool.runAfterParallelWave { order.add("worker") } // Not the caller: runs now.
+                workerDone.countDown()
+                return@Runnable
+            }
+            try {
+                outcomes["caller"] = WorkerPool.isParallelWaveCaller()
+                outcomes["deferred"] = WorkerPool.runDeferrable { WorkerPool.deferToServerThread("chunk")?.let { throw it } }
+                WorkerPool.runAfterParallelWave {
+                    order.add("first")
+                    outcomes["afterIsCaller"] = WorkerPool.isParallelWaveCaller()
+                    WorkerPool.runAfterParallelWave { order.add("nested") }
+                }
+                WorkerPool.runAfterParallelWave { order.add("second") }
+                order.add("wave")
+            } finally {
+                callerDone.countDown()
+            }
+            await(workerDone)
+        }
+        WorkerPool(1).use { pool ->
+            assertTimeoutPreemptively(Duration.ofSeconds(10)) { pool.runWave(listOf(task, task)) }
+        }
+        assertEquals(true, outcomes["caller"], "the wave caller was not marked during a parallel wave")
+        assertEquals(false, outcomes["deferred"], "the caller ran chunk work alongside helpers")
+        assertEquals(true, outcomes["workerQueued"])
+        assertEquals(false, outcomes["afterIsCaller"], "queued work ran before the wave finished")
+        assertEquals(listOf("wave", "worker", "first", "nested", "second"), order)
+        assertFalse(WorkerPool.isParallelWaveCaller())
+    }
+
+    @Test
+    fun queuedWorkFailureDoesNotHideAWaveFailure() {
+        val once = java.util.concurrent.atomic.AtomicBoolean()
+        val task = Runnable {
+            if (!WorkerPool.isWorkerThread() && once.compareAndSet(false, true)) {
+                WorkerPool.runAfterParallelWave { error("queued failure") }
+                error("wave failure")
+            }
+        }
+        WorkerPool(1).use { pool ->
+            val failure = assertFailsWith<RuntimeException> { pool.runWave(listOf(task, task)) }
+            assertEquals("wave failure", failure.cause?.message)
+            assertEquals("queued failure", failure.suppressed.single().message)
+            // State resets: the next wave and queue behave normally.
+            var ran = false
+            WorkerPool.runAfterParallelWave { ran = true }
+            assertTrue(ran)
+        }
     }
 
     private fun await(latch: CountDownLatch) {
