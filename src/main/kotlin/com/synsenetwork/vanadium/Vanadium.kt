@@ -6,6 +6,8 @@ import com.synsenetwork.vanadium.commands.VanadiumCommand
 import com.synsenetwork.vanadium.concurrent.Interactions
 import com.synsenetwork.vanadium.config.VanadiumConfig
 import com.synsenetwork.vanadium.entity.CrowdedSection
+import com.synsenetwork.vanadium.tick.IdleWorkers
+import com.synsenetwork.vanadium.tick.ServerSpin
 import com.synsenetwork.vanadium.tick.ServerTickEvent
 import com.synsenetwork.vanadium.tick.TickScheduler
 import com.synsenetwork.vanadium.tick.WaveDiagnostics
@@ -39,6 +41,9 @@ object Vanadium : ModInitializer {
     private var diagnostics: WaveDiagnostics? = null
     private var tickEvent: ServerTickEvent? = null
 
+    /** The idle-worker mode the running pool uses (a system property may override the config); null when stopped. */
+    fun idleWorkersActive(): IdleWorkers? = pool?.idleWorkers
+
     override fun onInitialize() {
         LOGGER.info("Initializing Vanadium...")
         val holder = AutoConfig.register(VanadiumConfig::class.java) { definition, type -> Toml4jConfigSerializer(definition, type) }
@@ -56,8 +61,13 @@ object Vanadium : ModInitializer {
         }
         ServerTickEvents.END_LEVEL_TICK.register { scheduler.finishWorld() }
         ServerTickEvents.END_SERVER_TICK.register { server ->
-            // How long the server will sleep before the next tick decides whether idle workers park now.
-            pool?.tickEnded(server.nextTickTime - Util.getNanos(), server.tickRateManager().isSprinting)
+            // How long the server will sleep before the next tick decides whether idle workers park now, and when
+            // they are woken again.
+            pool?.let {
+                val nextTick = server.nextTickTime
+                it.tickEnded(nextTick - Util.getNanos(), server.tickRateManager().isSprinting)
+                ServerSpin.arm(nextTick, it.serverSpinNanos)
+            }
             tickEvent?.commit()
             tickEvent = null
             TickBenchmark.onTickEnd(server)
@@ -78,7 +88,10 @@ object Vanadium : ModInitializer {
 
     private fun onTickStart(server: MinecraftServer) {
         tickEvent = ServerTickEvent().also { it.begin() }
-        pool?.tickStarted()
+        pool?.let {
+            it.configureIdle(config.idleWorkersMode())
+            it.tickStarted()
+        }
         config.refreshSerialRules()
         TickProfiler.onTickStart()
         diagnostics?.configure(config.slowWaveMillis, config.detailedTickDiagnostics)
@@ -88,6 +101,7 @@ object Vanadium : ModInitializer {
         TickBenchmark.onServerStopped()
         TickProfiler.onServerStopped()
         diagnostics?.close()
+        ServerSpin.disarm()
         Interactions.drainPool = null
         pool?.close()
         diagnostics = null

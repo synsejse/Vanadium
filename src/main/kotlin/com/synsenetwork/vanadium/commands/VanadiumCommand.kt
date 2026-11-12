@@ -7,6 +7,8 @@ import com.mojang.brigadier.context.CommandContext
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.config.LiveOptions
 import com.synsenetwork.vanadium.config.VanadiumConfig
+import com.synsenetwork.vanadium.tick.ServerSpin
+import com.synsenetwork.vanadium.tick.SpinPolicy
 import me.shedaniel.autoconfig.AutoConfig
 import net.fabricmc.loader.api.FabricLoader
 import net.minecraft.ChatFormatting
@@ -49,8 +51,8 @@ object VanadiumCommand {
                         .then(argument("value", StringArgumentType.word())
                             .suggests { ctx, builder ->
                                 val option = StringArgumentType.getString(ctx, "option")
-                                if (LiveOptions.isBoolean(option)) SharedSuggestionProvider.suggest(listOf("on", "off"), builder)
-                                else builder.buildFuture()
+                                val choices = if (LiveOptions.isBoolean(option)) listOf("on", "off") else LiveOptions.choices(option)
+                                if (choices != null) SharedSuggestionProvider.suggest(choices, builder) else builder.buildFuture()
                             }
                             .executes(::set))))
                 .then(literal("reload").requires(operator).executes(::reload))
@@ -79,6 +81,17 @@ object VanadiumCommand {
                     if (resolved != active) message.append(Component.literal(" restart pending").withStyle(ChatFormatting.YELLOW))
                 }
                 "isolation" -> message.append("${config.isolation} chunks")
+                "idleWorkers" -> {
+                    message.append(config.idleWorkers)
+                    val overrides = listOfNotNull(
+                        SpinPolicy.forcedMode?.let { "${Vanadium.idleWorkersActive()?.configName ?: it} set by -Dvanadium.idleWorkers" },
+                        "worker spin fixed by -Dvanadium.workerSpinMicros".takeIf { SpinPolicy.fixedSpin },
+                        "server spin window set by -Dvanadium.serverSpinMicros".takeIf { ServerSpin.overridden },
+                    )
+                    if (overrides.isNotEmpty()) {
+                        message.append(Component.literal(" (${overrides.joinToString("; ")})").withStyle(ChatFormatting.YELLOW))
+                    }
+                }
                 else -> when (val value = field.get(config)) {
                     is Boolean -> message.append(onOff(value, "on", "off"))
                     is List<*> -> message.append(if (value.isEmpty()) "none" else value.joinToString(", "))

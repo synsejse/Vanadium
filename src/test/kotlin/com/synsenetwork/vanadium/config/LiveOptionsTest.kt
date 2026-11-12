@@ -38,4 +38,15 @@ class LiveOptionsTest {
         assertNotNull(LiveOptions.set(config, "workers", "8"))
         assertEquals(0, config.workers)
     }
+
+    @Test
+    fun idleWorkersTakesOneOfItsModes() {
+        val config = VanadiumConfig()
+        assertTrue("idleWorkers" in LiveOptions.names)
+        assertEquals(listOf("balanced", "hot", "lean"), LiveOptions.choices("idleWorkers"))
+        assertNull(LiveOptions.set(config, "idleWorkers", "HOT"))
+        assertEquals("hot", config.idleWorkers)
+        assertNotNull(LiveOptions.set(config, "idleWorkers", "warm"))
+        assertEquals("hot", config.idleWorkers)
+    }
 }

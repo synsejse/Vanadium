@@ -93,11 +93,48 @@ Region stages estimate W from `RegionGrid`; flat and preparation waves from the 
 run inline.
 
 Idle spinning follows the tick (`SpinPolicy`). Under pressure (sprinting, or the next tick due
-within 2 ms of the end of this one) workers spin 2 ms through every gap. With slack they
-spin 500 µs between waves of a tick and park as soon as the tick ends; the next tick's start
-wakes the workers the previous tick used, so they are spinning by its first wave.
-`vanadium.workerSpinMicros` fixes the spin and ignores ticks; `vanadium.workerSlackSpinMicros`,
+within 2 ms of the end of this one, or within the worker lead below) workers spin 2 ms through
+every gap. With slack they spin 500 µs between waves of a tick; what happens between ticks is
+the `idleWorkers` option (`IdleWorkers`):
+
+- `balanced` parks workers when the tick ends, and the server thread spins through its wait for
+  the next tick (`ServerSpin`, below).
+- `hot` keeps workers spinning (50 ms between waves, and through the gap to just past the next
+  tick), and the server thread spins through the whole gap.
+- `lean` parks workers when the tick ends, and the server thread sleeps until the next tick.
+
+In every mode the next tick's start wakes the workers the previous tick used, so they are
+spinning by its first wave. A tick that ran nothing in parallel (an idle or `/tick freeze`
+server) keeps nobody spinning, and a server paused when empty (`pause-when-empty-seconds`)
+fires no tick events at all. Tick events are the only input: tests and benchmarks without them
+spin 2 ms. `vanadium.workerSpinMicros` fixes the worker spin and ignores ticks;
+`vanadium.idleWorkers` forces a mode; `vanadium.workerSlackSpinMicros`,
 `vanadium.callerSpinMicros`, `vanadium.callerWakes` and `vanadium.prewake` tune the rest.
+
+**Server spin.** At 20 TPS on the test VM a tick after a long sleep can take twice as long as
+the same tick under `/tick sprint`; see [PERFORMANCE.md](PERFORMANCE.md#idle-workers-at-20-tps).
+`END_SERVER_TICK` arms `ServerSpin` with the next tick's due time and the mode's window. The
+`MinecraftServer.waitForTasks` mixin parks only until the window opens (at once, for a
+whole-gap window), then spins 50 µs
+slices and returns to vanilla's `managedBlock` loop, which polls tasks between slices exactly
+as before (vanilla's other waits poll every 100 µs). It spins only while the wait is for
+exactly the armed tick, so a wait that no tick event preceded (a paused server between its
+loop iterations, startup, shutdown) never spins. `vanadium.serverSpinMicros` replaces the
+window. Spin slices are not counted as idle time in vanilla's tick-time debug samples.
+
+**Timed worker wake** (off by default; `vanadium.prewakeLeadMicros` > 0 enables it in
+`balanced`). `tickEnded` hands the timer thread (`Vanadium-Prewake`, started on first use) a
+request: the time the next tick is due and the most helpers any wave of this tick used. The
+timer parks until the lead before that, raises the pool's spin deadline to just past the due
+time (plus `vanadium.prewakeGraceMicros`, 1 ms), publishes an empty batch with a
+compare-and-set and starts its fan-out like a wave's caller. It never replaces a batch with
+tasks left to claim, so a worker can only miss a batch nobody needs; each helper is checked by
+a thread that has seen the new batch, which keeps the Dekker pairing. Only the latest request
+is kept, a request fires at most once (the timer removes it with a compare-and-set before
+acting), and `tickStarted` drops a request that has not fired: the tick start wakes the same
+workers itself. `close` drops it too, then unparks and joins the timer. A request the timer took
+just before a tick started can still fire into it; it then leaves a running wave alone or wakes
+workers the tick may use anyway, for at most its lead plus grace of spinning.
 
 ## Flat entity wave
 

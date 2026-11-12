@@ -1,5 +1,6 @@
 package com.synsenetwork.vanadium.config
 
+import com.synsenetwork.vanadium.tick.IdleWorkers
 import net.minecraft.resources.Identifier
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -25,6 +26,19 @@ class VanadiumConfigTest {
         val config = VanadiumConfig()
         assertEquals(2, config.isolation)
         config.isolation = 0
+        assertFailsWith<me.shedaniel.autoconfig.ConfigData.ValidationException> { config.validatePostLoad() }
+    }
+
+    @Test
+    fun idleWorkersParsesKnownModesAndRejectsOthers() {
+        val config = VanadiumConfig()
+        assertEquals(IdleWorkers.BALANCED, config.idleWorkersMode())
+        config.idleWorkers = "HOT"
+        config.validatePostLoad()
+        assertEquals(IdleWorkers.HOT, config.idleWorkersMode())
+        config.idleWorkers = "lean"
+        assertEquals(IdleWorkers.LEAN, config.idleWorkersMode(), "a changed value is reparsed")
+        config.idleWorkers = "warm"
         assertFailsWith<me.shedaniel.autoconfig.ConfigData.ValidationException> { config.validatePostLoad() }
     }
 
