@@ -1,6 +1,7 @@
 package com.synsenetwork.vanadium.config
 
 import com.synsenetwork.vanadium.Vanadium
+import com.synsenetwork.vanadium.tick.IdleWorkers
 import com.synsenetwork.vanadium.tick.RegionGrid
 import me.shedaniel.autoconfig.ConfigData
 import me.shedaniel.autoconfig.annotation.Config
@@ -61,12 +62,22 @@ class VanadiumConfig : ConfigData {
     @field:Comment("Per-chunk load locks so different chunks can load in parallel; false = one global lock")
     @JvmField var parallelChunkLoads = true
 
+    @field:Comment("What worker threads and the server thread do between ticks. balanced (default): workers park and "
+            + "the server thread spins until the next tick, about one core while the world has parallel work. hot: "
+            + "workers spin too, for the lowest tick time; on a 72-thread Xeon VM every worker that ran then holds a "
+            + "core (24 workers: 24 cores, against 11-25% each otherwise), and it halved 20 TPS tick times at times "
+            + "when idle threads were slow, about 12% faster otherwise. lean: nothing spins, the least CPU. Live next "
+            + "tick; -Dvanadium.idleWorkers overrides it.")
+    @JvmField var idleWorkers = "balanced"
+
     @field:Comment("Warn about waves exceeding this many milliseconds. 0 disables diagnostics; live next tick.")
     @JvmField var slowWaveMillis = 0
 
     @field:Comment("Include current task/type labels in slow-wave reports. Adds per-task overhead while diagnostics are enabled.")
     @JvmField var detailedTickDiagnostics = false
 
+    @Transient private var idleWorkersText: String? = null
+    @Transient private var idleWorkersParsed = IdleWorkers.BALANCED
     @Transient private val entityRules = TypeRules()
     @Transient private val blockEntityRules = TypeRules()
 
@@ -81,6 +92,16 @@ class VanadiumConfig : ConfigData {
 
     fun hasSerialBlockEntityRules(): Boolean = !blockEntityRules.isEmpty()
 
+    /** [idleWorkers] as a mode; reparsed only when the field changes (it is validated on load and by `set`). */
+    fun idleWorkersMode(): IdleWorkers {
+        val text = idleWorkers
+        if (text !== idleWorkersText) {
+            idleWorkersParsed = IdleWorkers.parse(text) ?: IdleWorkers.BALANCED
+            idleWorkersText = text
+        }
+        return idleWorkersParsed
+    }
+
     /** Refresh once per tick so in-place list edits never add scans to individual ticker lookups. */
     fun refreshSerialRules() {
         entityRules.update(serialEntityTypes)
@@ -92,6 +113,9 @@ class VanadiumConfig : ConfigData {
             throw ConfigData.ValidationException("isolation must be within 1..${RegionGrid.MAX_ISOLATION} (got $isolation).")
         }
         if (slowWaveMillis < 0) throw ConfigData.ValidationException("slowWaveMillis must be >= 0")
+        if (IdleWorkers.parse(idleWorkers) == null) {
+            throw ConfigData.ValidationException("idleWorkers must be one of ${IdleWorkers.names.joinToString()} (got '$idleWorkers').")
+        }
         try {
             refreshSerialRules()
         } catch (e: IllegalArgumentException) {

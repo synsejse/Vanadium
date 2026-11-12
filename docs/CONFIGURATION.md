@@ -22,6 +22,7 @@ Edit `config/vanadium.toml`, then run `/vanadium reload` to apply changes live.
 | `parallelChunkPackets` | `true` | Prepare chunk section packet data in parallel between world ticks |
 | `consolidateFlushes` | `true` | Batch each connection's packets into one flush per tick instead of one per packet |
 | `parallelChunkLoads` | `true` | Per-chunk load locks; `false` = one global lock |
+| `idleWorkers` | `balanced` | What threads do between ticks: `balanced` parks workers and keeps the server thread spinning until the next tick (about one core); `hot` keeps workers spinning too (every worker that ran holds a core: 24 workers, 24 cores); `lean` spins nothing. See [idle workers](#idle-workers) |
 | `slowWaveMillis` | `0` | Warn when a wave exceeds this duration; `0` disables diagnostics |
 | `detailedTickDiagnostics` | `false` | Add current task/type labels while wave diagnostics are enabled |
 
@@ -34,6 +35,31 @@ workers ran 38–65% below the best setting. The best count still depends on the
 [worker count](PERFORMANCE.md#worker-count).
 
 `isolation` sets the spatial exclusion distance independently of worker count, not the size of a region.
+
+### Idle workers
+
+At the normal 20 TPS the threads that tick the world sit idle for most of each 50 ms. On the
+test VM a tick could then take twice as long as the same tick under `/tick sprint`, but only
+at some times: in other measurement windows, with identical settings, idle threads cost
+nothing (see [PERFORMANCE.md](PERFORMANCE.md#idle-workers-at-20-tps)). The VM cannot see the
+host's power states, so check your own machine with `/vanadium profile` at 20 TPS:
+
+- `balanced` (default) parks workers and keeps the server thread spinning until the next tick:
+  about one core (`top` shows the server process at 100% or more even when ticks are short).
+- `hot` keeps every worker that ran spinning as well: the lowest tick times, for one core per
+  worker (`top` shows about `workers` × 100%).
+- `lean` spins nothing between ticks: the least CPU.
+
+After a tick without parallel work (an empty or `/tick freeze` world) nothing spins in any mode,
+and a server paused when empty (`pause-when-empty-seconds`) never spins.
+
+`/vanadium set idleWorkers hot` switches live for a comparison; `/vanadium reload` restores the
+file's value. System properties override the option and are shown by `/vanadium status`:
+`-Dvanadium.idleWorkers=<mode>`, `-Dvanadium.serverSpinMicros=<µs>` (spin the server thread only
+for that long before each tick, in every mode; `0` never),
+`-Dvanadium.prewakeLeadMicros=<µs>` (in `balanced`, wake workers that long before each tick;
+off by default because no lead measured faster) and `-Dvanadium.workerSpinMicros=<µs>` (a fixed
+worker spin that ignores ticks).
 
 Serial rules match exact registry IDs. Set them as TOML string arrays:
 
@@ -54,7 +80,7 @@ scheduled ticks, or tracking. Validate the actual modpack before deployment.
 | Command | Permission | Effect |
 |---|---|---|
 | `/vanadium` or `/vanadium status` | everyone | Version, enabled state, workers (with restart-pending detection), isolation, all stage flags |
-| `/vanadium set <option> <value>` | op (2) | Change a boolean or integer option live (not `workers`); not saved, `/vanadium reload` restores the file |
+| `/vanadium set <option> <value>` | op (2) | Change a boolean, integer or `idleWorkers` option live (not `workers`); not saved, `/vanadium reload` restores the file |
 | `/vanadium reload` | op (2) | Re-read `vanadium.toml` and apply live |
 | `/vanadium benchmark [seconds]` | op (2) | Unlock TPS (via vanilla tick-sprint; default 30s, range 5–300s) and report ticks run, average and peak TPS |
 | `/vanadium profile [seconds]` | op (2) | Capture tick/stage timings at the current tick rate; default 30s, range 1–300s |
