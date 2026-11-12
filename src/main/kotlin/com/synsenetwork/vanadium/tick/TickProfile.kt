@@ -47,6 +47,17 @@ class TickProfile {
         stats.tasks += tasks
     }
 
+    /**
+     * The groups a flat wave's tasks were claimed in: how many, the longest one's time, and how many had not
+     * finished when the dispatching thread ran out of groups to claim (it waited for those).
+     */
+    fun recordFlatGroups(stage: Stage, groups: Int, longestNanos: Long, runningAtTail: Int) {
+        val stats = stats(stage)
+        stats.groups += groups
+        stats.longestGroups.add(longestNanos)
+        stats.groupsRunningAtTail += runningAtTail
+    }
+
     fun recordWave(stage: Stage, regions: List<Region>) {
         if (regions.isEmpty()) return
         val stats = stats(stage)
@@ -87,6 +98,12 @@ class TickProfile {
                 addProperty("tasks", stats.tasks)
                 addProperty("maxTasksPerRegion", stats.maxTasksPerRegion)
                 stats.utilization()?.let { addProperty("utilization", it) }
+                if (stats.longestGroups.count > 0) {
+                    addProperty("groups", stats.groups)
+                    // Per wave: the longest group, and the groups other threads were still running when the caller's tail wait began.
+                    add("longestGroup", stats.longestGroups.toJson())
+                    addProperty("groupsRunningAtTailStart", stats.groupsRunningAtTail.toDouble() / stats.longestGroups.count)
+                }
             })
         })
         add("preparations", JsonObject().apply {
@@ -109,6 +126,9 @@ class TickProfile {
         var regions = 0L
         var tasks = 0L
         var maxTasksPerRegion = 0
+        var groups = 0L
+        val longestGroups = Samples()
+        var groupsRunningAtTail = 0L
 
         fun utilization(): Double? =
             if (capacityNanos == 0L) null else minOf(1.0, regionDurations.totalNanos.toDouble() / capacityNanos)
