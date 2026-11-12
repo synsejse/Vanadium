@@ -82,6 +82,7 @@ world-safety or performance claim.
 ./gradlew benchScheduler
 ./gradlew benchWorkerPool
 ./gradlew benchAreaMap
+./gradlew benchSectionIndex
 ./gradlew runFeatureBench
 ./gradlew runFeatureBench -Pbench.filter='spawn-.*' -Pbench.rounds=2 -Pbench.scale=0.1 -Pbench.jfr=false
 ```

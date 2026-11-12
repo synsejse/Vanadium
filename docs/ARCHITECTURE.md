@@ -170,7 +170,9 @@ Fastutil field types require small adapters:
 
 Spatial indexes remain domain logic rather than general-purpose containers. `AreaMap`
 paints nearby-player ranges and updates only their symmetric difference. `EntitySectionIndex`
-visits only columns intersecting an entity query, preserving vanilla's packed-key order.
+visits only columns intersecting an entity query, preserving vanilla's packed-key order. Each
+chunk column is one immutable entry (sorted Ys and their sections) replaced on change, so a column
+costs one lock-free map read and readers never see half of a write.
 `NavigationIndex` filters invalidation candidates; dirty/custom/long-path cases retain a
 conservative fallback. It does not run pathfinding asynchronously.
 

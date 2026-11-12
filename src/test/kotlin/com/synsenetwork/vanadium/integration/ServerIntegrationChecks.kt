@@ -49,6 +49,7 @@ class ServerIntegrationChecks : ModInitializer {
             NavigationChecks.run(level)
             TrackingChecks.run(level)
             SpawnChecks.run(level)
+            EntitySectionChecks.run(level)
             ItemChecks.run(level)
             ChunkPacketChecks.run(level)
             ReportChecks.start(server)
