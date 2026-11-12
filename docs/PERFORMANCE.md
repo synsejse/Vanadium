@@ -113,7 +113,11 @@ Fast state (afternoon), alternating configurations:
 - `balanced` (the server thread spinning through the gap, about one core) is the cheapest setting that keeps
   one thread busy through the gap, as `hot` does. It was not measured in the slow state: whether one
   spinning thread suffices there is not known. A short server spin (1 or 5 ms) and early worker wake-ups
-  measured no faster than nothing in either state, so neither is a default.
+  measured no faster than nothing in either state.
+- A later alternating run in the fast state, two fresh servers per mode: `lean` 6.56–7.09 ms average
+  (p95 8.9–9.9), `balanced` 6.37–6.49 (8.6–9.2), `hot` 6.39–6.89 (8.8–9.9). No mode is ahead by more than
+  the run-to-run spread, so `lean` is the default: it is the only one that costs nothing when it does not
+  help. Try `balanced` or `hot` if `/vanadium profile` at 20 TPS shows ticks much slower than a sprint.
 
 Measured 2026-11-12 on `perf/tick-prewake` (based on `perf/first-wave`), `isolation = 2`, the harness of
 `/vanadium profile` in a fresh server per run; environment as below.

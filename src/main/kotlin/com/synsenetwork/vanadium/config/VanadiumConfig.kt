@@ -65,13 +65,13 @@ class VanadiumConfig : ConfigData {
     @field:Comment("Index crowded entity sections by cell so pushing and small box queries test only nearby entities")
     @JvmField var crowdedSectionIndex = true
 
-    @field:Comment("What worker threads and the server thread do between ticks. balanced (default): workers park and "
-            + "the server thread spins until the next tick, about one core while the world has parallel work. hot: "
-            + "workers spin too, for the lowest tick time; on a 72-thread Xeon VM every worker that ran then holds a "
-            + "core (24 workers: 24 cores, against 11-25% each otherwise), and it halved 20 TPS tick times at times "
-            + "when idle threads were slow, about 12% faster otherwise. lean: nothing spins, the least CPU. Live next "
-            + "tick; -Dvanadium.idleWorkers overrides it.")
-    @JvmField var idleWorkers = "balanced"
+    @field:Comment("What worker threads and the server thread do between ticks. lean (default): nothing spins, the "
+            + "least CPU. balanced: workers park and the server thread spins until the next tick, about one core "
+            + "while the world has parallel work. hot: workers spin too; on a 72-thread Xeon VM every worker that "
+            + "ran then holds a core (24 workers: 24 cores, against 11-25% each otherwise), and it halved 20 TPS "
+            + "tick times at times when idle threads were slow, with little or no gain otherwise. Compare the modes "
+            + "on your own machine with /vanadium profile. Live next tick; -Dvanadium.idleWorkers overrides it.")
+    @JvmField var idleWorkers = "lean"
 
     @field:Comment("Warn about waves exceeding this many milliseconds. 0 disables diagnostics; live next tick.")
     @JvmField var slowWaveMillis = 0
@@ -80,7 +80,7 @@ class VanadiumConfig : ConfigData {
     @JvmField var detailedTickDiagnostics = false
 
     @Transient private var idleWorkersText: String? = null
-    @Transient private var idleWorkersParsed = IdleWorkers.BALANCED
+    @Transient private var idleWorkersParsed = IdleWorkers.LEAN
     @Transient private val entityRules = TypeRules()
     @Transient private val blockEntityRules = TypeRules()
 
@@ -99,7 +99,7 @@ class VanadiumConfig : ConfigData {
     fun idleWorkersMode(): IdleWorkers {
         val text = idleWorkers
         if (text !== idleWorkersText) {
-            idleWorkersParsed = IdleWorkers.parse(text) ?: IdleWorkers.BALANCED
+            idleWorkersParsed = IdleWorkers.parse(text) ?: IdleWorkers.LEAN
             idleWorkersText = text
         }
         return idleWorkersParsed

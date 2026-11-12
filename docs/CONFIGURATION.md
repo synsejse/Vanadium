@@ -23,7 +23,7 @@ Edit `config/vanadium.toml`, then run `/vanadium reload` to apply changes live.
 | `consolidateFlushes` | `true` | Batch each connection's packets into one flush per tick instead of one per packet |
 | `parallelChunkLoads` | `true` | Per-chunk load locks; `false` = one global lock |
 | `crowdedSectionIndex` | `true` | Entity sections holding 24 or more entities (`-Dvanadium.crowdedSectionEntities`) index their entities by 2×4×2-block cells, so pushing and other small box queries test only nearby entities; same results as the full scan |
-| `idleWorkers` | `balanced` | What threads do between ticks: `balanced` parks workers and keeps the server thread spinning until the next tick (about one core); `hot` keeps workers spinning too (every worker that ran holds a core: 24 workers, 24 cores); `lean` spins nothing. See [idle workers](#idle-workers) |
+| `idleWorkers` | `lean` | What threads do between ticks: `lean` spins nothing; `balanced` parks workers and keeps the server thread spinning until the next tick (about one core); `hot` keeps workers spinning too (every worker that ran holds a core: 24 workers, 24 cores). See [idle workers](#idle-workers) |
 | `slowWaveMillis` | `0` | Warn when a wave exceeds this duration; `0` disables diagnostics |
 | `detailedTickDiagnostics` | `false` | Add current task/type labels while wave diagnostics are enabled |
 
@@ -45,11 +45,12 @@ at some times: in other measurement windows, with identical settings, idle threa
 nothing (see [PERFORMANCE.md](PERFORMANCE.md#idle-workers-at-20-tps)). The VM cannot see the
 host's power states, so check your own machine with `/vanadium profile` at 20 TPS:
 
-- `balanced` (default) parks workers and keeps the server thread spinning until the next tick:
+- `lean` (default) spins nothing between ticks: the least CPU.
+- `balanced` parks workers and keeps the server thread spinning until the next tick:
   about one core (`top` shows the server process at 100% or more even when ticks are short).
-- `hot` keeps every worker that ran spinning as well: the lowest tick times, for one core per
-  worker (`top` shows about `workers` × 100%).
-- `lean` spins nothing between ticks: the least CPU.
+- `hot` keeps every worker that ran spinning as well, for one core per worker (`top` shows about
+  `workers` × 100%). It halved tick times when idle threads were slow and was within noise of
+  `lean` otherwise.
 
 After a tick without parallel work (an empty or `/tick freeze` world) nothing spins in any mode,
 and a server paused when empty (`pause-when-empty-seconds`) never spins.

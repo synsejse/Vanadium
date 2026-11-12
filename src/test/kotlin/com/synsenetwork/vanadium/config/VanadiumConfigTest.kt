@@ -32,7 +32,7 @@ class VanadiumConfigTest {
     @Test
     fun idleWorkersParsesKnownModesAndRejectsOthers() {
         val config = VanadiumConfig()
-        assertEquals(IdleWorkers.BALANCED, config.idleWorkersMode())
+        assertEquals(IdleWorkers.LEAN, config.idleWorkersMode())
         config.idleWorkers = "HOT"
         config.validatePostLoad()
         assertEquals(IdleWorkers.HOT, config.idleWorkersMode())
