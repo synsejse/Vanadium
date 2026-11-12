@@ -67,6 +67,7 @@ internal object EntityCollectionChecks {
             level.getChunk(CHUNK_X, CHUNK_Z)
         }
         checks.await("fixture chunk to tick entities", 100) { level.isPositionEntityTicking(center) }
+        checks.await("the chunk tick cache to match the ticking chunks", 20) { ChunkTickCacheChecks.matches(level, CHUNK_X, CHUNK_Z, true) }
         checks.then("spawn probes") {
             spawner = Probe(level) { self ->
                 // Spawn from inside the wave, on whichever thread runs this tick.
@@ -146,6 +147,7 @@ internal object EntityCollectionChecks {
             check(tasks.isSerial(spawner!!) == false) { "spawner lost after the rescan" }
             check(level.setChunkForced(CHUNK_X, CHUNK_Z, false)) { "could not unforce the fixture chunk" }
         }
+        checks.await("the chunk tick cache to drop a chunk that stops ticking", 100) { ChunkTickCacheChecks.matches(level, CHUNK_X, CHUNK_Z, false) }
         checks.await("entities in a chunk that stops ticking to leave the wave", 100) {
             if (level.isPositionEntityTicking(center)) return@await false
             // The tick list drops them when their section stops ticking; the next dispatch drops their tasks.

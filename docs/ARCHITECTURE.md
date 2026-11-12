@@ -38,16 +38,15 @@ tree through the serial path.
 
 ## Planning and execution
 
-`BatchEnqueue` maps large recorded inputs in disjoint worker slices, then enqueues the
-results on the caller in recording order. Workers never mutate stage queues.
-
-Entity collection keeps its tasks across ticks instead of rebuilding them on the server thread.
-`PersistentTickTasks` holds one task per entity in the tick list, in arrival order: the tick list
-reports adds and removes (from any thread, also mid-wave) and they apply at the next dispatch, so an
-entity added during a tick first ticks next tick, as with vanilla's snapshot. Serial classification is
-cached per entity: its type rules are recomputed when the configured rules change (compared by
+Entity and chunk collection keep their tasks across ticks instead of rebuilding them on the server
+thread. `PersistentTickTasks` holds one task per entity in the tick list, in arrival order: the tick
+list reports adds and removes (from any thread, also mid-wave) and they apply at the next dispatch, so
+an entity added during a tick first ticks next tick, as with vanilla's snapshot. Serial classification
+is cached per entity: its type rules are recomputed when the configured rules change (compared by
 identity), its portal and passenger part when portal entry or a mount is reported for it or a passenger,
-and every tick for entities that are serial only through that part.
+and every tick for entities that are serial only through that part. `ChunkTickBatch` caches the
+entity-ticking chunk positions until the simulation-level map's write version changes; each task
+resolves its holder and ticking chunk when it runs. Workers never mutate stage queues.
 
 `RegionGrid` records tasks per chunk, using floor-correct coordinates and dense 16×16
 tiles. Prefix sums guide quadtree splits: the task target is the larger of a share of

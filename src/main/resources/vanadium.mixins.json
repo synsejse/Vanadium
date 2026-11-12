@@ -36,6 +36,7 @@
     "server.world.ChunkHolderMixin",
     "server.world.DistanceManagerMixin",
     "server.world.TrackedEntityAccessor",
+    "server.world.DistanceManagerAccessor",
     "server.world.TrackedEntityMixin",
     "server.world.ChunkMapMixin",
     "server.world.ServerChunkCacheMixin",

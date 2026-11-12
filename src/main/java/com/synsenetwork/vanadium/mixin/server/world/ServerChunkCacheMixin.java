@@ -2,16 +2,18 @@ package com.synsenetwork.vanadium.mixin.server.world;
 
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.tick.Stage;
+import com.synsenetwork.vanadium.tick.ChunkTickAccess;
 import com.synsenetwork.vanadium.tick.ChunkTickBatch;
-import com.synsenetwork.vanadium.tick.ChunkTickSink;
 import com.synsenetwork.vanadium.tick.SpawnPreparation;
 import com.synsenetwork.vanadium.tick.SpawnTasks;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.ServerChunkCache;
@@ -36,7 +38,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(ServerChunkCache.class)
-public abstract class ServerChunkCacheMixin {
+public abstract class ServerChunkCacheMixin implements ChunkTickAccess {
     @Shadow @Final public ChunkMap chunkMap;
 
     @Redirect(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;)V", at = @At(value = "INVOKE",
@@ -59,28 +61,21 @@ public abstract class ServerChunkCacheMixin {
     }
 
     /**
-     * Ends spawning before vanilla's block-ticking pass. With parallel chunk ticks, ChunkMapMixin then
-     * records each ticking holder instead of invoking vanilla's per-chunk consumer; otherwise the
-     * vanilla consumer ticks chunks inline.
+     * Ends spawning before vanilla's block-ticking pass. With parallel chunk ticks, the persistent
+     * {@link ChunkTickBatch} replaces vanilla's iteration over ticking chunks; otherwise the vanilla
+     * consumer ticks chunks inline.
      */
-    @Inject(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;)V", at = @At(value = "INVOKE",
+    @WrapOperation(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;)V", at = @At(value = "INVOKE",
             target = "Lnet/minecraft/server/level/ChunkMap;forEachBlockTickingChunk(Ljava/util/function/Consumer;)V"))
-    private void finishSpawning(ProfilerFiller profiler, CallbackInfo ci) {
+    private void tickChunksInWave(ChunkMap map, Consumer<LevelChunk> consumer, Operation<Void> original) {
         Vanadium.scheduler.run(Stage.SPAWNING);
         vanadium$spawns().runDeferred();
         Vanadium.scheduler.begin(Stage.CHUNK);
         if (Vanadium.config.enabled && Vanadium.config.parallelChunkTicks) {
-            ChunkTickBatch batch = vanadium$chunkTicks();
-            batch.begin(level.getGameRules().get(GameRules.RANDOM_TICK_SPEED));
-            ((ChunkTickSink) chunkMap).vanadium$setChunkTickSink(batch);
+            vanadium$chunkTicks().dispatch(Vanadium.scheduler, level.getGameRules().get(GameRules.RANDOM_TICK_SPEED));
+        } else {
+            original.call(map, consumer);
         }
-    }
-
-    @Inject(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;)V", at = @At(value = "INVOKE",
-            target = "Lnet/minecraft/server/level/ChunkMap;forEachBlockTickingChunk(Ljava/util/function/Consumer;)V", shift = At.Shift.AFTER))
-    private void finishChunkTicks(ProfilerFiller profiler, CallbackInfo ci) {
-        ((ChunkTickSink) chunkMap).vanadium$setChunkTickSink(null);
-        vanadium$chunkTicks().dispatch(Vanadium.scheduler);
         Vanadium.scheduler.run(Stage.CHUNK);
     }
 
@@ -98,9 +93,9 @@ public abstract class ServerChunkCacheMixin {
         return vanadium$spawnTasks;
     }
 
-    @Unique
-    private ChunkTickBatch vanadium$chunkTicks() {
-        if (vanadium$chunkTickBatch == null) vanadium$chunkTickBatch = new ChunkTickBatch(level);
+    @Override
+    public ChunkTickBatch vanadium$chunkTicks() {
+        if (vanadium$chunkTickBatch == null) vanadium$chunkTickBatch = new ChunkTickBatch((ServerChunkCache) (Object) this, level);
         return vanadium$chunkTickBatch;
     }
 
