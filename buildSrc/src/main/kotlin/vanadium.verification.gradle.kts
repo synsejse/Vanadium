@@ -112,3 +112,4 @@ registerBench("benchScheduler", "Runs the scheduler micro-benchmark", "Scheduler
 registerBench("benchWorkerPool", "Compares small, large, balanced and uneven worker waves", "WorkerPoolBench")
 registerBench("benchAreaMap", "Measures tracking-area moves, teleports and radius changes", "AreaMapBench")
 registerBench("benchSectionIndex", "Compares entity section box queries on the column index and the previous two-map layout", "SectionIndexBench")
+registerBench("benchCrowdQueries", "Compares push-sized queries in crowded entity sections: full scan against cells, with moving entities", "CrowdQueryBench")
