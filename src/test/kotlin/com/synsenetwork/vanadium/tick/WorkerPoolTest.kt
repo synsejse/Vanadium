@@ -423,7 +423,246 @@ class WorkerPoolTest {
         }
     }
 
+    /** Spins for a minute in every state but after a tick with slack, so parking happens only when a test asks. */
+    private fun steadyPool(threads: Int) = WorkerPool(threads, SpinPolicy(60_000_000_000L, 60_000_000_000L, fixed = false))
+
+    /** Ends a tick with an hour of slack, more than any spin: idle workers park at once. */
+    private fun parkAll(pool: WorkerPool, threads: Int) {
+        pool.tickEnded(SLACK, sprinting = false)
+        awaitCondition("workers did not park after a tick with slack") { (0 until threads).all(pool::isParked) }
+    }
+
+    /**
+     * Runs [count] tasks that each wait until all have started: the wave completes only if [count] distinct
+     * threads join it, so a worker that is never woken fails it within the gate's timeout.
+     */
+    private fun gatedWave(pool: WorkerPool, count: Int): Set<String> {
+        val started = CountDownLatch(count)
+        val threads = ConcurrentHashMap.newKeySet<String>()
+        pool.runWave(List(count) {
+            Runnable {
+                threads.add(Thread.currentThread().name)
+                started.countDown()
+                check(started.await(5, TimeUnit.SECONDS)) { "only ${count - started.count} of $count participants joined" }
+            }
+        })
+        return threads
+    }
+
+    private fun workerNames(range: IntRange) = range.map { "Vanadium-Worker-${it + 1}" }.toSet()
+
+    @Test
+    fun fanOutWakesEveryHelperWhenSomeAreParkedAndSomeSpinning() {
+        val threads = 8
+        steadyPool(threads).use { pool ->
+            parkAll(pool, threads)
+            pool.tickStarted() // Nothing ran last tick: nothing is woken in advance.
+            assertTrue((0 until threads).all(pool::isParked))
+
+            // A small wave wakes only the lowest-numbered workers; the caller unparks two, they wake the third.
+            val small = gatedWave(pool, 4)
+            assertEquals(workerNames(0..2) + Thread.currentThread().name, small)
+            assertEquals(WorkerPool.CALLER_WAKES, pool.lastCallerUnparks)
+            assertTrue((0..2).none(pool::isParked), "participants went back to parking while spinning for a minute")
+            assertTrue((3 until threads).all(pool::isParked), "a worker outside the small wave was woken")
+
+            // Three spinning, five parked: every one of them must join.
+            val full = gatedWave(pool, threads + 1)
+            assertEquals(workerNames(0 until threads) + Thread.currentThread().name, full)
+            assertTrue(pool.lastCallerUnparks <= WorkerPool.CALLER_WAKES, "the caller woke ${pool.lastCallerUnparks} workers itself")
+        }
+    }
+
+    @Test
+    fun fanOutWakesAFullyParkedPoolRepeatedly() {
+        val threads = 12
+        steadyPool(threads).use { pool ->
+            repeat(5) {
+                parkAll(pool, threads)
+                assertEquals(workerNames(0 until threads) + Thread.currentThread().name, gatedWave(pool, threads + 1))
+                assertEquals(WorkerPool.CALLER_WAKES, pool.lastCallerUnparks, "the caller did more than start the fan-out")
+            }
+        }
+    }
+
+    @Test
+    fun parkedWorkersOutsideAWaveDoNotStartAFanOut() {
+        steadyPool(8).use { pool ->
+            parkAll(pool, 8)
+            pool.tickStarted() // Back to spinning between waves; nothing ran last tick, so nobody is woken.
+            gatedWave(pool, 4)
+            assertTrue(pool.lastFanOut)
+            // Workers 0..2 spin, 3..7 stay parked: a wave on 0..2 alone needs no wake-up at all.
+            assertEquals(workerNames(0..2) + Thread.currentThread().name, gatedWave(pool, 4))
+            assertFalse(pool.lastFanOut, "parked workers outside the wave started a fan-out")
+            gatedWave(pool, 5)
+            assertTrue(pool.lastFanOut, "a parked helper did not start a fan-out")
+        }
+    }
+
+    @Test
+    fun spinningPoolNeedsNoWakeUps() {
+        steadyPool(4).use { pool ->
+            gatedWave(pool, 5)
+            assertEquals(workerNames(0..3) + Thread.currentThread().name, gatedWave(pool, 5))
+            assertEquals(0, pool.lastCallerUnparks)
+        }
+    }
+
+    @Test
+    fun waveReachesAWorkerPausedBeforeAnnouncingItsPark() = checkParkRace(WorkerPool.ParkPoint.BEFORE_ANNOUNCE, threads = 1)
+
+    @Test
+    fun waveReachesAWorkerPausedBeforeRecheckingForWork() = checkParkRace(WorkerPool.ParkPoint.BEFORE_RECHECK, threads = 1)
+
+    @Test
+    fun waveReachesAWorkerPausedJustBeforeParking() = checkParkRace(WorkerPool.ParkPoint.BEFORE_PARK, threads = 1)
+
+    @Test
+    fun fanOutReachesAWorkerPausedBeforeAnnouncingItsPark() = checkParkRace(WorkerPool.ParkPoint.BEFORE_ANNOUNCE, threads = 4)
+
+    @Test
+    fun fanOutReachesAWorkerPausedBeforeRecheckingForWork() = checkParkRace(WorkerPool.ParkPoint.BEFORE_RECHECK, threads = 4)
+
+    @Test
+    fun fanOutReachesAWorkerPausedJustBeforeParking() = checkParkRace(WorkerPool.ParkPoint.BEFORE_PARK, threads = 4)
+
+    /**
+     * Holds the last worker at [point] on its way to parking while a wave is published and every other
+     * participant (with [threads] > 1, the other workers parked first, so a helper wakes it, not the caller) has
+     * started, then lets it go: it must still join the wave.
+     */
+    private fun checkParkRace(point: WorkerPool.ParkPoint, threads: Int) {
+        val target = threads - 1
+        val reached = CountDownLatch(1)
+        val release = AtomicBoolean()
+        val armed = AtomicBoolean(true)
+        val pool = steadyPool(threads)
+        val caller = AtomicReference<Thread>()
+        try {
+            pool.parkHook = WorkerPool.ParkHook { worker, at ->
+                if (worker == target && at == point && armed.compareAndSet(true, false)) {
+                    reached.countDown()
+                    // Spin, never park: a park here would consume the wake-up's permit, which production never does.
+                    val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+                    while (!release.get() && System.nanoTime() < deadline) Thread.onSpinWait()
+                }
+            }
+            pool.tickEnded(SLACK, sprinting = false)
+            await(reached)
+            awaitCondition("other workers did not park") { (0 until target).all(pool::isParked) }
+            val count = threads + 1
+            val started = CountDownLatch(count)
+            val failure = AtomicReference<Throwable?>()
+            val joined = ConcurrentHashMap.newKeySet<String>()
+            val done = CountDownLatch(1)
+            caller.set(Thread {
+                try {
+                    pool.runWave(List(count) {
+                        Runnable {
+                            joined.add(Thread.currentThread().name)
+                            started.countDown()
+                            check(started.await(5, TimeUnit.SECONDS)) { "the paused worker never joined" }
+                        }
+                    })
+                } catch (t: Throwable) {
+                    failure.set(t)
+                } finally {
+                    done.countDown()
+                }
+            }.apply { start() })
+            // Everyone but the paused worker is inside a task: the wave and all its wake-ups have been issued.
+            awaitCondition("the other participants did not start") { started.count == 1L }
+            release.set(true)
+            assertTrue(done.await(10, TimeUnit.SECONDS), "wave did not finish")
+            assertNull(failure.get())
+            assertEquals(workerNames(0 until threads) + caller.get().name, joined)
+            // Workers count themselves before rechecking, so only a worker paused before that is skipped.
+            val callerUnparks = if (point == WorkerPool.ParkPoint.BEFORE_ANNOUNCE && threads == 1) 0 else minOf(threads, WorkerPool.CALLER_WAKES)
+            assertEquals(callerUnparks, pool.lastCallerUnparks)
+        } finally {
+            release.set(true)
+            caller.get()?.join(5000)
+            pool.close()
+        }
+    }
+
+    @Test
+    fun workersParkAtOnceWhenATickEndsWithSlack() {
+        steadyPool(4).use { pool ->
+            gatedWave(pool, 5)
+            assertTrue((0..3).none(pool::isParked))
+            pool.tickEnded(-1, sprinting = false) // Behind: the next tick is due now, keep spinning.
+            pool.tickEnded(10_000_000L, sprinting = true) // Sprinting: likewise.
+            assertFalse(awaitConditionFor(200) { (0..3).any(pool::isParked) }, "a worker parked under pressure")
+            parkAll(pool, 4)
+        }
+    }
+
+    @Test
+    fun tickStartWakesTheWorkersTheLastTickUsed() {
+        val threads = 6
+        steadyPool(threads).use { pool ->
+            pool.tickStarted()
+            gatedWave(pool, 3) // Two helpers.
+            parkAll(pool, threads)
+            pool.tickStarted()
+            awaitCondition("the workers of the last tick were not woken") { (0..1).none(pool::isParked) }
+            assertTrue((2 until threads).all(pool::isParked), "a worker the last tick did not use was woken")
+            // That tick ran nothing, so the next start wakes nobody.
+            parkAll(pool, threads)
+            pool.tickStarted()
+            assertFalse(awaitConditionFor(200) { (0 until threads).any { !pool.isParked(it) } }, "an idle tick woke workers")
+        }
+    }
+
+    @Test
+    fun cappedWaveRunsInlineOrOnTheLowestWorkers() {
+        steadyPool(4).use { pool ->
+            val ran = ConcurrentHashMap.newKeySet<Thread>()
+            pool.runWave(List(50) { Runnable { ran.add(Thread.currentThread()) } }, null, 1)
+            assertEquals(setOf(Thread.currentThread()), ran, "a one-participant wave left the caller")
+            assertFalse(WorkerPool.isParallelWaveCaller())
+            val started = CountDownLatch(2)
+            val names = ConcurrentHashMap.newKeySet<String>()
+            pool.runWave(List(8) {
+                Runnable {
+                    names.add(Thread.currentThread().name)
+                    started.countDown()
+                    check(started.await(5, TimeUnit.SECONDS))
+                }
+            }, null, 2)
+            assertEquals(setOf(Thread.currentThread().name, "Vanadium-Worker-1"), names)
+        }
+    }
+
+    @Test
+    fun runWaveReportsBusyTime() {
+        WorkerPool(2).use { pool ->
+            val busy = pool.runWave(List(3) { Runnable { Thread.sleep(5) } })
+            assertTrue(busy >= 15_000_000L, "busy time $busy below the tasks' sleep")
+        }
+    }
+
+    private fun awaitCondition(message: String, condition: () -> Boolean) {
+        assertTrue(awaitConditionFor(5000, condition), message)
+    }
+
+    /** Polls [condition] for up to [millis]; true as soon as it holds. */
+    private fun awaitConditionFor(millis: Long, condition: () -> Boolean): Boolean {
+        val deadline = System.nanoTime() + millis * 1_000_000L
+        while (System.nanoTime() < deadline) {
+            if (condition()) return true
+            Thread.sleep(1)
+        }
+        return condition()
+    }
+
     private fun await(latch: CountDownLatch) {
         assertTrue(latch.await(5, TimeUnit.SECONDS), "test gate timed out")
+    }
+
+    private companion object {
+        const val SLACK = 3_600_000_000_000L
     }
 }

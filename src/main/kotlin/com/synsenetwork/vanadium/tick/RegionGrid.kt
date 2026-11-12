@@ -175,6 +175,9 @@ class RegionGrid {
         colour()
     }
 
+    /** Estimated work of the queued tasks, or 0 before any wave was measured. */
+    val estimatedNanos: Double get() = nanosPerTask * logSize
+
     /** Estimated work per region of the current plan, or 0 before any wave was measured. */
     val nanosPerRegion: Double get() = if (planned.isEmpty()) 0.0 else nanosPerTask * logSize / planned.size
 

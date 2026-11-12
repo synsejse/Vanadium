@@ -8,12 +8,27 @@ import java.util.function.LongConsumer
  * Server-thread stage collection and dispatch. Worlds run sequentially, with a barrier per stage. Entities
  * run as one flat wave ([runFlat]). Every other stage's tasks are planned into regions that adapt to where
  * the work is ([RegionGrid]); regions within [isolation] chunks of each other never run at the same time.
+ *
+ * Each wave involves only as many threads as its estimated work pays for ([participants]); estimates come
+ * from the grids for region stages and from measured busy time per task for flat and preparation waves.
+ *
+ * @param participantCostNanos what involving one more thread costs a wave; 0 always uses every worker
  */
-class TickScheduler(private val pool: WorkerPool, isolation: Int) {
+class TickScheduler internal constructor(
+    private val pool: WorkerPool,
+    isolation: Int,
+    private val participantCostNanos: Double,
+) {
+    constructor(pool: WorkerPool, isolation: Int) : this(pool, isolation, PARTICIPANT_COST_NANOS)
+
     private val grids = EnumMap<Stage, RegionGrid>(Stage::class.java).apply {
         Stage.entries.forEach { if (it != Stage.ENTITY) put(it, RegionGrid()) }
     }
     private val preparationStarts = EnumMap<Stage, Long>(Stage::class.java)
+
+    /** Smoothed busy time per task of flat waves by stage, and per job of preparations by kind; 0 before any. */
+    private val flatNanosPerTask = DoubleArray(Stage.entries.size)
+    private val preparationNanosPerJob = DoubleArray(Preparation.entries.size)
     private var dimension = "unknown"
     private var worldStart = 0L
 
@@ -41,20 +56,41 @@ class TickScheduler(private val pool: WorkerPool, isolation: Int) {
         val event = PreparationEvent()
         event.begin()
         val start = if (recording != null) System.nanoTime() else 0
+        val participants = participants(jobs.size, preparationNanosPerJob[kind.ordinal] * jobs.size)
         try {
-            pool.runWave(jobs)
+            learn(preparationNanosPerJob, kind.ordinal, pool.runWave(jobs, null, participants), jobs.size)
         } finally {
             recording?.recordPreparation(kind, jobs.size, System.nanoTime() - start)
             if (event.shouldCommit()) {
                 event.kind = kind.name
                 event.jobs = jobs.size
-                event.participants = participants(jobs.size)
+                event.participants = participants
                 event.commit()
             }
         }
     }
 
-    private fun participants(tasks: Int): Int = minOf(pool.workerCount + 1, tasks)
+    /**
+     * Threads worth involving in a wave of [tasks] tasks and about [estimatedNanos] of work, the caller
+     * included. With W of work over p participants, each costing c to involve (its share of the wake-up fan-out,
+     * claim and barrier traffic, cold caches), the wave takes about W / p + c * p, least at p = sqrt(W / c):
+     * each participant's slice is then sqrt(W * c), so larger waves get both more threads and larger slices.
+     * Waves too small to pay for a second thread run inline on the caller. Unknown cost (0) uses every worker.
+     * The pool gives the slots to its lowest-numbered workers.
+     */
+    internal fun participants(tasks: Int, estimatedNanos: Double): Int {
+        val most = maxOf(1, minOf(pool.workerCount + 1, tasks))
+        if (estimatedNanos <= 0.0 || participantCostNanos <= 0.0) return most
+        return Math.sqrt(estimatedNanos / participantCostNanos).toInt().coerceIn(1, most)
+    }
+
+    /** Feeds a wave's busy time into a per-task estimate. */
+    private fun learn(estimates: DoubleArray, slot: Int, busyNanos: Long, tasks: Int) {
+        if (busyNanos <= 0 || tasks == 0) return
+        val sample = busyNanos.toDouble() / tasks
+        val previous = estimates[slot]
+        estimates[slot] = if (previous == 0.0) sample else previous + (sample - previous) * COST_SMOOTHING
+    }
 
     fun setDimension(dimension: String) {
         this.dimension = dimension
@@ -104,16 +140,18 @@ class TickScheduler(private val pool: WorkerPool, isolation: Int) {
         val recording = profile
         recording?.recordFlatWave(stage, tasks.size)
         val waitRecorder = recording?.let { LongConsumer { nanos -> it.recordWait(stage, nanos) } }
-        val participants = participants(tasks.size)
+        val participants = participants(tasks.size, flatNanosPerTask[stage.ordinal] * tasks.size)
         val event = WaveEvent()
         event.begin()
         val start = System.nanoTime()
         preparationStarts.remove(stage)?.let { recording?.recordPhase(dimension, "$stage preparation", start - it) }
         try {
+            var busy = 0L
             diagnostics?.watch(stage, dimension, 0).use { watch ->
                 val wave = watch?.wrap(tasks) ?: tasks
-                Interactions.runWave { pool.runWave(wave, waitRecorder) }
+                Interactions.runWave { busy = pool.runWave(wave, waitRecorder, participants) }
             }
+            learn(flatNanosPerTask, stage.ordinal, busy, tasks.size)
         } finally {
             if (recording != null) {
                 val elapsed = System.nanoTime() - start
@@ -135,7 +173,7 @@ class TickScheduler(private val pool: WorkerPool, isolation: Int) {
         val regions = grid.plan(pool.workerCount + 1, isolation)
         recording?.recordWave(stage, regions)
         val waitRecorder = recording?.let { LongConsumer { nanos -> it.recordWait(stage, nanos) } }
-        val participants = participants(regions.size)
+        val participants = participants(regions.size, grid.estimatedNanos)
         val event = WaveEvent()
         event.begin()
         val start = System.nanoTime()
@@ -192,5 +230,13 @@ class TickScheduler(private val pool: WorkerPool, isolation: Int) {
          * dataflow order.
          */
         const val CLAIM_MIN_REGION_NANOS = 100_000.0
+
+        /**
+         * Default cost of involving one more thread in a wave, in nanoseconds (`vanadium.participantCostNanos`).
+         * See [participants] and the wake-latency cases of WorkerPoolBench.
+         */
+        private val PARTICIPANT_COST_NANOS = java.lang.Long.getLong("vanadium.participantCostNanos", 2_000).toDouble()
+
+        private const val COST_SMOOTHING = 0.2
     }
 }

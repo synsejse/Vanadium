@@ -17,6 +17,7 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents
 import net.minecraft.server.MinecraftServer
+import net.minecraft.util.Util
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 
@@ -51,6 +52,8 @@ object Vanadium : ModInitializer {
         }
         ServerTickEvents.END_LEVEL_TICK.register { scheduler.finishWorld() }
         ServerTickEvents.END_SERVER_TICK.register { server ->
+            // How long the server will sleep before the next tick decides whether idle workers park now.
+            pool?.tickEnded(server.nextTickTime - Util.getNanos(), server.tickRateManager().isSprinting)
             tickEvent?.commit()
             tickEvent = null
             TickBenchmark.onTickEnd(server)
@@ -71,6 +74,7 @@ object Vanadium : ModInitializer {
 
     private fun onTickStart(server: MinecraftServer) {
         tickEvent = ServerTickEvent().also { it.begin() }
+        pool?.tickStarted()
         config.refreshSerialRules()
         TickProfiler.onTickStart()
         diagnostics?.configure(config.slowWaveMillis, config.detailedTickDiagnostics)
