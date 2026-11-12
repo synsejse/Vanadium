@@ -50,6 +50,7 @@ class ServerIntegrationChecks : ModInitializer {
             TrackingChecks.run(level)
             SpawnChecks.run(level)
             EntitySectionChecks.run(level)
+            SpawnCountChecks.run(server)
             ItemChecks.run(level)
             ChunkPacketChecks.run(level)
             ReportChecks.start(server)

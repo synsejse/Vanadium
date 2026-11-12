@@ -126,15 +126,18 @@ class EntitySectionIndex<T : EntityAccess> {
     fun sectionsInChunk(chunkKey: Long): Array<EntitySection<T>> = columns[chunkKey]?.sections ?: emptySections()
 
     /** Entities of every accessible, non-empty section, column by column; for whole-level scans such as spawn counting. */
-    fun accessibleEntities(): Iterable<T> = Iterable {
-        iterator {
-            val values = columns.values.iterator()
-            while (values.hasNext()) {
-                for (section in values.next().sections) {
-                    if (!section.isEmpty && section.status.isAccessible) yieldAll(section.entities.iterator())
-                }
+    fun accessibleEntities(): AccessibleEntities<T> = AccessibleEntities(this)
+
+    /** Accessible, non-empty sections as they are now, column by column in map order: [accessibleEntities]'s order. */
+    fun accessibleSections(): ArrayList<EntitySection<T>> {
+        val result = ArrayList<EntitySection<T>>(count)
+        val values = columns.values.iterator()
+        while (values.hasNext()) {
+            for (section in values.next().sections) {
+                if (!section.isEmpty && section.status.isAccessible) result.add(section)
             }
         }
+        return result
     }
 
     fun chunksWithSections(): LongSet {
