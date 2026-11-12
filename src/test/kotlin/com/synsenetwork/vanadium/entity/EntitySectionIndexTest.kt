@@ -146,7 +146,8 @@ class EntitySectionIndexTest {
         val index = EntitySectionIndex<EntityAccess>()
         // Columns on both sides of zero; each writer owns some columns and cycles them through
         // {} → {lo} → {lo, hi} → {hi} → {} with fresh sections every round.
-        val columns = listOf(-2 to -1, -1 to 0, 0 to -1, 0 to 0, 1 to 1, -1 to -1)
+        // Columns on both sides of zero and far from it.
+        val columns = listOf(-2 to -1, -1 to 0, 0 to -1, 0 to 0, 1 to 1, -1 to -1, 15 to 16, -16 to -17, 16 to -16)
         val lo = -3
         val hi = 4
         val writers = 2
@@ -226,6 +227,52 @@ class EntitySectionIndexTest {
         check(seen.size < 2 || seen[0].generation == seen[1].generation) {
             "$where mixed generations ${seen.map { it.generation }}"
         }
+    }
+
+    @Test
+    fun wideQueriesMatchVanillaOrderAsAreasEmptyAndRefill() {
+        val random = Random(9)
+        val index = EntitySectionIndex<EntityAccess>()
+        val sorted = LongAVLTreeSet()
+        val keyOf = IdentityHashMap<EntitySection<EntityAccess>, Long>()
+        fun add(key: Long) {
+            val section = index.getOrCreate(key) { EntitySection<EntityAccess>(EntityAccess::class.java, Visibility.TICKING).apply { add(entity) } }
+            if (sorted.add(key)) keyOf[section] = key
+        }
+        // Sparse keys over a wide area, plus dense strips of columns around X = ±16.
+        repeat(1_500) { add(SectionPos.asLong(random.nextInt(-40, 41), random.nextInt(-4, 8), random.nextInt(-40, 41))) }
+        for (x in intArrayOf(-17, -16, -15, 15, 16, 17)) for (z in -40..40) add(SectionPos.asLong(x, 2, z))
+        fun checkQueries() {
+            repeat(300) {
+                val x0 = random.nextInt(-44, 40); val y0 = random.nextInt(-6, 8); val z0 = random.nextInt(-44, 40)
+                val box = intArrayOf(x0, y0, z0, x0 + random.nextInt(0, 40), y0 + random.nextInt(0, 6), z0 + random.nextInt(0, 40))
+                val actual = ArrayList<Long>()
+                index.forEachAccessibleNonEmpty(box[0], box[1], box[2], box[3], box[4], box[5]) {
+                    actual.add(keyOf.getValue(it))
+                    Continuation.CONTINUE
+                }
+                assertEquals(vanillaQuery(sorted, box), actual, "box ${box.toList()}")
+            }
+            for (x in -41..41) for (z in -41..41) {
+                val vanilla = sorted.subSet(SectionPos.asLong(x, 0, z), SectionPos.asLong(x, -1, z) + 1).toLongArray().toList()
+                assertEquals(vanilla, index.sectionKeysInChunk(ChunkPos.pack(x, z)).toList(), "column $x,$z")
+            }
+            assertEquals(sorted.size, index.size())
+            assertEquals(sorted.map { ChunkPos.pack(SectionPos.x(it), SectionPos.z(it)) }.toSet(), index.chunksWithSections().toSet())
+        }
+        checkQueries()
+        // Empty two 16×16-chunk areas entirely, then refill part of one.
+        for (key in sorted.toLongArray()) {
+            val x = SectionPos.x(key); val z = SectionPos.z(key)
+            if ((x shr 4 == -1 && z shr 4 == -1) || (x shr 4 == 1 && z shr 4 == 0)) {
+                index.remove(key)
+                sorted.remove(key)
+            }
+        }
+        assertTrue(sorted.none { SectionPos.x(it) shr 4 == -1 && SectionPos.z(it) shr 4 == -1 })
+        checkQueries()
+        for (x in -16..-1 step 3) for (z in -16..-1 step 5) add(SectionPos.asLong(x, -1, z))
+        checkQueries()
     }
 
     @Test
