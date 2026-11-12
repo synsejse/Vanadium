@@ -44,7 +44,8 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 
 - **Kotlin vs. Java:** Mixin classes must be Java. So are the duck interfaces they implement
   (`vanadium$`-prefixed methods: `NavigationAccess`, `NavigationState`, `InteractionAccess`,
-  `PoiDistanceAccess`, `EntityTickAccess`, `ChunkTickAccess`, `ScheduledTickAccess`) and code that runs during Mixin
+  `PoiDistanceAccess`, `EntityTickAccess`, `ChunkTickAccess`, `ScheduledTickAccess`, `CrowdAccess`, `CrowdSlotAccess`,
+  `CrowdedSectionsAccess`) and code that runs during Mixin
   bootstrap (`mixin/SynchronisePlugin.java`, `compat/C2ME.java`, `compat/Lithium.java`). Everything else is Kotlin.
   Kotlin APIs called from mixins use `@JvmField`/`@JvmStatic` (`Vanadium.config`, `Vanadium.scheduler`);
   call `vanadium$` methods from Kotlin with backticks. Keep collection adapters on fastutil's
@@ -52,6 +53,8 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - `Vanadium.kt`: config, server lifecycle ownership of the shared scheduler/pool, command registration.
 - `tick/`: adaptive region planning (`RegionGrid`), claim and dataflow waves, batched stage collection,
   stage scheduler, caller-participating spin-then-park worker pool.
+- `entity/`: lock-free entity section index; `CrowdedSection` cell grids prefilter box queries in crowded
+  sections (every write to an entity's box or section must keep them in step: see its invariant).
 - `chunk/`: chunk manager/cache and per-position loading locks.
 - `collections/`: fastutil-compatible adapters over JDK/JCTools collections.
 - `concurrent/`: entity ownership for the flat entity wave (`Interactions`, `OwnerLocks`), striped

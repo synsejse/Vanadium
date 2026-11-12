@@ -57,6 +57,7 @@ class ServerIntegrationChecks : ModInitializer {
             // Checks that need real ticks; the run finishes only after they pass.
             val ticked = TickedChecks(server, "ticked_checks")
             EntityCollectionChecks.schedule(level, ticked)
+            CrowdChecks.schedule(level, ticked)
             ticked.start { com.synsenetwork.vanadium.live.LiveServer.finish(server, "integration") }
         }
     }

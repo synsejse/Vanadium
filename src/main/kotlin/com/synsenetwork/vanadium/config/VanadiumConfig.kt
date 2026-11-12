@@ -61,6 +61,9 @@ class VanadiumConfig : ConfigData {
     @field:Comment("Per-chunk load locks so different chunks can load in parallel; false = one global lock")
     @JvmField var parallelChunkLoads = true
 
+    @field:Comment("Index crowded entity sections by cell so pushing and small box queries test only nearby entities")
+    @JvmField var crowdedSectionIndex = true
+
     @field:Comment("Warn about waves exceeding this many milliseconds. 0 disables diagnostics; live next tick.")
     @JvmField var slowWaveMillis = 0
 

@@ -173,6 +173,16 @@ paints nearby-player ranges and updates only their symmetric difference. `Entity
 visits only columns intersecting an entity query, preserving vanilla's packed-key order. Each
 chunk column is one immutable entry (sorted Ys and their sections) replaced on change, so a column
 costs one lock-free map read and readers never see half of a write.
+A section holding 24 or more entities also gets a `CrowdedSection` grid (2×4×2-block cells; built on
+the server thread after the level's ticks, when no box is being written; dropped below half that). It
+only prefilters small box queries such as pushing, which otherwise read every entity's box in the
+section while those entities move on other cores. Candidates still get vanilla's test on the live box
+and the caller's predicate, in the section list's order. The grid lists each entity in the cells its
+current box overlaps whenever no write is open; adds, removes and box writes that change cells open a
+write in a sequence counter for their whole duration (a box write that stays in its cells changes
+nothing and takes no lock). A reader that saw any write overlap it scans the section as vanilla does.
+Box writes from another tick to an entity in a crowded section wait for its owner, as position writes
+do; after an unprotected write (ownership timeout or cycle), grids are bypassed until rebuilt.
 `NavigationIndex` filters invalidation candidates; dirty/custom/long-path cases retain a
 conservative fallback. It does not run pathfinding asynchronously.
 
@@ -240,9 +250,9 @@ share is made safe:
 
 - Entity class groups (`ClassGroupFilterableList`) come from Vanadium's copy-on-write
   `ClassInstanceMultiMap`; `compat.Lithium` cancels Lithium's single-threaded lists. Lithium's entity
-  collision, cramming and projectile-collision shortcuts depend on them and stay on. A section's
-  cramming filter is started by its readers; readers of one section serialize, which matters only at
-  isolation 1, where two regions can read a boundary section at once.
+  collision and projectile-collision shortcuts depend on them and stay on. Its cramming filter
+  (`entity.collisions.unpushable_cramming`) is disabled: entities of any thread change a section's
+  masked list as their feet block changes, and it would bypass the crowded-section grid.
 - POI section storage keeps Lithium's per-column index on a concurrent listening map; writes to one
   column and their index updates hold a column stripe lock, and reads take none.
 - Game-event dispatch reads per-chunk listener maps without the chunk's monitor, so those maps are
