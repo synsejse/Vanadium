@@ -71,10 +71,34 @@ internal object TrackingChecks {
                 check(removed.isEmpty(), "removed tracker received stale actions")
                 check(watchers.all { it.size == 8 && leaving !in it && newcomer in it }, "player removal or slot reuse corrupted actions")
                 println("TRACKING_PREPARATION_CHECKS_PASSED players=8 mobs=160")
+                checkNoPlayerTicks(level, ::player)
             } finally {
                 Vanadium.scheduler = previous
             }
         }
+    }
+
+    /**
+     * A level without players skips the move scan. Trackers painted far away and moved next to the origin
+     * while nobody was there must be found by the first player: the first scan after the join catches up.
+     * 400 trackers also take the parallel scan once a player is present.
+     */
+    private fun checkNoPlayerTicks(level: ServerLevel, player: (String) -> ServerPlayer) {
+        val index = NearbyTrackers()
+        val mobs = (0 until 400).map { i -> Pig(EntityTypes.PIG, level).apply { setPos(5000.0 + i % 32, 100.0, (i / 32).toDouble()) } }
+        val watchers = mobs.map { mob -> ConcurrentHashMap.newKeySet<ServerPlayer>().also { index.add(tracker(level, mob, it), emptyList()) } }
+        repeat(202) { tick(index, emptyList(), level) } // Leave staging: painted at x = 5000.
+        mobs.forEachIndexed { i, mob -> mob.setPos((i % 32).toDouble(), 100.0, (i / 32).toDouble()) }
+        repeat(3) { tick(index, emptyList(), level) }
+        val joined = player("QuietJoin")
+        val players = listOf(joined)
+        index.add(tracker(level, joined, ConcurrentHashMap.newKeySet()), players)
+        tick(index, players, level)
+        check(watchers.all { joined in it }) { "a player joining a quiet level missed ${watchers.count { joined !in it }} moved trackers" }
+        mobs.forEach { it.setPos(it.x + 5000.0, 100.0, it.z) }
+        tick(index, players, level)
+        check(watchers.all { it.isEmpty() }) { "trackers that left after the join kept their watcher" }
+        println("TRACKING_NO_PLAYER_CHECKS_PASSED mobs=400")
     }
 
     private fun tick(index: NearbyTrackers, players: List<ServerPlayer>, level: ServerLevel) {

@@ -16,17 +16,25 @@ import net.minecraft.world.entity.projectile.Projectile
 import net.minecraft.world.entity.vehicle.minecart.AbstractMinecartContainer
 import net.minecraft.world.entity.vehicle.minecart.MinecartTNT
 
-/** A vehicle and its passengers execute together, so the strictest member decides their thread. */
+/**
+ * A vehicle and its passengers execute together, so the strictest member decides their thread.
+ * [fixedSerial] depends only on the entity's type and the configured rules; [changingSerial] on portal
+ * contact and passengers, which [EntityTickTasks] learns of through portal-entry and mount hooks.
+ */
 object EntityTickRules {
     @JvmStatic
-    fun requiresSerial(entity: Entity): Boolean {
+    fun requiresSerial(entity: Entity): Boolean = fixedSerial(entity) || changingSerial(entity)
+
+    @JvmStatic
+    fun fixedSerial(entity: Entity): Boolean {
         val config = Vanadium.config
-        return entity is Projectile ||
-                entity.portalProcess?.isInsidePortalThisTick == true ||
-                changesManyOthers(entity) ||
-                config.hasSerialEntityRules() && config.isSerialEntity(BuiltInRegistries.ENTITY_TYPE.getKey(entity.type)) ||
-                entity.passengers.any(::requiresSerial)
+        return entity is Projectile || changesManyOthers(entity) ||
+                config.hasSerialEntityRules() && config.isSerialEntity(BuiltInRegistries.ENTITY_TYPE.getKey(entity.type))
     }
+
+    @JvmStatic
+    fun changingSerial(entity: Entity): Boolean =
+        entity.portalProcess?.isInsidePortalThisTick == true || entity.passengers.any(::requiresSerial)
 
     /**
      * Entities whose ticks mostly change other things: blocks and entities in bulk (explosives, bosses,

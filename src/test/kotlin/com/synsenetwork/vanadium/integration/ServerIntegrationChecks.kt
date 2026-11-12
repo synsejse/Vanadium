@@ -53,7 +53,10 @@ class ServerIntegrationChecks : ModInitializer {
             ChunkPacketChecks.run(level)
             ReportChecks.start(server)
             println("INTEGRATION_CHECKS_PASSED")
-            com.synsenetwork.vanadium.live.LiveServer.finish(server, "integration")
+            // Checks that need real ticks; the run finishes only after they pass.
+            val ticked = TickedChecks(server, "ticked_checks")
+            EntityCollectionChecks.schedule(level, ticked)
+            ticked.start { com.synsenetwork.vanadium.live.LiveServer.finish(server, "integration") }
         }
     }
 
