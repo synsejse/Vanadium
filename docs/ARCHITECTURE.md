@@ -66,10 +66,31 @@ barriers between colours, but every stage has a full completion barrier. Relativ
 between conflicting regions may change between ticks.
 
 `WorkerPool` publishes one immutable `WorkBatch`; both helpers and the calling server
-thread claim work. One-task waves run inline. Helpers spin briefly before parking; the
-caller spins then parks for the tail. Late helpers use a saved task count, never a list
+thread claim work. One-task waves run inline. Helpers spin before parking; the caller
+spins then parks for the tail. Late helpers use a saved task count, never a list
 that the caller has cleared. Interruption restores the caller's flag only after all work
 finishes. Never hold a monitor needed by workers while joining a wave.
+
+Waking fans out. A worker counts itself as parking and announces it before its last look
+for a new batch; the caller reads that count after publishing, and only when some worker may
+be parked does it unpark at most two of the wave's helpers. Each helper that joins a waking
+batch first takes further helper indices from the batch's wake cursor and unparks those
+workers, so wake-ups spread over the threads that are already awake instead of queueing on
+the server thread. Each index is taken once by a thread that has seen the batch, which keeps
+the per-worker Dekker pairing (publish, then read `parked`) whoever does the waking.
+
+`TickScheduler` sizes every wave by its estimated work W: about sqrt(W / c) participants,
+where c (`vanadium.participantCostNanos`, 2 µs) is what involving one more thread costs.
+Region stages estimate W from `RegionGrid`; flat and preparation waves from the busy time
+`runWave` reports. Unmeasured waves use every worker; waves too small for a second thread
+run inline.
+
+Idle spinning follows the tick (`SpinPolicy`). Under pressure (sprinting, or the next tick due
+within 2 ms of the end of this one) workers spin 2 ms through every gap. With slack they
+spin 500 µs between waves of a tick and park as soon as the tick ends; the next tick's start
+wakes the workers the previous tick used, so they are spinning by its first wave.
+`vanadium.workerSpinMicros` fixes the spin and ignores ticks; `vanadium.workerSlackSpinMicros`,
+`vanadium.callerSpinMicros`, `vanadium.callerWakes` and `vanadium.prewake` tune the rest.
 
 ## Flat entity wave
 
