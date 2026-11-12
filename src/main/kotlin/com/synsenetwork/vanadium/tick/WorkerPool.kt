@@ -1,11 +1,12 @@
 package com.synsenetwork.vanadium.tick
 
 import java.util.concurrent.RejectedExecutionException
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicIntegerArray
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicLongArray
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.locks.LockSupport
+import java.util.function.LongBinaryOperator
 import java.util.function.LongConsumer
 
 /**
@@ -33,14 +34,22 @@ class WorkerPool internal constructor(
     @Volatile
     private var closed = false
 
-    /** Workers between announcing a park and leaving it; read after each publish (Dekker with [WorkerThread.run]). */
-    private val parkedWorkers = AtomicInteger()
+    /**
+     * One bit per worker between announcing a park and leaving it; the caller reads the bits of a wave's
+     * helpers after publishing it (Dekker with [WorkerThread.run]). Workers outside a small wave may stay
+     * parked without making its caller start a fan-out.
+     */
+    private val parkedBits = AtomicLongArray((workers.size + 63) ushr 6)
 
     /** Most helpers any wave used since [tickStarted]; caller-thread only. */
     private var tickPeakHelpers = 0
 
     /** Unparks the caller itself issued for its last published batch; caller-thread only, for tests. */
     internal var lastCallerUnparks = 0
+        private set
+
+    /** Whether the last published batch started a fan-out; caller-thread only, for tests. */
+    internal var lastFanOut = false
         private set
 
     /** Test hook on the park path only; null in production. */
@@ -109,22 +118,36 @@ class WorkerPool internal constructor(
     }
 
     /**
-     * Publishes [batch], then starts its wake-up if any worker may be parked. A worker counts itself in
-     * [parkedWorkers] before its last look at [current], so reading zero here means every worker will see
-     * the batch without being woken.
+     * Publishes [batch], then starts its wake-up if one of its helpers may be parked. A worker sets its bit in
+     * [parkedBits] before its last look at [current], so finding no helper's bit set here means every helper
+     * will see the batch without being woken.
      */
     private fun publish(batch: WorkBatch) {
         // Unlimited caller wakes is the serial loop this replaced, kept for comparison in benchmarks: no fan-out.
         val fanOut = callerWakes != Int.MAX_VALUE
         // A hint read before publishing lets spinning helpers, which see the batch first, help wake from the start.
-        if (fanOut && parkedWorkers.get() > 0) batch.waking = true
+        if (fanOut && anyParked(batch.helpers)) batch.waking = true
         current = batch
-        if (parkedWorkers.get() == 0) {
+        lastFanOut = anyParked(batch.helpers)
+        if (!lastFanOut) {
             lastCallerUnparks = 0
             return
         }
         if (fanOut) batch.waking = true
         lastCallerUnparks = batch.wake(workers, callerWakes)
+    }
+
+    /** Whether any of workers 0 until [helpers] has announced a park. */
+    private fun anyParked(helpers: Int): Boolean {
+        var word = 0
+        var remaining = helpers
+        while (remaining > 0) {
+            val mask = if (remaining >= 64) -1L else (1L shl remaining) - 1
+            if (parkedBits.get(word) and mask != 0L) return true
+            remaining -= 64
+            word++
+        }
+        return false
     }
 
     /**
@@ -275,7 +298,7 @@ class WorkerPool internal constructor(
         }
 
         /**
-         * Parking: [parked] and the pool's count are written before [WorkerPool.current] is read again, and a
+         * Parking: [parked] and the pool's parked bit are written before [WorkerPool.current] is read again, and a
          * waker reads them after publishing. Either the waker sees the park announced and unparks (the permit
          * survives until the park), or this thread's recheck sees the new batch. A worker that has parked
          * parks again on a stray return instead of spinning: it only leaves for work or for close.
@@ -305,14 +328,14 @@ class WorkerPool internal constructor(
                 val hook = pool.parkHook
                 hook?.at(index, ParkPoint.BEFORE_ANNOUNCE)
                 parked = true
-                pool.parkedWorkers.incrementAndGet()
+                pool.parkedBits.getAndAccumulate(index ushr 6, 1L shl index, SET_BIT)
                 hook?.at(index, ParkPoint.BEFORE_RECHECK)
                 if (pool.current === seen && !pool.closed) {
                     hook?.at(index, ParkPoint.BEFORE_PARK)
                     LockSupport.park(pool)
                     rested = true
                 }
-                pool.parkedWorkers.decrementAndGet()
+                pool.parkedBits.getAndAccumulate(index ushr 6, 1L shl index, CLEAR_BIT)
                 parked = false
                 interrupted() // Pool threads are never interrupted for control; ignore strays.
             }
@@ -335,6 +358,9 @@ class WorkerPool internal constructor(
          * threads while costing the server thread only two wake-ups.
          */
         internal val CALLER_WAKES = Integer.getInteger("vanadium.callerWakes", 2).coerceAtLeast(1)
+
+        private val SET_BIT = LongBinaryOperator { word, bit -> word or bit }
+        private val CLEAR_BIT = LongBinaryOperator { word, bit -> word and bit.inv() }
 
         /** Whether [tickStarted] wakes the workers the previous tick used. */
         private val PREWAKE = System.getProperty("vanadium.prewake", "true").toBoolean()

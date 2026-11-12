@@ -486,6 +486,21 @@ class WorkerPoolTest {
     }
 
     @Test
+    fun parkedWorkersOutsideAWaveDoNotStartAFanOut() {
+        steadyPool(8).use { pool ->
+            parkAll(pool, 8)
+            pool.tickStarted() // Back to spinning between waves; nothing ran last tick, so nobody is woken.
+            gatedWave(pool, 4)
+            assertTrue(pool.lastFanOut)
+            // Workers 0..2 spin, 3..7 stay parked: a wave on 0..2 alone needs no wake-up at all.
+            assertEquals(workerNames(0..2) + Thread.currentThread().name, gatedWave(pool, 4))
+            assertFalse(pool.lastFanOut, "parked workers outside the wave started a fan-out")
+            gatedWave(pool, 5)
+            assertTrue(pool.lastFanOut, "a parked helper did not start a fan-out")
+        }
+    }
+
+    @Test
     fun spinningPoolNeedsNoWakeUps() {
         steadyPool(4).use { pool ->
             gatedWave(pool, 5)

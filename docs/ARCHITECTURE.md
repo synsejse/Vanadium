@@ -71,9 +71,9 @@ spins then parks for the tail. Late helpers use a saved task count, never a list
 that the caller has cleared. Interruption restores the caller's flag only after all work
 finishes. Never hold a monitor needed by workers while joining a wave.
 
-Waking fans out. A worker counts itself as parking and announces it before its last look
-for a new batch; the caller reads that count after publishing, and only when some worker may
-be parked does it unpark at most two of the wave's helpers. Each helper that joins a waking
+Waking fans out. A worker sets its bit in a parked bitmap before its last look for a new
+batch; the caller reads the bits of the wave's helpers after publishing, and only when one of
+them may be parked does it unpark at most two of them. Each helper that joins a waking
 batch first takes further helper indices from the batch's wake cursor and unparks those
 workers, so wake-ups spread over the threads that are already awake instead of queueing on
 the server thread. Each index is taken once by a thread that has seen the batch, which keeps
