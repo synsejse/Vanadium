@@ -192,7 +192,9 @@ retaining C2ME filtering and vanilla's environment-aware costs. Workers count in
 slices; the caller reduces counts, player caps and charges in input order. Overrides clear
 in `finally`. Spawn attempts remain a separate stage.
 
-Tracking owns reusable per-player diff rows and stable tracker slots through both barriers.
+Tracking owns reusable per-player diff rows and stable tracker slots through both barriers. A level
+without players skips the move scan; moves are detected by position identity, so the first scan after
+a join catches up before the first diff.
 Workers prepare flags without callbacks; one subsequent task per tracker applies changes
 in player order. Chunk packet preparation runs between simulation ticks, keeps selected
 batch order and vanilla packet contents, and falls back inline for small batches.
