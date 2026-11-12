@@ -67,9 +67,11 @@
     "world.ServerExplosionMixin",
     "world.poi.PoiSectionMixin",
     "compat.lithium.ChunkStatusTrackerMixin",
+    "compat.lithium.EntitySectionMovementTrackingMixin",
     "compat.lithium.GameEventDispatcherStorageMixin",
     "compat.lithium.ListeningLong2ObjectOpenHashMapAccessor",
-    "compat.lithium.LithiumDataMixin"
+    "compat.lithium.LithiumDataMixin",
+    "compat.lithium.SectionedEntityMovementTrackerMixin"
   ],
   "client": [],
   "server": [],

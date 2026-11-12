@@ -3,6 +3,7 @@ package com.synsenetwork.vanadium
 import com.synsenetwork.vanadium.commands.TickBenchmark
 import com.synsenetwork.vanadium.commands.TickProfiler
 import com.synsenetwork.vanadium.commands.VanadiumCommand
+import com.synsenetwork.vanadium.concurrent.Interactions
 import com.synsenetwork.vanadium.config.VanadiumConfig
 import com.synsenetwork.vanadium.tick.ServerTickEvent
 import com.synsenetwork.vanadium.tick.TickScheduler
@@ -63,6 +64,7 @@ object Vanadium : ModInitializer {
         val workers = VanadiumConfig.resolveWorkers()
         LOGGER.info("Will use {} threads, isolation {} chunks", workers, config.isolation)
         val pool = WorkerPool(workers).also { pool = it }
+        Interactions.drainPool = pool
         scheduler = TickScheduler(pool, config.isolation)
         diagnostics = WaveDiagnostics(LOGGER::warn).also { scheduler.diagnostics = it }
     }
@@ -78,6 +80,7 @@ object Vanadium : ModInitializer {
         TickBenchmark.onServerStopped()
         TickProfiler.onServerStopped()
         diagnostics?.close()
+        Interactions.drainPool = null
         pool?.close()
         diagnostics = null
         pool = null
