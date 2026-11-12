@@ -27,6 +27,7 @@ internal object FlatEntityChecks {
         val skipped = Interactions.skipped
         WorkerPool(3).use { pool ->
             checkPushesAreNeverLost(level, pool)
+            checkLeftoverPushesApplyBeforeTheWaveReturns(level, pool)
             checkForeignDamageWaitsForTheOwner(level, pool)
             checkMutualDamage(level, pool)
             checkOwnAndSharedWrites(level, pool)
@@ -70,6 +71,40 @@ internal object FlatEntityChecks {
         }
         val counts = Interactions.takeCounts()
         check(counts[Kind.PUSH] == 1600L && counts[Kind.VELOCITY] == 0L) { "push counts: $counts" }
+    }
+
+    /**
+     * Pushes on entities that do not tick in the wave (or ticked before them) are left in their inboxes. Many of
+     * them apply as a parallel wave, each target owned as in its tick; either way, before the wave returns, and
+     * a removed entity's push is dropped as before.
+     */
+    private fun checkLeftoverPushesApplyBeforeTheWaveReturns(level: ServerLevel, pool: WorkerPool) {
+        for (bystanders in listOf(8, 400)) {
+            val targets = List(bystanders) { zombie(level) }
+            val removed = zombie(level).also { it.discard() }
+            val pushers = List(4) { zombie(level) }
+            val start = CyclicBarrier(4)
+            val drainsBefore = Interactions.parallelPushDrains
+            val tasks = pushers.map { pusher ->
+                Runnable {
+                    Interactions.tick(pusher) {
+                        start.await(10, TimeUnit.SECONDS)
+                        for (target in targets) target.push(0.5, 0.0, 0.0)
+                        removed.push(1.0, 0.0, 0.0)
+                    }
+                }
+            }
+            Interactions.runWave({ pool.runWave(tasks) }, pool)
+            for (target in targets) {
+                check(target.deltaMovement == Vec3(2.0, 0.0, 0.0)) { "a bystander got ${target.deltaMovement} of $bystanders" }
+                check((target as InteractionAccess).`vanadium$impulse`().get() == null) { "a bystander's inbox was left full" }
+            }
+            check(removed.deltaMovement == Vec3.ZERO) { "a removed entity was pushed: ${removed.deltaMovement}" }
+            val parallel = Interactions.parallelPushDrains - drainsBefore
+            check(parallel == if (bystanders >= 128) 1L else 0L) { "$bystanders leftovers drained in $parallel parallel rounds" }
+            val counts = Interactions.takeCounts()
+            check(counts[Kind.PUSH] == 4L * (bystanders + 1) && counts[Kind.VELOCITY] == 0L) { "leftover push counts: $counts" }
+        }
     }
 
     /** Damage from another tick lands only after the victim's own tick has finished. */

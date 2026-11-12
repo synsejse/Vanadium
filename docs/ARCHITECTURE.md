@@ -85,7 +85,13 @@ What made this safe before was distance; now it is ownership (`Interactions`, `O
 - Reads of other entities and of blocks take no lock, exactly as between regions. Sorts by distance
   snapshot positions first (`StableDistance`), because entities move while they are being sorted.
 - A push, the one thing crowded entities do to each other every tick, goes to the target's inbox and
-  never waits; the target applies it at the start of its tick, or the server thread after the wave.
+  never waits; the target applies it at the start of its tick. Targets that had already ticked, or do
+  not tick, are listed per thread and applied before the wave returns: a few on the server thread,
+  many as a short wave in which each target is owned as in its own tick.
+- An entity's section changes only when its position crosses a section boundary. Position writes
+  within a section (nearly all) take no lock; a crossing holds the old and new section's stripes
+  (spinning briefly before parking), so an add cannot race a same-section removal into an orphaned
+  section. Only the entity's owner writes its position, so its unlocked section key is current.
 - Any other write to another tree is a foreign write. Mixins at the mutation points open a scope:
   the tick releases its own lock and takes the target's, so the write waits for the target's own
   tick, and for nothing else: writes to different entities do not wait for each other. Releasing
@@ -213,6 +219,10 @@ share is made safe:
   only if a write overlapped them.
 - Chunk load/unload callbacks (`ChunkStatusTracker`) run on the server thread, which can change chunk
   status mid-wave; they are queued until the wave's tasks finish, before the chunk unloads.
+- Entity movement tracking (hoppers waiting for items to move) keeps per-section waiting lists that
+  item and container entities empty on every move. In sections a tracker registered with, those
+  moves and every list or registration change hold one lock; elsewhere moves only stamp the section's
+  move time, without it.
 - Tracker interning, the world-border listener registry (every block-entity ticker re-registers after
   a border change) and chunk-section callback registration (hoppers) are synchronized; all are rare.
 
