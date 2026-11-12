@@ -104,10 +104,14 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
   for all tasks before restoring the caller's interrupt flag; it does not cancel a wave.
 - Workers must never block on work only the server thread can perform (chunk loading/generation,
   main-thread tasks): it participates in the wave, so the wait never ends. Make such tasks
-  deferrable (`WorkerPool.runDeferrable`, rerun after the wave) rather than waiting.
+  deferrable (`WorkerPool.runDeferrable`, rerun after the wave) rather than waiting. A task that
+  cannot be deferred hands the work to the wave's caller with `WorkerPool.callOnWaveCaller`, which
+  serves it between its own tasks and in the tail; hold no lock the server thread may wait for.
 - Do not wait at a worker barrier while holding a monitor needed by those workers.
   Scheduled ticks are collected under vanilla scheduling and dispatched after its monitor releases.
 - Keep lock ordering deterministic. Preserve reservation/eviction atomicity in `ChunkLockTable`.
+  Only the server thread takes chunk load locks (`ChunkLoadRouter`): any other holder would wait
+  for the server thread while holding one.
 - Full chunks are published by `LevelChunk.setLoaded` before their load completes; recheck that
   map under the load lock, and never publish unloaded or null chunks.
 - Use floor division/modulo for negative chunk coordinates. Chunks, blocks,

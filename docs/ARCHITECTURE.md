@@ -238,16 +238,27 @@ conservative fallback. It does not run pathfinding asynchronously.
 - `ParallelChunkCache` serves loaded FULL hits from the concurrent map. `LevelChunk.setLoaded`
   publishes/removes entries; a private publication monitor protects identity-conditional
   removal so an old unload cannot remove a replacement. Reads stay outside that monitor.
-- Misses/status requests stay with vanilla/C2ME under per-position reentrant load locks
-  (or the cache monitor with parallel loading disabled). FULL publication is rechecked
-  after acquiring the load lock. Never publish null or non-FULL results. Minecraft's
+- Misses/status requests stay with vanilla/C2ME. On the server thread they run under per-position
+  reentrant load locks (or the cache monitor with parallel loading disabled); FULL publication is
+  rechecked after acquiring the load lock. Never publish null or non-FULL results. Minecraft's
   own background workers bounce synchronous loading to the server thread.
-- Vanadium workers never wait for chunk work only the server thread can do: it is in the
-  same wave, and C2ME makes new holders visible only during its tick. A worker gets a chunk
-  only if C2ME has already completed the requested status. Otherwise a task run through
-  `WorkerPool.runDeferrable` unwinds with `ServerThreadRequired` and reruns on the server
-  thread after the wave; other callers log a rate-limited warning and wait as before.
-  The server thread defers deferrable tasks the same way while helpers run: it could load,
+- Only the server thread takes load locks (`ChunkLoadRouter`). Only it can finish a miss (C2ME
+  adds new holders, ticket updates and FULL promotion there), so a lock held by any other thread
+  would be held while waiting for the server thread, and the server thread asking for the same
+  chunk would wait for it in turn: the deadlock this replaced. Other threads outside waves run
+  vanilla/C2ME without a lock.
+- Vanadium workers use a chunk where they stand only if C2ME has already completed the requested
+  status (or, without loading, no holder exists). Otherwise a task run through
+  `WorkerPool.runDeferrable` unwinds with `ServerThreadRequired` and reruns on the server thread
+  after the wave. Any other task hands the lookup to the wave's caller, the server thread, with
+  `WorkerPool.callOnWaveCaller` and waits holding no load lock (a rate-limited warning names the
+  caller): the caller serves it between its own claims and while it waits for the wave's tail,
+  outside any task of its own, so the wait ends when the caller's current task does. The served
+  load and the server thread's own non-deferrable loads run chunk-system work beside the workers,
+  as a synchronous load inside a vanilla tick would; mods' load callbacks still wait for the end
+  of the wave. A worker must not hold a lock that the server thread's tasks or chunk loading can
+  wait for while it makes such a lookup; a wait longer than 10 s logs the stalled caller.
+- The server thread defers deferrable tasks the same way while helpers run: it could load,
   but the chunk-system work (status changes, entity and POI loading, mods' load callbacks)
   would then overlap the workers. `WorkerPool.runAfterParallelWave` queues other such
   server-thread work until the wave's tasks have all finished. Spawning is deferrable: it prechecks the chunk's referenced structure starts, so the

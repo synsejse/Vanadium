@@ -1,5 +1,6 @@
 package com.synsenetwork.vanadium.tick
 
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicIntegerArray
@@ -9,6 +10,7 @@ import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.locks.LockSupport
 import java.util.function.LongBinaryOperator
 import java.util.function.LongConsumer
+import java.util.function.Supplier
 
 /**
  * Persistent workers with caller participation and a full barrier per wave. Dispatch uses a volatile
@@ -101,8 +103,8 @@ class WorkerPool internal constructor(
         val rejected = closed
         // At most n participants with the caller, and no more than asked for.
         val helpers = if (rejected) 0 else minOf(workers.size, n - 1, maxOf(0, maxParticipants - 1))
-        val batch = WorkBatch(indexed, helpers + 1, Thread.currentThread())
         val caller = if (helpers > 0) CALLER.get() else null
+        val batch = WorkBatch(indexed, helpers + 1, Thread.currentThread(), caller)
         if (caller != null) {
             caller.parallelWaves++
             if (helpers > tickPeakHelpers) tickPeakHelpers = helpers
@@ -110,10 +112,10 @@ class WorkerPool internal constructor(
         }
         var waveFailure: Throwable? = null
         try {
-            batch.participate()
+            batch.participate(caller)
             val waitStart = if (callerWait != null) System.nanoTime() else 0
             try {
-                batch.awaitCompletion()
+                batch.awaitCompletion(caller)
             } finally {
                 callerWait?.accept(System.nanoTime() - waitStart)
             }
@@ -316,8 +318,16 @@ class WorkerPool internal constructor(
         }
     }
 
-    /** A wave's tasks, or with no tasks a wake-up only ([tickStarted]); [waiter] is null for the latter. */
-    private class WorkBatch(private val tasks: List<Runnable>, participants: Int, private val waiter: Thread?) {
+    /**
+     * A wave's tasks, or with no tasks a wake-up only ([tickStarted]); [waiter] is null for the latter. [caller] is
+     * the waiter's state when the wave has helpers: it serves their [callOnWaveCaller] requests.
+     */
+    private class WorkBatch(
+        private val tasks: List<Runnable>,
+        participants: Int,
+        private val waiter: Thread?,
+        private val caller: CallerState? = null,
+    ) {
         private val taskCount = tasks.size
         val helpers = participants - 1
 
@@ -358,12 +368,14 @@ class WorkerPool internal constructor(
             return unparked
         }
 
-        fun participate() {
+        /** Claims and runs tasks; the caller passes its [serving] state and serves helpers' requests between claims. */
+        fun participate(serving: CallerState?) {
             if (taskCount == 0) return
             var done = 0
             var begin = 0L
             // A late helper uses the saved count and never reads a list already reused by the caller.
             while (true) {
+                if (serving != null && serving.hasRequests) serving.serveRequests()
                 val start = counters.getAndAdd(NEXT, chunk)
                 if (start >= taskCount) break
                 if (done == 0) begin = System.nanoTime()
@@ -383,10 +395,19 @@ class WorkerPool internal constructor(
             if (counters.addAndGet(REMAINING, -done) == 0 && waiterParked) LockSupport.unpark(waiter)
         }
 
-        fun awaitCompletion() {
+        /**
+         * The caller's wait for the tail. It serves helpers' requests as they arrive: a helper waiting for one keeps
+         * its task, and so this wait, from finishing. A requester unparks the caller after queueing, so a request
+         * queued after the check below leaves a permit and the park returns at once.
+         */
+        fun awaitCompletion(serving: CallerState?) {
             var interrupted = false
             val deadline = System.nanoTime() + CALLER_SPIN_NANOS
             while (counters.get(REMAINING) != 0) {
+                if (serving != null && serving.hasRequests) {
+                    serving.serveRequests()
+                    continue
+                }
                 if (System.nanoTime() < deadline) {
                     Thread.onSpinWait()
                     continue
@@ -398,6 +419,26 @@ class WorkerPool internal constructor(
             }
             if (interrupted) Thread.currentThread().interrupt()
             error.get()?.let { throw RuntimeException("Vanadium worker task failed", it) }
+        }
+
+        /** A helper's task: queues [work] for the caller and waits for it; see [WorkerPool.callOnWaveCaller]. */
+        fun <T> callOnCaller(work: Supplier<T>, stalled: Runnable?): T {
+            val state = caller ?: return work.get()
+            val request = CallerRequest(work, Thread.currentThread())
+            state.requests.add(request)
+            LockSupport.unpark(waiter)
+            val since = System.nanoTime()
+            var reported = stalled == null
+            while (!request.done) {
+                LockSupport.parkNanos(request, REQUEST_CHECK_NANOS)
+                if (!reported && System.nanoTime() - since > REQUEST_STALL_NANOS) {
+                    reported = true
+                    stalled?.run()
+                }
+            }
+            request.failure?.let { throw it }
+            @Suppress("UNCHECKED_CAST")
+            return request.result as T
         }
 
         private companion object {
@@ -414,6 +455,9 @@ class WorkerPool internal constructor(
 
         /** The deferral state of the task running on this thread; touched only by this thread. */
         val deferral = Deferral()
+
+        /** The batch whose tasks this thread is running, for [callOnWaveCaller]; touched only by this thread. */
+        var running: WorkBatch? = null
 
         init {
             isDaemon = true
@@ -443,7 +487,9 @@ class WorkerPool internal constructor(
                     if (batch != null && index < batch.helpers) {
                         // Waking first: workers woken now start while this one claims.
                         if (batch.waking) batch.wake(pool.workers, Int.MAX_VALUE)
-                        batch.participate()
+                        running = batch
+                        batch.participate(null)
+                        running = null
                         idleSince = System.nanoTime()
                         rested = false
                     }
@@ -499,6 +545,12 @@ class WorkerPool internal constructor(
 
         private val SET_BIT = LongBinaryOperator { word, bit -> word or bit }
         private val CLEAR_BIT = LongBinaryOperator { word, bit -> word and bit.inv() }
+
+        /** How often a helper waiting for its [callOnWaveCaller] request checks whether it has stalled. */
+        private const val REQUEST_CHECK_NANOS = 1_000_000_000L
+
+        /** How long a [callOnWaveCaller] request may wait before its `stalled` callback runs. */
+        private val REQUEST_STALL_NANOS = java.lang.Long.getLong("vanadium.callerRequestStallSeconds", 10) * 1_000_000_000L
 
         /** Whether [tickStarted] wakes the workers the previous tick used. */
         private val PREWAKE = System.getProperty("vanadium.prewake", "true").toBoolean()
@@ -573,6 +625,24 @@ class WorkerPool internal constructor(
         }
 
         /**
+         * From a wave task on a helper: runs [work] on the thread that runs the wave (the server thread) and returns
+         * its result, or rethrows its failure here. For work only that thread can do, when the task cannot be
+         * deferred: the caller runs it between its own tasks and while it waits for the wave's tail, so the wait ends
+         * once the caller's current task does. Hold no lock that the caller's tasks or [work] may wait for. [stalled]
+         * runs once on this thread if the wait exceeds `vanadium.callerRequestStallSeconds` (10 s). Anywhere else,
+         * including on the caller, runs [work] here.
+         */
+        @JvmStatic
+        fun <T> callOnWaveCaller(work: Supplier<T>, stalled: Runnable? = null): T {
+            val thread = Thread.currentThread()
+            val batch = (thread as? WorkerThread)?.running ?: return work.get()
+            return batch.callOnCaller(work, stalled)
+        }
+
+        /** For tests, on a wave's caller: whether a helper's [callOnWaveCaller] request is waiting to be served. */
+        internal fun callerHasRequests(): Boolean = CALLER.get().hasRequests
+
+        /**
          * Inside [runDeferrable] during a parallel wave, marks the task for the server thread and returns the signal
          * to throw; otherwise null, and the caller must handle [what] itself. Marking survives a caller swallowing
          * the signal.
@@ -592,10 +662,47 @@ class WorkerPool internal constructor(
         var deferred = false
     }
 
+    /** A helper's [callOnWaveCaller] work; [result] and [failure] are published by [done]. */
+    private class CallerRequest(val work: Supplier<*>, val requester: Thread) {
+        var result: Any? = null
+        var failure: Throwable? = null
+
+        @Volatile
+        var done = false
+    }
+
     private class CallerState : Deferral() {
         /** Nesting depth of waves with helpers that this thread is running. */
         var parallelWaves = 0
         val afterWave = ArrayList<Runnable>()
+
+        /** Helpers' [callOnWaveCaller] work, from every wave this thread is running (nested ones included). */
+        val requests = ConcurrentLinkedQueue<CallerRequest>()
+
+        val hasRequests: Boolean get() = !requests.isEmpty()
+
+        /**
+         * Runs every queued request on this thread, outside any task of its own, and releases its requester. The
+         * work is never deferrable: it is the rerun the requester could not do itself.
+         */
+        fun serveRequests() {
+            while (true) {
+                val request = requests.poll() ?: return
+                val outerDeferrable = deferrable
+                val outerDeferred = deferred
+                deferrable = false
+                try {
+                    request.result = request.work.get()
+                } catch (t: Throwable) {
+                    request.failure = t
+                } finally {
+                    deferrable = outerDeferrable
+                    deferred = outerDeferred
+                }
+                request.done = true
+                LockSupport.unpark(request.requester)
+            }
+        }
 
         /** Runs every queued task, including ones queued by them, then rethrows the first failure. */
         fun runAfterWave() {

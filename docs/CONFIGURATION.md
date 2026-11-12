@@ -21,7 +21,7 @@ Edit `config/vanadium.toml`, then run `/vanadium reload` to apply changes live.
 | `parallelTracking` | `true` | Run entity tracking (movement/data packets to watching players) in parallel |
 | `parallelChunkPackets` | `true` | Prepare chunk section packet data in parallel between world ticks |
 | `consolidateFlushes` | `true` | Batch each connection's packets into one flush per tick instead of one per packet |
-| `parallelChunkLoads` | `true` | Per-chunk load locks; `false` = one global lock |
+| `parallelChunkLoads` | `true` | Per-chunk load locks (server thread only); `false` = one global lock |
 | `crowdedSectionIndex` | `true` | Entity sections holding 24 or more entities (`-Dvanadium.crowdedSectionEntities`) index their entities by 2×4×2-block cells, so pushing and other small box queries test only nearby entities; same results as the full scan |
 | `idleWorkers` | `balanced` | What threads do between ticks: `balanced` parks workers and keeps the server thread spinning until the next tick (about one core); `hot` keeps workers spinning too (every worker that ran holds a core: 24 workers, 24 cores); `lean` spins nothing. See [idle workers](#idle-workers) |
 | `slowWaveMillis` | `0` | Warn when a wave exceeds this duration; `0` disables diagnostics |
