@@ -25,7 +25,10 @@ import java.util.concurrent.ForkJoinWorkerThread
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
-/** Unconditional loaded-FULL lookups and load locking around vanilla/C2ME synchronous misses. */
+/**
+ * Unconditional loaded-FULL lookups; vanilla/C2ME synchronous misses run on the server thread under load locks
+ * ([ChunkLoadRouter]).
+ */
 class ParallelChunkCache(
     level: ServerLevel,
     storage: LevelStorageSource.LevelStorageAccess,
@@ -41,6 +44,9 @@ class ParallelChunkCache(
     simulationDistance, syncWrites, statusListener) {
 
     private val loadingLocks = ChunkLockTable()
+
+    /** Taken only on the server thread, which is the only thread that can finish a miss. */
+    private val loads = ChunkLoadRouter(loadingLocks, this) { mainThreadProcessor.isSameThread }
 
     /** Full chunks published by `LevelChunk.setLoaded`; removal matches the published instance. */
     private val loadedChunks = NonBlockingHashMapLong<LevelChunk>()
@@ -59,26 +65,22 @@ class ParallelChunkCache(
         val pos = ChunkPos.pack(chunkX, chunkZ)
         loadedFull(pos, requiredStatus)?.let { return it }
         val worker = WorkerPool.isWorkerThread()
+        var stalled: Runnable? = null
         if (worker || WorkerPool.isParallelWaveCaller()) {
-            // A worker: the server thread is in this wave, so only a chunk the chunk system has already completed
-            // can be used. The server thread itself can load, but chunk-system work would overlap the workers, so a
-            // deferrable task waits for the end of the wave instead.
+            // A wave participant: only a chunk the chunk system has already completed is used where it stands.
+            // Anything else needs the server thread, mid-wave: chunk-system work would overlap the other
+            // participants, so a deferrable task reruns after the wave instead.
             val holder = getVisibleChunkIfPresent(pos)
             if (holder != null) completed(holder, requiredStatus)?.let { return it } else if (!load) return null
             WorkerPool.deferToServerThread("chunk ($chunkX, $chunkZ) at $requiredStatus")?.let { throw it }
-            if (worker) warnWorkerWait(chunkX, chunkZ, requiredStatus)
-        }
-        if (Vanadium.config.parallelChunkLoads) {
-            val held = loadingLocks.lock(pos)
-            try {
-                return getChunkUnderLoadLock(chunkX, chunkZ, pos, requiredStatus, load)
-            } finally {
-                loadingLocks.unlock(held)
+            if (worker) {
+                warnWorkerWait(chunkX, chunkZ, requiredStatus)
+                stalled = Runnable { warnStalledWait(chunkX, chunkZ, requiredStatus) }
             }
         }
-        synchronized(this) {
-            return getChunkUnderLoadLock(chunkX, chunkZ, pos, requiredStatus, load)
-        }
+        // A worker's lookup runs on the wave's caller, the server thread, which serves it between its tasks.
+        return loads.load(pos, Vanadium.config.parallelChunkLoads,
+            { getChunkUnderLoadLock(chunkX, chunkZ, pos, requiredStatus, load) }, stalled)
     }
 
     /** Under the load lock: the previous holder's full chunk was published by setLoaded before its load completed. */
@@ -104,14 +106,24 @@ class ParallelChunkCache(
         return if (chunk is ImposterProtoChunk) chunk.wrapped else chunk
     }
 
-    /** A worker task that cannot be deferred is about to wait for the server thread, which may never come. */
+    /**
+     * A worker task that cannot be deferred hands its lookup to the server thread and waits: that task stalls until
+     * the server thread finishes its current task, and the chunk-system work runs beside the other workers.
+     */
     private fun warnWorkerWait(chunkX: Int, chunkZ: Int, status: ChunkStatus) {
         val now = System.nanoTime()
         val last = lastWorkerWaitWarning.get()
         if (last != 0L && now - last < WORKER_WAIT_WARNING_NANOS || !lastWorkerWaitWarning.compareAndSet(last, now)) return
-        Vanadium.LOGGER.warn("{} is waiting for chunk ({}, {}) at {}, which only the server thread can load; " +
-            "if the tick stalls, make this caller serial or report it", Thread.currentThread().name, chunkX, chunkZ, status,
-            Throwable("waiting caller"))
+        Vanadium.LOGGER.warn("{} needs chunk ({}, {}) at {}, which only the server thread can load; the task waits while " +
+            "the server thread loads it mid-wave. If this repeats, make this caller deferrable or serial",
+            Thread.currentThread().name, chunkX, chunkZ, status, Throwable("waiting caller"))
+    }
+
+    /** The server thread has not served a worker's lookup for a long time: its own task is blocked or very slow. */
+    private fun warnStalledWait(chunkX: Int, chunkZ: Int, status: ChunkStatus) {
+        Vanadium.LOGGER.warn("{} is still waiting for the server thread to load chunk ({}, {}) at {}; the server " +
+            "thread's current task has not finished. If it is blocked on a lock this task holds, the wave cannot end",
+            Thread.currentThread().name, chunkX, chunkZ, status, Throwable("waiting caller"))
     }
 
     /** A full chunk without the shared four-entry vanilla cache, which is unsafe across threads. */
