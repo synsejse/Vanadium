@@ -22,6 +22,7 @@ Edit `config/vanadium.toml`, then run `/vanadium reload` to apply changes live.
 | `parallelChunkPackets` | `true` | Prepare chunk section packet data in parallel between world ticks |
 | `consolidateFlushes` | `true` | Batch each connection's packets into one flush per tick instead of one per packet |
 | `parallelChunkLoads` | `true` | Per-chunk load locks; `false` = one global lock |
+| `crowdedSectionIndex` | `true` | Entity sections holding 24 or more entities (`-Dvanadium.crowdedSectionEntities`) index their entities by 2×4×2-block cells, so pushing and other small box queries test only nearby entities; same results as the full scan |
 | `slowWaveMillis` | `0` | Warn when a wave exceeds this duration; `0` disables diagnostics |
 | `detailedTickDiagnostics` | `false` | Add current task/type labels while wave diagnostics are enabled |
 

@@ -5,6 +5,7 @@ import com.synsenetwork.vanadium.commands.TickProfiler
 import com.synsenetwork.vanadium.commands.VanadiumCommand
 import com.synsenetwork.vanadium.concurrent.Interactions
 import com.synsenetwork.vanadium.config.VanadiumConfig
+import com.synsenetwork.vanadium.entity.CrowdedSection
 import com.synsenetwork.vanadium.tick.ServerTickEvent
 import com.synsenetwork.vanadium.tick.TickScheduler
 import com.synsenetwork.vanadium.tick.WaveDiagnostics
@@ -20,6 +21,7 @@ import net.minecraft.server.MinecraftServer
 import net.minecraft.util.Util
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
+import java.util.function.LongSupplier
 
 /** Mod entry point. Owns the config and, per server lifecycle, the worker pool and tick scheduler. */
 object Vanadium : ModInitializer {
@@ -42,6 +44,8 @@ object Vanadium : ModInitializer {
         val holder = AutoConfig.register(VanadiumConfig::class.java) { definition, type -> Toml4jConfigSerializer(definition, type) }
         holder.load()
         config = holder.config
+        // Crowded-section grids are bypassed and rebuilt after an entity write ran without its owner's lock.
+        CrowdedSection.unprotectedWrites = LongSupplier { Interactions.timeouts + Interactions.cycles }
 
         CommandRegistrationCallback.EVENT.register { dispatcher, _, _ -> VanadiumCommand.register(dispatcher) }
         ServerLifecycleEvents.SERVER_STARTING.register(::onServerStarting)

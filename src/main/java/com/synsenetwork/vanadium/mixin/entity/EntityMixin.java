@@ -6,7 +6,11 @@ import com.synsenetwork.vanadium.concurrent.InteractionAccess;
 import com.synsenetwork.vanadium.concurrent.Interactions;
 import java.util.concurrent.atomic.AtomicReference;
 import com.synsenetwork.vanadium.concurrent.OwnerLocks;
+import com.synsenetwork.vanadium.entity.CrowdAccess;
+import com.synsenetwork.vanadium.entity.CrowdedSection;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import org.jspecify.annotations.Nullable;
 import org.spongepowered.asm.mixin.Unique;
 import com.synsenetwork.vanadium.tracking.NavigationIndex;
 import net.minecraft.world.entity.Entity;
@@ -16,7 +20,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(Entity.class)
-public abstract class EntityMixin implements InteractionAccess {
+public abstract class EntityMixin implements InteractionAccess, CrowdAccess {
     @Unique
     private final OwnerLocks.Lock vanadium$tickLock = new OwnerLocks.Lock();
 
@@ -44,6 +48,59 @@ public abstract class EntityMixin implements InteractionAccess {
     @Override
     public void vanadium$setFailedTicks(int ticks) {
         vanadium$failedTicks = ticks;
+    }
+
+    @Unique
+    private volatile CrowdedSection.@Nullable Member<?> vanadium$crowd;
+
+    @Override
+    public CrowdedSection.@Nullable Member<?> vanadium$crowd() {
+        return vanadium$crowd;
+    }
+
+    @Override
+    public void vanadium$setCrowd(CrowdedSection.@Nullable Member<?> member) {
+        vanadium$crowd = member;
+    }
+
+    /**
+     * Keeps a crowded section's cells in step with this box ({@link CrowdedSection}). Outside crowded sections
+     * this is one field read. Inside, a write from another tick waits for this entity's own tick as a position
+     * write does, so one entity's box moves never overlap; a box that stays in its cells takes no lock.
+     */
+    @WrapMethod(method = "setBoundingBox")
+    private void vanadium$setBoundingBox(AABB bb, Operation<Void> original) {
+        if (vanadium$crowd == null) {
+            original.call(bb);
+            return;
+        }
+        boolean scoped = Interactions.active && Interactions.enter((Entity) (Object) this, Interactions.Kind.POSITION);
+        try {
+            vanadium$moveInCells(bb, original);
+        } finally {
+            if (scoped) Interactions.exit();
+        }
+    }
+
+    @Unique
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private void vanadium$moveInCells(AABB bb, Operation<Void> original) {
+        CrowdedSection.Member member = vanadium$crowd;
+        if (member == null) {
+            original.call(bb);
+            return;
+        }
+        CrowdedSection grid = member.grid;
+        int range = grid.rangeOf(bb);
+        if (range == member.range || !grid.beginMove(member, range)) {
+            original.call(bb);
+            return;
+        }
+        try {
+            original.call(bb);
+        } finally {
+            grid.endMove(member);
+        }
     }
 
     /**

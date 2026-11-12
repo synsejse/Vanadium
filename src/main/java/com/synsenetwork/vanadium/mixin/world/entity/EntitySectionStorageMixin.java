@@ -1,5 +1,8 @@
 package com.synsenetwork.vanadium.mixin.world.entity;
 
+import com.synsenetwork.vanadium.entity.CrowdSlotAccess;
+import com.synsenetwork.vanadium.entity.CrowdedSections;
+import com.synsenetwork.vanadium.entity.CrowdedSectionsAccess;
 import com.synsenetwork.vanadium.entity.EntitySectionIndex;
 import it.unimi.dsi.fastutil.longs.Long2ObjectFunction;
 import it.unimi.dsi.fastutil.longs.LongSet;
@@ -32,14 +35,30 @@ import org.spongepowered.asm.mixin.Unique;
  * (its movement trackers remove emptied sections by that key), and the chunk-aware spawn-count iteration of
  * {@code minimal_nonvanilla.spawning}, whose own storage mixin is cancelled in {@code compat/Lithium}, is
  * implemented here.
+ *
+ * <p>Each section is linked to this storage's {@link CrowdedSections}, which indexes crowded sections for box
+ * queries; the server's entity manager refreshes it after each level tick.
  */
 @Mixin(EntitySectionStorage.class)
-public abstract class EntitySectionStorageMixin<T extends EntityAccess> implements ChunkAwareEntityIterable<T> {
+public abstract class EntitySectionStorageMixin<T extends EntityAccess> implements ChunkAwareEntityIterable<T>, CrowdedSectionsAccess {
     @Shadow @Final private Class<T> entityClass;
     @Shadow @Final private Long2ObjectFunction<Visibility> intialSectionVisibility;
 
     @Unique
     private final EntitySectionIndex<T> vanadium$index = new EntitySectionIndex<>();
+
+    @Unique
+    private final CrowdedSections<T> vanadium$crowds = new CrowdedSections<>();
+
+    @Override
+    public CrowdedSections<?> vanadium$crowds() {
+        return vanadium$crowds;
+    }
+
+    @Override
+    public void vanadium$refreshCrowds(boolean enabled) {
+        vanadium$crowds.refresh(enabled, vanadium$index::get);
+    }
 
     /**
      * @author Vanadium
@@ -98,7 +117,11 @@ public abstract class EntitySectionStorageMixin<T extends EntityAccess> implemen
     @Overwrite
     private EntitySection<T> createSection(long sectionKey) {
         long chunk = ChunkPos.pack(SectionPos.x(sectionKey), SectionPos.z(sectionKey));
-        return new EntitySection<>(entityClass, intialSectionVisibility.get(chunk));
+        EntitySection<T> section = new EntitySection<>(entityClass, intialSectionVisibility.get(chunk));
+        @SuppressWarnings("unchecked")
+        CrowdSlotAccess<T> slot = (CrowdSlotAccess<T>) section;
+        slot.vanadium$setCrowdSlot(vanadium$crowds.slot(section, sectionKey));
+        return section;
     }
 
     /**

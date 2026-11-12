@@ -51,6 +51,6 @@ internal class TickedChecks(private val server: MinecraftServer, private val nam
     }
 
     private companion object {
-        const val MAX_TICKS = 250
+        const val MAX_TICKS = 500
     }
 }
