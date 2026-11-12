@@ -12,6 +12,9 @@ class TypeRules {
     /** Lets per-ticker callers skip resolving registry IDs when no rule is configured. */
     fun isEmpty(): Boolean = ids.isEmpty()
 
+    /** Replaced whenever the rules change: compare by identity to know when cached classifications are stale. */
+    val key: Any get() = ids
+
     fun update(rules: List<String>) {
         if (source != rules) {
             ids = parse(rules)

@@ -76,6 +76,9 @@ class VanadiumConfig : ConfigData {
 
     fun hasSerialEntityRules(): Boolean = !entityRules.isEmpty()
 
+    /** Identity changes whenever the entity rules do, including across config reloads. */
+    fun serialEntityRulesKey(): Any = entityRules.key
+
     fun hasSerialBlockEntityRules(): Boolean = !blockEntityRules.isEmpty()
 
     /** Refresh once per tick so in-place list edits never add scans to individual ticker lookups. */

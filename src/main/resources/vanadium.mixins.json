@@ -8,6 +8,7 @@
     "entity.ItemEntityMixin",
     "entity.ExperienceOrbMixin",
     "entity.EntityMixin",
+    "entity.EntityTickRuleMixin",
     "entity.MobMixin",
     "entity.LivingEntityMixin",
     "entity.ai.BreedGoalMixin",

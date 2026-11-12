@@ -7,7 +7,8 @@ import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.chunk.ParallelChunkCache;
 import com.synsenetwork.vanadium.tick.Stage;
 import com.synsenetwork.vanadium.tick.ScheduledTickAccess;
-import com.synsenetwork.vanadium.tick.EntityBatch;
+import com.synsenetwork.vanadium.tick.EntityTickAccess;
+import com.synsenetwork.vanadium.tick.EntityTickTasks;
 import com.synsenetwork.vanadium.tracking.NavigationAccess;
 import com.synsenetwork.vanadium.tracking.NavigationIndex;
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet;
@@ -49,7 +50,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(ServerLevel.class)
-public abstract class ServerLevelMixin implements NavigationAccess {
+public abstract class ServerLevelMixin implements NavigationAccess, EntityTickAccess {
 
     @Shadow
     @Final
@@ -102,24 +103,30 @@ public abstract class ServerLevelMixin implements NavigationAccess {
         Vanadium.scheduler.begin(Stage.ENTITY);
     }
 
+    @Shadow
+    @Final
+    private EntityTickList entityTickList;
+
+    @Override
+    public EntityTickTasks vanadium$entityTicks() {
+        return ((EntityTickAccess) entityTickList).vanadium$entityTicks();
+    }
+
     /**
-     * Collects entities into ENTITY cells with vanilla's complete per-entity body (removal and frozen
-     * checks, despawn check, ticking-range lookup, vehicle handling, tick), so the server thread only
-     * sorts entities into cells. Serial-rule entities run the body inline, as before the wave.
+     * Runs vanilla's complete per-entity body (removal and frozen checks, despawn check, ticking-range
+     * lookup, vehicle handling, tick) as persistent per-entity tasks in one flat wave. Serial-rule entities
+     * run the body inline first, as before the wave. Changes to the tick list apply at the next dispatch.
      */
     @Redirect(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/entity/EntityTickList;forEach(Ljava/util/function/Consumer;)V"))
     private void dispatchEntityTicks(EntityTickList list, Consumer<Entity> body) {
+        EntityTickTasks ticks = ((EntityTickAccess) list).vanadium$entityTicks();
         if (!Vanadium.config.enabled || !Vanadium.config.parallelEntities) {
+            ticks.getTasks().stop();
             list.forEach(body);
             return;
         }
-        // Record only; workers map entities to cells, then cells are filled in iteration order.
-        list.forEach(vanadium$entityBatch::add);
-        vanadium$entityBatch.dispatch(Vanadium.scheduler, body);
+        ticks.dispatch(Vanadium.scheduler, body);
     }
-
-    @Unique
-    private final EntityBatch vanadium$entityBatch = new EntityBatch();
 
     @WrapMethod(method = "blockEvent")
     private void queueBlockEvent(BlockPos pos, Block block, int type, int data, Operation<Void> original) {
