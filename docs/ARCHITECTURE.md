@@ -146,6 +146,16 @@ Either way one write runs unprotected instead of stalling the tick, and is repor
 counts foreign writes by kind (`-Dvanadium.interactionLogWaves=N` logs them). The catalogue of whole
 operations is vanilla's; a mod's own pairwise logic is covered only by the generic points.
 
+Wave order is a matter of balance only. A wave ends with its longest ticks, and in a crowd those are
+sporadic: in a 600-mob fight a villager tick runs 1.5–3.5 ms (twenty times its usual tick; earlier profiles
+put pathfinding there) about once every 40 ticks, unpredictably for the entity but steadily for its type. Wave tasks therefore persist in
+groups (`PersistentTickTasks`): entity types run costliest first, each in tick-list order, in groups of
+one type cut to about equal expected cost, ten per participant, so the pool claims them one at a time
+and costly entities run alone. Groups time themselves (two clock reads per group, not per entity) and
+those times are each type's cost. Groups are recut only when a type's ideal size drifts 25% from its
+current one, and entities reordered only when the list is rebuilt or a type becomes 25% costlier than one
+ahead of it, so a steady wave costs the server thread nothing per entity or per group.
+
 Overlapping ticks can also fail where serial ticks cannot: a value read after another tick removed
 it. Such failures do not repeat, so with `skipFailedEntityTicks` one failed tick is logged and its
 remainder skipped; the same entity failing three ticks running is a real bug and stops the server

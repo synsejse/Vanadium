@@ -133,14 +133,16 @@ class TickScheduler internal constructor(
 
     /**
      * Runs [tasks] as one wave with no regions or isolation: every task may run beside any other, so each must
-     * protect what it shares ([Interactions] for entities). Call after the stage's [begin].
+     * protect what it shares ([Interactions] for entities). [units] is the work items the tasks run between them
+     * (entities, when each task runs a group of them); costs are learned and reported per unit. Call after the
+     * stage's [begin].
      */
-    fun runFlat(stage: Stage, tasks: List<Runnable>) {
+    fun runFlat(stage: Stage, tasks: List<Runnable>, units: Int = tasks.size) {
         if (tasks.isEmpty()) return
         val recording = profile
-        recording?.recordFlatWave(stage, tasks.size)
+        recording?.recordFlatWave(stage, units)
         val waitRecorder = recording?.let { LongConsumer { nanos -> it.recordWait(stage, nanos) } }
-        val participants = participants(tasks.size, flatNanosPerTask[stage.ordinal] * tasks.size)
+        val participants = participants(tasks.size, flatNanosPerTask[stage.ordinal] * units)
         val event = WaveEvent()
         event.begin()
         val start = System.nanoTime()
@@ -151,7 +153,7 @@ class TickScheduler internal constructor(
                 val wave = watch?.wrap(tasks) ?: tasks
                 Interactions.runWave { busy = pool.runWave(wave, waitRecorder, participants) }
             }
-            learn(flatNanosPerTask, stage.ordinal, busy, tasks.size)
+            learn(flatNanosPerTask, stage.ordinal, busy, units)
         } finally {
             if (recording != null) {
                 val elapsed = System.nanoTime() - start
@@ -162,7 +164,7 @@ class TickScheduler internal constructor(
             if (event.shouldCommit()) {
                 event.stage = stage.name
                 event.dimension = dimension
-                event.tasks = tasks.size
+                event.tasks = units
                 event.participants = participants
                 event.commit()
             }
