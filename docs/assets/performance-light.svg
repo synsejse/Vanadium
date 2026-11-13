@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="440" viewBox="0 0 960 440" role="img" aria-labelledby="title desc">
 <title id="title">Vanadium worker scaling on Minecraft 26.3</title>
-<desc id="desc">Uncapped ticks per second by worker count, three workloads. Spread out: Lithium alone 20.8 TPS; with Vanadium 2 workers 50 TPS, 4 workers 74 TPS, 8 workers 103 TPS, 16 workers 162 TPS, 24 workers 193 TPS, 32 workers 211 TPS, 48 workers 220 TPS, 64 workers 196 TPS, 72 workers 126 TPS. Crowded base: Lithium alone 119 TPS; with Vanadium 2 workers 237 TPS, 4 workers 389 TPS, 8 workers 566 TPS, 16 workers 782 TPS, 24 workers 945 TPS, 32 workers 933 TPS, 48 workers 850 TPS, 64 workers 736 TPS, 72 workers 333 TPS. Combat: Lithium alone 25.2 TPS; with Vanadium 2 workers 54.6 TPS, 4 workers 79.6 TPS, 8 workers 122 TPS, 16 workers 163 TPS, 24 workers 175 TPS, 32 workers 152 TPS, 48 workers 87.6 TPS, 64 workers 95.8 TPS, 72 workers 108 TPS.</desc>
+<desc id="desc">Uncapped ticks per second by worker count, three workloads. Spread out: Lithium alone 21.2 TPS; with Vanadium 2 workers 52.5 TPS, 4 workers 76.2 TPS, 8 workers 113 TPS, 16 workers 185 TPS, 24 workers 227 TPS, 32 workers 244 TPS, 48 workers 262 TPS, 64 workers 244 TPS, 72 workers 145 TPS. Crowded base: Lithium alone 187 TPS; with Vanadium 2 workers 417 TPS, 4 workers 586 TPS, 8 workers 852 TPS, 16 workers 1,177 TPS, 24 workers 1,326 TPS, 32 workers 1,429 TPS, 48 workers 1,374 TPS, 64 workers 1,231 TPS, 72 workers 706 TPS. Combat: Lithium alone 23.1 TPS; with Vanadium 2 workers 72.3 TPS, 4 workers 107 TPS, 8 workers 168 TPS, 16 workers 239 TPS, 24 workers 244 TPS, 32 workers 228 TPS, 48 workers 201 TPS, 64 workers 202 TPS, 72 workers 186 TPS.</desc>
 <rect x=".5" y=".5" width="959" height="439" rx="12" fill="#ffffff" stroke="#e4e4e7"/>
 <g font-family="Inter, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
 <text x="32" y="40" fill="#18181b" font-size="17" font-weight="600">Throughput by worker count</text>
@@ -23,113 +23,113 @@
 <text x="216.67" y="362" fill="#71717a" font-size="11" text-anchor="middle">48</text>
 <text x="268.22" y="362" fill="#71717a" font-size="11" text-anchor="middle">64</text>
 <text x="178.0" y="384" fill="#71717a" font-size="11" text-anchor="middle">Workers (+ server thread)</text>
-<path d="M62 329.65H294" stroke="#71717a" stroke-width="1.5"><title>Lithium alone: 20.8 TPS</title></path>
-<text x="178.0" y="323.65" fill="#71717a" font-size="11" text-anchor="middle">Lithium alone · 20.8</text>
-<path d="M68.44 313.2V311.6" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M74.89 300.85V296.46" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M87.78 284.47V277.22" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M113.56 250.09V241.0" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M139.33 233.88V219.81" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M165.11 223.25V211.2" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M216.67 214.28V207.69" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M268.22 229.78V217.79" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M294.0 270.99V264.69" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M68.44 312.33 L74.89 298.05 L87.78 280.83 L113.56 245.53 L139.33 227.48 L165.11 216.82 L216.67 211.15 L268.22 225.85 L294.0 267.35" fill="none" stroke="#1b4ed8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-<circle cx="68.44" cy="312.33" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>2 workers: 50 TPS (samples 48.5–51.2), 2.4× Lithium alone</title></circle>
-<circle cx="74.89" cy="298.05" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>4 workers: 74 TPS (samples 69.3–76.7), 3.6× Lithium alone</title></circle>
-<circle cx="87.78" cy="280.83" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>8 workers: 103 TPS (samples 96.9–109), 5.0× Lithium alone</title></circle>
-<circle cx="113.56" cy="245.53" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>16 workers: 162 TPS (samples 155–170), 7.8× Lithium alone</title></circle>
-<circle cx="139.33" cy="227.48" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>24 workers: 193 TPS (samples 182–206), 9.3× Lithium alone</title></circle>
-<circle cx="165.11" cy="216.82" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>32 workers: 211 TPS (samples 200–220), 10.1× Lithium alone</title></circle>
-<circle cx="216.67" cy="211.15" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>48 workers: 220 TPS (samples 215–226), 10.6× Lithium alone</title></circle>
-<circle cx="268.22" cy="225.85" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>64 workers: 196 TPS (samples 189–209), 9.4× Lithium alone</title></circle>
-<circle cx="294.0" cy="267.35" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>72 workers: 126 TPS (samples 120–130), 6.0× Lithium alone</title></circle>
-<text x="216.67" y="198.69" fill="#18181b" font-size="12" font-weight="600" text-anchor="middle">220</text>
-<text x="300.0" y="286.35" fill="#18181b" font-size="12" font-weight="600" text-anchor="end">126</text>
+<path d="M62 329.43H294" stroke="#71717a" stroke-width="1.5"><title>Lithium alone: 21.2 TPS</title></path>
+<text x="178.0" y="323.43" fill="#71717a" font-size="11" text-anchor="middle">Lithium alone · 21.2</text>
+<path d="M68.44 313.68V309.28" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M74.89 299.01V294.98" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M87.78 279.54V270.1" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M113.56 237.86V227.17" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M139.33 211.2V204.9" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M165.11 198.25V196.47" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M216.67 192.08V181.51" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M268.22 208.58V188.99" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M294.0 258.64V251.1" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M68.44 310.81 L74.89 296.79 L87.78 274.79 L113.56 232.2 L139.33 207.4 L165.11 197.27 L216.67 186.26 L268.22 197.17 L294.0 255.95" fill="none" stroke="#1b4ed8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="68.44" cy="310.81" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>2 workers: 52.5 TPS (samples 47.7–55.1), 2.5× Lithium alone</title></circle>
+<circle cx="74.89" cy="296.79" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>4 workers: 76.2 TPS (samples 72.4–79.2), 3.6× Lithium alone</title></circle>
+<circle cx="87.78" cy="274.79" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>8 workers: 113 TPS (samples 105–121), 5.3× Lithium alone</title></circle>
+<circle cx="113.56" cy="232.2" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>16 workers: 185 TPS (samples 175–193), 8.7× Lithium alone</title></circle>
+<circle cx="139.33" cy="207.4" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>24 workers: 227 TPS (samples 220–231), 10.7× Lithium alone</title></circle>
+<circle cx="165.11" cy="197.27" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>32 workers: 244 TPS (samples 242–245), 11.5× Lithium alone</title></circle>
+<circle cx="216.67" cy="186.26" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>48 workers: 262 TPS (samples 252–270), 12.4× Lithium alone</title></circle>
+<circle cx="268.22" cy="197.17" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>64 workers: 244 TPS (samples 225–258), 11.5× Lithium alone</title></circle>
+<circle cx="294.0" cy="255.95" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>72 workers: 145 TPS (samples 140–153), 6.8× Lithium alone</title></circle>
+<text x="216.67" y="172.51" fill="#18181b" font-size="12" font-weight="600" text-anchor="middle">262</text>
+<text x="300.0" y="274.95" fill="#18181b" font-size="12" font-weight="600" text-anchor="end">145</text>
 <text x="364" y="108" fill="#18181b" font-size="14" font-weight="600">Crowded base</text>
 <text x="364" y="128" fill="#71717a" font-size="11">700 mixed mobs in 4×4 chunks</text>
 <path d="M364 342.0H596" stroke="#e4e4e7"/>
 <text x="356" y="346.0" fill="#71717a" font-size="11" text-anchor="end">0</text>
-<path d="M364 294.5H596" stroke="#e4e4e7"/>
-<text x="356" y="298.5" fill="#71717a" font-size="11" text-anchor="end">400</text>
-<path d="M364 247.0H596" stroke="#e4e4e7"/>
-<text x="356" y="251.0" fill="#71717a" font-size="11" text-anchor="end">800</text>
-<path d="M364 199.5H596" stroke="#e4e4e7"/>
-<text x="356" y="203.5" fill="#71717a" font-size="11" text-anchor="end">1,200</text>
+<path d="M364 304.0H596" stroke="#e4e4e7"/>
+<text x="356" y="308.0" fill="#71717a" font-size="11" text-anchor="end">400</text>
+<path d="M364 266.0H596" stroke="#e4e4e7"/>
+<text x="356" y="270.0" fill="#71717a" font-size="11" text-anchor="end">800</text>
+<path d="M364 228.0H596" stroke="#e4e4e7"/>
+<text x="356" y="232.0" fill="#71717a" font-size="11" text-anchor="end">1,200</text>
+<path d="M364 190.0H596" stroke="#e4e4e7"/>
+<text x="356" y="194.0" fill="#71717a" font-size="11" text-anchor="end">1,600</text>
 <path d="M364 152.0H596" stroke="#e4e4e7"/>
-<text x="356" y="156.0" fill="#71717a" font-size="11" text-anchor="end">1,600</text>
+<text x="356" y="156.0" fill="#71717a" font-size="11" text-anchor="end">2,000</text>
 <text x="364.0" y="362" fill="#71717a" font-size="11" text-anchor="middle">0</text>
 <text x="415.56" y="362" fill="#71717a" font-size="11" text-anchor="middle">16</text>
 <text x="467.11" y="362" fill="#71717a" font-size="11" text-anchor="middle">32</text>
 <text x="518.67" y="362" fill="#71717a" font-size="11" text-anchor="middle">48</text>
 <text x="570.22" y="362" fill="#71717a" font-size="11" text-anchor="middle">64</text>
 <text x="480.0" y="384" fill="#71717a" font-size="11" text-anchor="middle">Workers (+ server thread)</text>
-<path d="M364 327.84H596" stroke="#71717a" stroke-width="1.5"><title>Lithium alone: 119 TPS</title></path>
-<text x="480.0" y="321.84" fill="#71717a" font-size="11" text-anchor="middle">Lithium alone · 119</text>
-<path d="M370.44 317.11V310.25" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M376.89 307.78V285.18" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M389.78 285.72V263.87" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M415.56 266.84V233.06" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M441.33 262.31V191.69" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M467.11 258.38V208.57" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M518.67 263.35V217.0" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M570.22 274.91V232.05" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M596.0 308.45V297.53" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M370.44 313.84 L376.89 295.76 L389.78 274.81 L415.56 249.13 L441.33 229.74 L467.11 231.19 L518.67 241.11 L570.22 254.59 L596.0 302.45" fill="none" stroke="#1b4ed8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-<circle cx="370.44" cy="313.84" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>2 workers: 237 TPS (samples 210–267), 2.0× Lithium alone</title></circle>
-<circle cx="376.89" cy="295.76" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>4 workers: 389 TPS (samples 288–478), 3.3× Lithium alone</title></circle>
-<circle cx="389.78" cy="274.81" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>8 workers: 566 TPS (samples 474–658), 4.7× Lithium alone</title></circle>
-<circle cx="415.56" cy="249.13" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>16 workers: 782 TPS (samples 633–917), 6.6× Lithium alone</title></circle>
-<circle cx="441.33" cy="229.74" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>24 workers: 945 TPS (samples 671–1,266), 7.9× Lithium alone</title></circle>
-<circle cx="467.11" cy="231.19" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>32 workers: 933 TPS (samples 704–1,124), 7.8× Lithium alone</title></circle>
-<circle cx="518.67" cy="241.11" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>48 workers: 850 TPS (samples 662–1,053), 7.1× Lithium alone</title></circle>
-<circle cx="570.22" cy="254.59" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>64 workers: 736 TPS (samples 565–926), 6.2× Lithium alone</title></circle>
-<circle cx="596.0" cy="302.45" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>72 workers: 333 TPS (samples 282–374), 2.8× Lithium alone</title></circle>
-<text x="441.33" y="182.69" fill="#18181b" font-size="12" font-weight="600" text-anchor="middle">945</text>
-<text x="602.0" y="321.45" fill="#18181b" font-size="12" font-weight="600" text-anchor="end">333</text>
+<path d="M364 324.27H596" stroke="#71717a" stroke-width="1.5"><title>Lithium alone: 187 TPS</title></path>
+<text x="480.0" y="318.27" fill="#71717a" font-size="11" text-anchor="middle">Lithium alone · 187</text>
+<path d="M370.44 306.15V299.4" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M376.89 289.51V282.25" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M389.78 267.2V254.85" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M415.56 237.6V220.2" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M441.33 228.9V204.32" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M467.11 218.62V193.56" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M518.67 226.15V198.06" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M570.22 236.45V211.86" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M596.0 283.36V263.49" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M370.44 302.37 L376.89 286.37 L389.78 261.05 L415.56 230.21 L441.33 216.05 L467.11 206.26 L518.67 211.46 L570.22 225.02 L596.0 274.94" fill="none" stroke="#1b4ed8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="370.44" cy="302.37" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>2 workers: 417 TPS (samples 377–448), 2.2× Lithium alone</title></circle>
+<circle cx="376.89" cy="286.37" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>4 workers: 586 TPS (samples 552–629), 3.1× Lithium alone</title></circle>
+<circle cx="389.78" cy="261.05" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>8 workers: 852 TPS (samples 787–917), 4.6× Lithium alone</title></circle>
+<circle cx="415.56" cy="230.21" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>16 workers: 1,177 TPS (samples 1,099–1,282), 6.3× Lithium alone</title></circle>
+<circle cx="441.33" cy="216.05" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>24 workers: 1,326 TPS (samples 1,190–1,449), 7.1× Lithium alone</title></circle>
+<circle cx="467.11" cy="206.26" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>32 workers: 1,429 TPS (samples 1,299–1,562), 7.7× Lithium alone</title></circle>
+<circle cx="518.67" cy="211.46" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>48 workers: 1,374 TPS (samples 1,220–1,515), 7.4× Lithium alone</title></circle>
+<circle cx="570.22" cy="225.02" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>64 workers: 1,231 TPS (samples 1,111–1,370), 6.6× Lithium alone</title></circle>
+<circle cx="596.0" cy="274.94" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>72 workers: 706 TPS (samples 617–826), 3.8× Lithium alone</title></circle>
+<text x="467.11" y="184.56" fill="#18181b" font-size="12" font-weight="600" text-anchor="middle">1,429</text>
+<text x="602.0" y="293.94" fill="#18181b" font-size="12" font-weight="600" text-anchor="end">706</text>
 <text x="666" y="108" fill="#18181b" font-size="14" font-weight="600">Combat</text>
 <text x="666" y="128" fill="#71717a" font-size="11">600 mobs fighting in an arena</text>
 <path d="M666 342.0H898" stroke="#e4e4e7"/>
 <text x="658" y="346.0" fill="#71717a" font-size="11" text-anchor="end">0</text>
-<path d="M666 304.0H898" stroke="#e4e4e7"/>
-<text x="658" y="308.0" fill="#71717a" font-size="11" text-anchor="end">50</text>
-<path d="M666 266.0H898" stroke="#e4e4e7"/>
-<text x="658" y="270.0" fill="#71717a" font-size="11" text-anchor="end">100</text>
-<path d="M666 228.0H898" stroke="#e4e4e7"/>
-<text x="658" y="232.0" fill="#71717a" font-size="11" text-anchor="end">150</text>
-<path d="M666 190.0H898" stroke="#e4e4e7"/>
-<text x="658" y="194.0" fill="#71717a" font-size="11" text-anchor="end">200</text>
+<path d="M666 294.5H898" stroke="#e4e4e7"/>
+<text x="658" y="298.5" fill="#71717a" font-size="11" text-anchor="end">80</text>
+<path d="M666 247.0H898" stroke="#e4e4e7"/>
+<text x="658" y="251.0" fill="#71717a" font-size="11" text-anchor="end">160</text>
+<path d="M666 199.5H898" stroke="#e4e4e7"/>
+<text x="658" y="203.5" fill="#71717a" font-size="11" text-anchor="end">240</text>
 <path d="M666 152.0H898" stroke="#e4e4e7"/>
-<text x="658" y="156.0" fill="#71717a" font-size="11" text-anchor="end">250</text>
+<text x="658" y="156.0" fill="#71717a" font-size="11" text-anchor="end">320</text>
 <text x="666.0" y="362" fill="#71717a" font-size="11" text-anchor="middle">0</text>
 <text x="717.56" y="362" fill="#71717a" font-size="11" text-anchor="middle">16</text>
 <text x="769.11" y="362" fill="#71717a" font-size="11" text-anchor="middle">32</text>
 <text x="820.67" y="362" fill="#71717a" font-size="11" text-anchor="middle">48</text>
 <text x="872.22" y="362" fill="#71717a" font-size="11" text-anchor="middle">64</text>
 <text x="782.0" y="384" fill="#71717a" font-size="11" text-anchor="middle">Workers (+ server thread)</text>
-<path d="M666 322.83H898" stroke="#71717a" stroke-width="1.5"><title>Lithium alone: 25.2 TPS</title></path>
-<text x="782.0" y="316.83" fill="#71717a" font-size="11" text-anchor="middle">Lithium alone · 25.2</text>
-<path d="M672.44 303.92V296.86" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M678.89 289.33V278.08" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M691.78 255.74V243.96" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M717.56 227.01V211.2" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M743.33 219.41V204.06" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M769.11 237.04V218.2" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M820.67 280.44V268.58" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M872.22 271.7V266.0" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M898.0 266.38V255.06" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
-<path d="M672.44 300.5 L678.89 281.49 L691.78 249.01 L717.56 218.03 L743.33 208.83 L769.11 226.59 L820.67 275.44 L872.22 269.17 L898.0 260.19" fill="none" stroke="#1b4ed8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-<circle cx="672.44" cy="300.5" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>2 workers: 54.6 TPS (samples 50.1–59.4), 2.2× Lithium alone</title></circle>
-<circle cx="678.89" cy="281.49" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>4 workers: 79.6 TPS (samples 69.3–84.1), 3.2× Lithium alone</title></circle>
-<circle cx="691.78" cy="249.01" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>8 workers: 122 TPS (samples 114–129), 4.9× Lithium alone</title></circle>
-<circle cx="717.56" cy="218.03" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>16 workers: 163 TPS (samples 151–172), 6.5× Lithium alone</title></circle>
-<circle cx="743.33" cy="208.83" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>24 workers: 175 TPS (samples 161–182), 6.9× Lithium alone</title></circle>
-<circle cx="769.11" cy="226.59" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>32 workers: 152 TPS (samples 138–163), 6.0× Lithium alone</title></circle>
-<circle cx="820.67" cy="275.44" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>48 workers: 87.6 TPS (samples 81–96.6), 3.5× Lithium alone</title></circle>
-<circle cx="872.22" cy="269.17" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>64 workers: 95.8 TPS (samples 92.5–100), 3.8× Lithium alone</title></circle>
-<circle cx="898.0" cy="260.19" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>72 workers: 108 TPS (samples 99.5–114), 4.3× Lithium alone</title></circle>
-<text x="743.33" y="195.06" fill="#18181b" font-size="12" font-weight="600" text-anchor="middle">175</text>
-<text x="904.0" y="246.06" fill="#18181b" font-size="12" font-weight="600" text-anchor="end">108</text>
+<path d="M666 328.31H898" stroke="#71717a" stroke-width="1.5"><title>Lithium alone: 23.1 TPS</title></path>
+<text x="782.0" y="322.31" fill="#71717a" font-size="11" text-anchor="middle">Lithium alone · 23.1</text>
+<path d="M672.44 300.02V297.59" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M678.89 281.5V276.51" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M691.78 247.89V238.57" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M717.56 204.9V196.83" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M743.33 200.98V190.89" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M769.11 210.37V201.99" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M820.67 229.96V214.88" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M872.22 231.03V213.22" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M898.0 241.18V222.78" stroke="#1b4ed8" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+<path d="M672.44 299.07 L678.89 278.36 L691.78 242.4 L717.56 200.24 L743.33 197.24 L769.11 206.65 L820.67 222.69 L872.22 222.2 L898.0 231.31" fill="none" stroke="#1b4ed8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="672.44" cy="299.07" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>2 workers: 72.3 TPS (samples 70.7–74.8), 3.1× Lithium alone</title></circle>
+<circle cx="678.89" cy="278.36" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>4 workers: 107 TPS (samples 102–110), 4.6× Lithium alone</title></circle>
+<circle cx="691.78" cy="242.4" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>8 workers: 168 TPS (samples 158–174), 7.3× Lithium alone</title></circle>
+<circle cx="717.56" cy="200.24" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>16 workers: 239 TPS (samples 231–244), 10.4× Lithium alone</title></circle>
+<circle cx="743.33" cy="197.24" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>24 workers: 244 TPS (samples 238–254), 10.6× Lithium alone</title></circle>
+<circle cx="769.11" cy="206.65" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>32 workers: 228 TPS (samples 222–236), 9.9× Lithium alone</title></circle>
+<circle cx="820.67" cy="222.69" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>48 workers: 201 TPS (samples 189–214), 8.7× Lithium alone</title></circle>
+<circle cx="872.22" cy="222.2" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>64 workers: 202 TPS (samples 187–217), 8.8× Lithium alone</title></circle>
+<circle cx="898.0" cy="231.31" r="4" fill="#1b4ed8" stroke="#ffffff" stroke-width="2"><title>72 workers: 186 TPS (samples 170–201), 8.1× Lithium alone</title></circle>
+<text x="743.33" y="181.89" fill="#18181b" font-size="12" font-weight="600" text-anchor="middle">244</text>
+<text x="904.0" y="250.31" fill="#18181b" font-size="12" font-weight="600" text-anchor="end">186</text>
 <text x="32" y="418" fill="#71717a" font-size="11">Each point is the mean of four samples (two server JVMs × two sprint windows); bars show their range. Lithium alone is the same server without Vanadium and C2ME.</text>
 </g>
 </svg>
