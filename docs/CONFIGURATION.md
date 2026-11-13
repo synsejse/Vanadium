@@ -31,8 +31,8 @@ Edit `config/vanadium.toml`, then run `/vanadium reload` to apply changes live.
 
 `workers = 0` picks two thirds of the logical processors, because one worker per processor leaves
 none for the server thread, C2ME and the garbage collector: on the 36-core, 72-thread test machine 72
-workers ran 38–65% below the best setting. The best count still depends on the machine and the world
-(24 there, where the default gives 48), so compare a few values with `/vanadium benchmark`; see
+workers ran 24–51% below the best setting. The best count still depends on the machine and the world
+(24 to 48 there, where the default gives 48), so compare a few values with `/vanadium benchmark`; see
 [worker count](PERFORMANCE.md#worker-count).
 
 `isolation` sets the spatial exclusion distance independently of worker count, not the size of a region.

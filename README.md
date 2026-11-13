@@ -25,13 +25,13 @@ It also optimizes chunk lookups, nearby-player indexing and packet preparation.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/performance-dark.svg">
-  <img src="docs/assets/performance-light.svg" alt="Uncapped TPS by worker count on Minecraft 26.3 with Lithium. Spread out, 4,096 zombies: Lithium alone 20.8, Vanadium 50 at 2 workers, 193 at 24, 220 at 48, 126 at 72. Crowded base, 700 mobs in 4×4 chunks: Lithium alone 119, Vanadium 237 at 2 workers, 945 at 24, 333 at 72. Combat, 600 mobs: Lithium alone 25.2, Vanadium 55 at 2 workers, 175 at 24, 88 at 48, 108 at 72.">
+  <img src="docs/assets/performance-light.svg" alt="Uncapped TPS by worker count on Minecraft 26.3 with Lithium. Spread out, 4,096 zombies: Lithium alone 21.2, Vanadium 53 at 2 workers, 227 at 24, 262 at 48, 145 at 72. Crowded base, 700 mobs in 4×4 chunks: Lithium alone 187, Vanadium 417 at 2 workers, 1,326 at 24, 1,429 at 32, 706 at 72. Combat, 600 mobs: Lithium alone 23.1, Vanadium 72 at 2 workers, 244 at 24, 201 at 48, 186 at 72.">
 </picture>
 
 Minecraft 26.3 on the dual Xeon test VM (36 cores, 72 threads), uncapped tick rate, no players. With
-24 workers Vanadium ran these worlds 7–9× faster than the same server with Lithium alone. More
-workers are not always better: past the core count throughput fell, and one worker per logical
-processor ran 38–65% below the best setting. The default is two thirds of the logical processors;
+24 workers Vanadium ran these worlds 7–11× faster than the same server with Lithium alone. More
+workers are not always better: each world peaked at a different count, and one worker per logical
+processor ran 24–51% below the best setting. The default is two thirds of the logical processors;
 try a few values of `workers` on your own machine. [Data, method and limits →](docs/PERFORMANCE.md)
 
 ### Getting started

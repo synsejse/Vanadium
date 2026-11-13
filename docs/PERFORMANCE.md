@@ -8,39 +8,76 @@ Uncapped TPS by `workers`, against the same server with Lithium but without Vana
 
 | Workers | Spread out: 4,096 zombies, four per chunk | Crowded base: 700 mixed mobs in 4×4 chunks | Combat: 600 mobs in a 34×34 arena |
 | ---: | ---: | ---: | ---: |
-| Lithium alone | 20.8 (20.0–21.6) | 119 (86–151) | 25.2 (23.3–26.2) |
-| 2 | 50 (49–51) | 237 (210–267) | 55 (50–59) |
-| 4 | 74 (69–77) | 389 (288–479) | 80 (69–84) |
-| 8 | 103 (97–109) | 566 (474–658) | 122 (114–129) |
-| 16 | 163 (155–170) | 782 (633–917) | 163 (151–172) |
-| 24 | 193 (182–206) | **945** (671–1,266) | **175** (161–182) |
-| 32 | 211 (200–220) | 933 (704–1,124) | 152 (138–163) |
-| 48 (default) | **220** (215–226) | 850 (662–1,053) | 88 (81–97) |
-| 64 | 196 (189–209) | 736 (565–926) | 96 (93–100) |
-| 72 | 126 (120–130) | 333 (283–375) | 108 (100–114) |
+| Lithium alone | 21.2 (20.6–22.5) | 187 (164–210) | 23.1 (22.1–23.7) |
+| 2 | 53 (48–55) | 417 (377–448) | 72 (71–75) |
+| 4 | 76 (72–79) | 586 (552–629) | 107 (102–110) |
+| 8 | 113 (105–121) | 852 (787–917) | 168 (158–174) |
+| 16 | 185 (175–193) | 1,177 (1,099–1,282) | 239 (231–244) |
+| 24 | 227 (220–231) | 1,326 (1,190–1,449) | **244** (238–254) |
+| 32 | 244 (242–245) | **1,429** (1,299–1,562) | 228 (222–236) |
+| 48 (default) | **262** (252–270) | 1,374 (1,220–1,515) | 201 (189–214) |
+| 64 | 244 (225–258) | 1,231 (1,111–1,370) | 202 (187–217) |
+| 72 | 145 (140–153) | 706 (617–826) | 186 (170–201) |
 
-- At 24 workers the three workloads run 9.3×, 7.9× and 6.9× faster than Lithium alone. Two workers
-  already double it (2.0–2.4×).
-- Gains per worker shrink steadily: 8 workers give about 5×, 24 give 7–9×.
-- Past the 36 physical cores throughput falls. One worker per logical processor (72 here, and the
-  default until this sweep) leaves none for the server thread, C2ME and the collector. It ran 38–65%
-  below the best setting, and for the crowded base below four workers.
-- `workers = 0` now picks two thirds of the logical processors (48 here): the peak for the
-  spread-out world and 90% of it for the crowded base, but half the combat peak.
-- Combat peaks earliest and loses 42% between 32 and 48 workers. Its entities write to each other
-  constantly, so the likely cause is more of them waiting on each other; that drop has not been
-  profiled.
-- On this machine 24 workers is the best single setting: the peak for two workloads and 88% of the
-  peak for the third. Elsewhere, start near two thirds of the physical cores and measure with
+- At 24 workers the three workloads run 10.7×, 7.1× and 10.6× faster than Lithium alone. Two workers
+  already give 2.2–3.1×.
+- Gains per worker shrink steadily: 8 workers give 4.6–7.3×, 24 give 7–11×.
+- Each workload peaks at a different count: combat at 16–24 workers, the crowded base at 32, the
+  spread-out world at 48.
+- One worker per logical processor (72 here) leaves none for the server thread, C2ME and the
+  collector. It ran 45% and 51% below the best setting for the spread-out world and the crowded base,
+  and 24% below it for combat.
+- `workers = 0` picks two thirds of the logical processors (48 here): the peak for the spread-out
+  world, 96% of it for the crowded base and 82% for combat.
+- Combat loses 18% between 24 and 48 workers. A profile at 48 workers showed its entity wave waiting
+  on single long villager ticks, which more workers cannot shorten.
+- On this machine 32 workers is the best single setting, within 7% of the peak for all three
+  workloads. Elsewhere, start near two thirds of the physical cores and measure with
   `/vanadium benchmark`.
 
-Measured 2026-11-11 on the flat-wave build (2.1.0, commit `9e61665`), `isolation = 2`. One fresh
-server JVM per point and pass: an ascending pass over the worker counts, then a descending pass, then
-two Lithium-alone JVMs, each with two `/tick sprint` windows of 1,000 ticks (four samples per
-point). The spread-out world force-loads 32×32 chunks; the other two are the workloads below.
-Environment as in [Environment and limits](#environment-and-limits). The crowded base's second
-sprint window is always faster than its first (by 15–75%, with and without Vanadium), which is what
-widens its ranges.
+Measured 2026-11-13 on 2.1.0 at commit `f3658bf`, `isolation = 2`. One fresh server JVM per point and
+pass: Lithium alone, an ascending pass over the worker counts, a descending pass, then Lithium alone
+again. Each JVM runs two `/tick sprint` windows (four samples per point) of 2,000 ticks for the
+spread-out world, 15,000 for the crowded base and 2,500 for combat. The spread-out world force-loads
+32×32 chunks; the other two are the workloads below. Environment as in
+[Environment and limits](#environment-and-limits).
+
+- The crowded base's second sprint window is always faster than its first (by 9–22%, with and
+  without Vanadium), which is what widens its ranges. The sprint report rounds to 0.01 ms per tick,
+  about 1.4% at 1,400 TPS.
+- An earlier sweep of this table used 1,000-tick windows, which lasted about one second on the crowded
+  base and read lower there (Lithium alone: 119 TPS). Do not compare its numbers with these; the
+  comparison of builds is the next section.
+
+## Before and after the tick-path changes
+
+Vanadium before and after the changes of
+[#16](https://github.com/synsejse/Vanadium/pull/16): the section lock taken only when an entity
+changes section, tick collection kept across ticks, fan-out worker wake-up, sliced spawn counting,
+cell grids for crowded sections and an entity wave ordered by cost. Means of four samples with
+their range, in uncapped TPS; [all 56 samples](benchmarks/tick-path-changes-26.3.csv).
+
+| Workload | Workers | Before | After | Change |
+| --- | ---: | ---: | ---: | ---: |
+| Combat | 24 | 180 (178–184) | 260 (249–273) | +45% |
+| Combat | 32 | 181 (175–188) | 235 (230–246) | +30% |
+| Combat | 48 | 164 (159–168) | 208 (196–215) | +27% |
+| Spread out | 8 | 109 (103–117) | 118 (114–123) | +9% |
+| Spread out | 24 | 197 (193–205) | 231 (214–240) | +17% |
+| Spread out | 48 | 226 (219–235) | 261 (258–264) | +16% |
+| Crowded base | 24 | 1,313 (1,220–1,409) | 1,293 (926–1,493) | no measurable change |
+
+- "Before" never counted mobs for the spawn caps (a bug fixed in the same change), so it paid nothing
+  for that step. "After" does the count; its gains are net of that cost.
+- The crowded base ticks in under 1 ms at 24 workers and is too light to show a difference; one of
+  its "after" samples is a low outlier.
+- At the normal 20 TPS (spread-out world, 24 workers, 60 s, two alternating servers per build) the
+  average tick fell from 7.2–7.5 ms to 6.2–6.3 ms (p95 from 9.5–10.7 to 8.2–8.6; p99 13.1–18.0
+  against 14.7–17.0, no clear change), and mean CPU per worker from 15% to 11–12%.
+
+Measured 2026-11-12, `isolation = 2`: commit `2ac2660` against the merge that became `f3658bf`, in
+alternating server JVMs (before/after/after/before), two `/tick sprint` windows each of 2,500 ticks
+for combat, 1,500–2,000 for the spread-out world and 15,000 for the crowded base.
 
 ## Flat entity wave against regions
 
@@ -119,7 +156,8 @@ Fast state (afternoon), alternating configurations:
   the run-to-run spread, so `lean` is the default: it is the only one that costs nothing when it does not
   help. Try `balanced` or `hot` if `/vanadium profile` at 20 TPS shows ticks much slower than a sprint.
 
-Measured 2026-11-12 on `perf/tick-prewake` (based on `perf/first-wave`), `isolation = 2`, the harness of
+Measured 2026-11-12 on the branch that added `idleWorkers` (merged in
+[#16](https://github.com/synsejse/Vanadium/pull/16)), `isolation = 2`, the harness of
 `/vanadium profile` in a fresh server per run; environment as below.
 
 ## Environment and limits
@@ -128,7 +166,7 @@ Dual Xeon E5-2699 v3 KVM guest, 72 vCPUs exposed as two sockets × 18 cores × t
 two NUMA nodes, NixOS/Linux; no explicit affinity. OpenJDK 25.0.4.1, fixed 4GiB G1 heap.
 Minecraft 26.3, Loader 0.20.1, Fabric API 0.165.2+26.3, Fabric Language Kotlin 1.14.2+kotlin.2.4.21,
 Cloth Config 26.3.159, Lithium 0.26.3, C2ME 0.4.2-alpha.0.116 with global parallelism four.
-Default 2ms worker idle spin.
+Default `idleWorkers = lean`.
 
 Fresh seed-12345 flat worlds, the mob area force-loaded, view/simulation distance four, midnight,
 spawning/time/weather cycles and mob griefing disabled, no players. Mobs are summoned persistent and
