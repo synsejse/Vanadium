@@ -451,6 +451,16 @@ class WorkerPoolTest {
         return threads
     }
 
+    /**
+     * The caller unparked at least the first parked helper and at most [limit]. It shares the wake cursor with
+     * the helpers it wakes, so a helper that starts before the caller's next unpark can take the rest: the exact
+     * count depends on timing (seen with fewer processors than threads).
+     */
+    private fun assertCallerStartedFanOut(pool: WorkerPool, limit: Int) {
+        val unparks = pool.lastCallerUnparks
+        assertTrue(unparks in 1..limit, "the caller unparked $unparks workers itself, expected 1..$limit")
+    }
+
     private fun workerNames(range: IntRange) = range.map { "Vanadium-Worker-${it + 1}" }.toSet()
 
     @Test
@@ -464,7 +474,7 @@ class WorkerPoolTest {
             // A small wave wakes only the lowest-numbered workers; the caller unparks two, they wake the third.
             val small = gatedWave(pool, 4)
             assertEquals(workerNames(0..2) + Thread.currentThread().name, small)
-            assertEquals(WorkerPool.CALLER_WAKES, pool.lastCallerUnparks)
+            assertCallerStartedFanOut(pool, WorkerPool.CALLER_WAKES)
             assertTrue((0..2).none(pool::isParked), "participants went back to parking while spinning for a minute")
             assertTrue((3 until threads).all(pool::isParked), "a worker outside the small wave was woken")
 
@@ -482,7 +492,7 @@ class WorkerPoolTest {
             repeat(5) {
                 parkAll(pool, threads)
                 assertEquals(workerNames(0 until threads) + Thread.currentThread().name, gatedWave(pool, threads + 1))
-                assertEquals(WorkerPool.CALLER_WAKES, pool.lastCallerUnparks, "the caller did more than start the fan-out")
+                assertCallerStartedFanOut(pool, WorkerPool.CALLER_WAKES)
             }
         }
     }
@@ -580,8 +590,8 @@ class WorkerPoolTest {
             assertNull(failure.get())
             assertEquals(workerNames(0 until threads) + caller.get().name, joined)
             // Workers count themselves before rechecking, so only a worker paused before that is skipped.
-            val callerUnparks = if (point == WorkerPool.ParkPoint.BEFORE_ANNOUNCE && threads == 1) 0 else minOf(threads, WorkerPool.CALLER_WAKES)
-            assertEquals(callerUnparks, pool.lastCallerUnparks)
+            if (point == WorkerPool.ParkPoint.BEFORE_ANNOUNCE && threads == 1) assertEquals(0, pool.lastCallerUnparks)
+            else assertCallerStartedFanOut(pool, minOf(threads, WorkerPool.CALLER_WAKES))
         } finally {
             release.set(true)
             caller.get()?.join(5000)
