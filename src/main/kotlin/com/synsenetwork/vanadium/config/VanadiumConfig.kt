@@ -14,9 +14,10 @@ class VanadiumConfig : ConfigData {
     @field:Comment("Master switch: false disables parallel ticking and optional optimizations; structural mixins, locks and loaded-chunk lookups remain active")
     @JvmField var enabled = true
 
-    @field:Comment("Worker threads for parallel ticking. <= 0 = two thirds of the available logical processors, "
-            + "leaving the rest to the server thread, chunk workers and the garbage collector. Positive values "
-            + "are clamped between 2 and max(2, available logical processors). Takes effect on restart.")
+    @field:Comment("Worker threads for parallel ticking. <= 0 = one less than the physical cores this server may use "
+            + "(the server thread works alongside them; SMT siblings are not counted), or two thirds of the logical "
+            + "processors where the core count cannot be read. Positive values are clamped between 2 and "
+            + "max(2, available logical processors). Takes effect on restart.")
     @JvmField var workers = 0
 
     @field:Comment("Minimum distance, in chunks, between block-entity, chunk, scheduled-tick and spawning work that may "
@@ -128,14 +129,29 @@ class VanadiumConfig : ConfigData {
 
     companion object {
         /**
-         * Auto uses two thirds of the available logical processors: one worker per processor leaves none for the
-         * server thread, chunk workers and the collector, and measured far below fewer workers. Explicit values
-         * clamp to 2..max(2, available processors).
+         * Auto uses one thread per physical core this process may run on, counting the server thread, which joins
+         * every wave: workers = cores - 1 (at least one). Beyond the physical cores, extra workers share cores with
+         * SMT siblings, mostly spin, and measured slower. A CPU quota below the core count (cgroup `cpu.max`,
+         * `-XX:ActiveProcessorCount`) caps the cores at the available processors. Where the topology is unknown,
+         * auto keeps two thirds of the available processors. Explicit values clamp to 2..max(2, available processors).
          */
         @JvmStatic
-        fun resolveWorkers(): Int = resolveWorkers(Vanadium.config.workers, Runtime.getRuntime().availableProcessors())
+        fun resolveWorkers(): Int =
+            resolveWorkers(Vanadium.config.workers, Runtime.getRuntime().availableProcessors(), CpuTopology.cores)
 
-        internal fun resolveWorkers(workers: Int, availableProcessors: Int): Int =
-            if (workers <= 0) maxOf(1, availableProcessors * 2 / 3) else workers.coerceIn(2, maxOf(2, availableProcessors))
+        /** How `workers = 0` was resolved, for the startup log. */
+        @JvmStatic
+        fun describeAutoWorkers(): String {
+            val processors = Runtime.getRuntime().availableProcessors()
+            val cores = CpuTopology.cores ?: return "two thirds of $processors processors; core topology unknown"
+            return "${minOf(cores, processors)} cores of $processors processors, one for the server thread"
+        }
+
+        /** [cores]: physical cores among the CPUs this process may run on, or null when unknown. */
+        internal fun resolveWorkers(workers: Int, availableProcessors: Int, cores: Int?): Int = when {
+            workers > 0 -> workers.coerceIn(2, maxOf(2, availableProcessors))
+            cores == null -> maxOf(1, availableProcessors * 2 / 3)
+            else -> maxOf(1, minOf(cores, availableProcessors) - 1)
+        }
     }
 }

@@ -79,7 +79,11 @@ object Vanadium : ModInitializer {
 
     private fun onServerStarting(server: MinecraftServer) {
         val workers = VanadiumConfig.resolveWorkers()
-        LOGGER.info("Will use {} threads, isolation {} chunks", workers, config.isolation)
+        if (config.workers <= 0) {
+            LOGGER.info("Will use {} threads, isolation {} chunks ({})", workers, config.isolation, VanadiumConfig.describeAutoWorkers())
+        } else {
+            LOGGER.info("Will use {} threads, isolation {} chunks", workers, config.isolation)
+        }
         val pool = WorkerPool(workers).also { pool = it }
         Interactions.drainPool = pool
         scheduler = TickScheduler(pool, config.isolation)
