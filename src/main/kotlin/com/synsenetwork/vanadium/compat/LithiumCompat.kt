@@ -17,6 +17,14 @@ import java.util.function.LongUnaryOperator
 /** Keeps Lithium's POI section index on storage that parallel stages can share. */
 object LithiumCompat {
     /**
+     * Guards Lithium's entity movement tracking: per-section waiting lists and per-tracker state, reached by
+     * entity ticks of any thread in the flat wave (see `EntitySectionMovementTrackingMixin`). Taken after any
+     * section stripe; nothing under it takes another Vanadium lock.
+     */
+    @JvmField
+    val MOVEMENT_TRACKING = Any()
+
+    /**
      * Lithium's POI column index, merged into [SectionStorage] by its `ai.poi` option; null when a user disabled
      * that option (then the storage is vanilla's map).
      */

@@ -42,17 +42,25 @@ class ServerIntegrationChecks : ModInitializer {
             CollectionReplacementChecks.run(level)
             ChunkLookupChecks.run(level)
             ServerThreadChunkChecks.run(level)
+            ChunkWaitChecks.run(level)
             LithiumChecks.run(level)
             FlatEntityChecks.run(level)
+            SectionMoveChecks.run(level)
             TickSafetyChecks.run(level)
             NavigationChecks.run(level)
             TrackingChecks.run(level)
             SpawnChecks.run(level)
+            EntitySectionChecks.run(level)
+            SpawnCountChecks.run(server)
             ItemChecks.run(level)
             ChunkPacketChecks.run(level)
             ReportChecks.start(server)
             println("INTEGRATION_CHECKS_PASSED")
-            com.synsenetwork.vanadium.live.LiveServer.finish(server, "integration")
+            // Checks that need real ticks; the run finishes only after they pass.
+            val ticked = TickedChecks(server, "ticked_checks")
+            EntityCollectionChecks.schedule(level, ticked)
+            CrowdChecks.schedule(level, ticked)
+            ticked.start { com.synsenetwork.vanadium.live.LiveServer.finish(server, "integration") }
         }
     }
 

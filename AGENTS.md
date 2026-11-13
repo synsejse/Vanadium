@@ -20,6 +20,8 @@ Do not upgrade Minecraft, mappings, Loom, Gradle, Kotlin, or runtime mods as inc
 - `./gradlew benchScheduler`: synthetic scheduler overhead/allocation benchmark.
 - `./gradlew benchWorkerPool`: small/large, balanced/uneven wave timing and allocation benchmark.
 - `./gradlew benchAreaMap`: tracking-index movement, resize, and teleport microbenchmark.
+- `./gradlew benchSectionIndex`: entity section box queries, column index against the previous two-map layout.
+- `./gradlew benchCrowdQueries`: push-sized queries in sections of 10/50/200 entities, full scan against cells, with movers.
 - `./gradlew prepareRuntimeMods`: download and verify pinned C2ME and Lithium into `.vanadium/mods`.
 - `./gradlew runIntegration`: live Kotlin/Java tests plus startup/tick/save/shutdown in a fresh
   `.vanadium/runs/` directory. Requires accepted `.vanadium/eula.txt`; never touches personal `run/`.
@@ -43,7 +45,8 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 
 - **Kotlin vs. Java:** Mixin classes must be Java. So are the duck interfaces they implement
   (`vanadium$`-prefixed methods: `NavigationAccess`, `NavigationState`, `InteractionAccess`,
-  `PoiDistanceAccess`, `ChunkTickSink`, `ScheduledTickAccess`) and code that runs during Mixin
+  `PoiDistanceAccess`, `EntityTickAccess`, `ChunkTickAccess`, `ScheduledTickAccess`, `CrowdAccess`, `CrowdSlotAccess`,
+  `CrowdedSectionsAccess`) and code that runs during Mixin
   bootstrap (`mixin/SynchronisePlugin.java`, `compat/C2ME.java`, `compat/Lithium.java`). Everything else is Kotlin.
   Kotlin APIs called from mixins use `@JvmField`/`@JvmStatic` (`Vanadium.config`, `Vanadium.scheduler`);
   call `vanadium$` methods from Kotlin with backticks. Keep collection adapters on fastutil's
@@ -51,6 +54,8 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - `Vanadium.kt`: config, server lifecycle ownership of the shared scheduler/pool, command registration.
 - `tick/`: adaptive region planning (`RegionGrid`), claim and dataflow waves, batched stage collection,
   stage scheduler, caller-participating spin-then-park worker pool.
+- `entity/`: lock-free entity section index; `CrowdedSection` cell grids prefilter box queries in crowded
+  sections (every write to an entity's box or section must keep them in step: see its invariant).
 - `chunk/`: chunk manager/cache and per-position loading locks.
 - `collections/`: fastutil-compatible adapters over JDK/JCTools collections.
 - `concurrent/`: entity ownership for the flat entity wave (`Interactions`, `OwnerLocks`), striped
@@ -99,10 +104,14 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
   for all tasks before restoring the caller's interrupt flag; it does not cancel a wave.
 - Workers must never block on work only the server thread can perform (chunk loading/generation,
   main-thread tasks): it participates in the wave, so the wait never ends. Make such tasks
-  deferrable (`WorkerPool.runDeferrable`, rerun after the wave) rather than waiting.
+  deferrable (`WorkerPool.runDeferrable`, rerun after the wave) rather than waiting. A task that
+  cannot be deferred hands the work to the wave's caller with `WorkerPool.callOnWaveCaller`, which
+  serves it between its own tasks and in the tail; hold no lock the server thread may wait for.
 - Do not wait at a worker barrier while holding a monitor needed by those workers.
   Scheduled ticks are collected under vanilla scheduling and dispatched after its monitor releases.
 - Keep lock ordering deterministic. Preserve reservation/eviction atomicity in `ChunkLockTable`.
+  Only the server thread takes chunk load locks (`ChunkLoadRouter`): any other holder would wait
+  for the server thread while holding one.
 - Full chunks are published by `LevelChunk.setLoaded` before their load completes; recheck that
   map under the load lock, and never publish unloaded or null chunks.
 - Use floor division/modulo for negative chunk coordinates. Chunks, blocks,

@@ -26,3 +26,4 @@ accessible field net/minecraft/world/level/LocalMobCapCalculator$MobCounts count
 accessible method net/minecraft/world/entity/item/ItemEntity isMergable ()Z
 accessible method net/minecraft/world/level/pathfinder/WalkNodeEvaluator getPathTypeFromState (Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/core/BlockPos;)Lnet/minecraft/world/level/pathfinder/PathType;
 accessible class net/minecraft/world/entity/ai/village/poi/PoiManager$DistanceTracker
+accessible field net/minecraft/world/level/entity/EntitySection storage Lnet/minecraft/util/ClassInstanceMultiMap;

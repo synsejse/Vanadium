@@ -38,8 +38,15 @@ tree through the serial path.
 
 ## Planning and execution
 
-`BatchEnqueue` maps large recorded inputs in disjoint worker slices, then enqueues the
-results on the caller in recording order. Workers never mutate stage queues.
+Entity and chunk collection keep their tasks across ticks instead of rebuilding them on the server
+thread. `PersistentTickTasks` holds one task per entity in the tick list, in arrival order: the tick
+list reports adds and removes (from any thread, also mid-wave) and they apply at the next dispatch, so
+an entity added during a tick first ticks next tick, as with vanilla's snapshot. Serial classification
+is cached per entity: its type rules are recomputed when the configured rules change (compared by
+identity), its portal and passenger part when portal entry or a mount is reported for it or a passenger,
+and every tick for entities that are serial only through that part. `ChunkTickBatch` caches the
+entity-ticking chunk positions until the simulation-level map's write version changes; each task
+resolves its holder and ticking chunk when it runs. Workers never mutate stage queues.
 
 `RegionGrid` records tasks per chunk, using floor-correct coordinates and dense 16×16
 tiles. Prefix sums guide quadtree splits: the task target is the larger of a share of
@@ -66,10 +73,68 @@ barriers between colours, but every stage has a full completion barrier. Relativ
 between conflicting regions may change between ticks.
 
 `WorkerPool` publishes one immutable `WorkBatch`; both helpers and the calling server
-thread claim work. One-task waves run inline. Helpers spin briefly before parking; the
-caller spins then parks for the tail. Late helpers use a saved task count, never a list
+thread claim work. One-task waves run inline. Helpers spin before parking; the caller
+spins then parks for the tail. Late helpers use a saved task count, never a list
 that the caller has cleared. Interruption restores the caller's flag only after all work
 finishes. Never hold a monitor needed by workers while joining a wave.
+
+Waking fans out. A worker sets its bit in a parked bitmap before its last look for a new
+batch; the caller reads the bits of the wave's helpers after publishing, and only when one of
+them may be parked does it unpark at most two of them. Each helper that joins a waking
+batch first takes further helper indices from the batch's wake cursor and unparks those
+workers, so wake-ups spread over the threads that are already awake instead of queueing on
+the server thread. Each index is taken once by a thread that has seen the batch, which keeps
+the per-worker Dekker pairing (publish, then read `parked`) whoever does the waking.
+
+`TickScheduler` sizes every wave by its estimated work W: about sqrt(W / c) participants,
+where c (`vanadium.participantCostNanos`, 2 µs) is what involving one more thread costs.
+Region stages estimate W from `RegionGrid`; flat and preparation waves from the busy time
+`runWave` reports. Unmeasured waves use every worker; waves too small for a second thread
+run inline.
+
+Idle spinning follows the tick (`SpinPolicy`). Under pressure (sprinting, or the next tick due
+within 2 ms of the end of this one, or within the worker lead below) workers spin 2 ms through
+every gap. With slack they spin 500 µs between waves of a tick; what happens between ticks is
+the `idleWorkers` option (`IdleWorkers`):
+
+- `balanced` parks workers when the tick ends, and the server thread spins through its wait for
+  the next tick (`ServerSpin`, below).
+- `hot` keeps workers spinning (50 ms between waves, and through the gap to just past the next
+  tick), and the server thread spins through the whole gap.
+- `lean` parks workers when the tick ends, and the server thread sleeps until the next tick.
+
+In every mode the next tick's start wakes the workers the previous tick used, so they are
+spinning by its first wave. A tick that ran nothing in parallel (an idle or `/tick freeze`
+server) keeps nobody spinning, and a server paused when empty (`pause-when-empty-seconds`)
+fires no tick events at all. Tick events are the only input: tests and benchmarks without them
+spin 2 ms. `vanadium.workerSpinMicros` fixes the worker spin and ignores ticks;
+`vanadium.idleWorkers` forces a mode; `vanadium.workerSlackSpinMicros`,
+`vanadium.callerSpinMicros`, `vanadium.callerWakes` and `vanadium.prewake` tune the rest.
+
+**Server spin.** At 20 TPS on the test VM a tick after a long sleep can take twice as long as
+the same tick under `/tick sprint`; see [PERFORMANCE.md](PERFORMANCE.md#idle-workers-at-20-tps).
+`END_SERVER_TICK` arms `ServerSpin` with the next tick's due time and the mode's window. The
+`MinecraftServer.waitForTasks` mixin parks only until the window opens (at once, for a
+whole-gap window), then spins 50 µs
+slices and returns to vanilla's `managedBlock` loop, which polls tasks between slices exactly
+as before (vanilla's other waits poll every 100 µs). It spins only while the wait is for
+exactly the armed tick, so a wait that no tick event preceded (a paused server between its
+loop iterations, startup, shutdown) never spins. `vanadium.serverSpinMicros` replaces the
+window. Spin slices are not counted as idle time in vanilla's tick-time debug samples.
+
+**Timed worker wake** (off by default; `vanadium.prewakeLeadMicros` > 0 enables it in
+`balanced`). `tickEnded` hands the timer thread (`Vanadium-Prewake`, started on first use) a
+request: the time the next tick is due and the most helpers any wave of this tick used. The
+timer parks until the lead before that, raises the pool's spin deadline to just past the due
+time (plus `vanadium.prewakeGraceMicros`, 1 ms), publishes an empty batch with a
+compare-and-set and starts its fan-out like a wave's caller. It never replaces a batch with
+tasks left to claim, so a worker can only miss a batch nobody needs; each helper is checked by
+a thread that has seen the new batch, which keeps the Dekker pairing. Only the latest request
+is kept, a request fires at most once (the timer removes it with a compare-and-set before
+acting), and `tickStarted` drops a request that has not fired: the tick start wakes the same
+workers itself. `close` drops it too, then unparks and joins the timer. A request the timer took
+just before a tick started can still fire into it; it then leaves a running wave alone or wakes
+workers the tick may use anyway, for at most its lead plus grace of spinning.
 
 ## Flat entity wave
 
@@ -85,7 +150,13 @@ What made this safe before was distance; now it is ownership (`Interactions`, `O
 - Reads of other entities and of blocks take no lock, exactly as between regions. Sorts by distance
   snapshot positions first (`StableDistance`), because entities move while they are being sorted.
 - A push, the one thing crowded entities do to each other every tick, goes to the target's inbox and
-  never waits; the target applies it at the start of its tick, or the server thread after the wave.
+  never waits; the target applies it at the start of its tick. Targets that had already ticked, or do
+  not tick, are listed per thread and applied before the wave returns: a few on the server thread,
+  many as a short wave in which each target is owned as in its own tick.
+- An entity's section changes only when its position crosses a section boundary. Position writes
+  within a section (nearly all) take no lock; a crossing holds the old and new section's stripes
+  (spinning briefly before parking), so an add cannot race a same-section removal into an orphaned
+  section. Only the entity's owner writes its position, so its unlocked section key is current.
 - Any other write to another tree is a foreign write. Mixins at the mutation points open a scope:
   the tick releases its own lock and takes the target's, so the write waits for the target's own
   tick, and for nothing else: writes to different entities do not wait for each other. Releasing
@@ -112,6 +183,16 @@ Either way one write runs unprotected instead of stalling the tick, and is repor
 counts foreign writes by kind (`-Dvanadium.interactionLogWaves=N` logs them). The catalogue of whole
 operations is vanilla's; a mod's own pairwise logic is covered only by the generic points.
 
+Wave order is a matter of balance only. A wave ends with its longest ticks, and in a crowd those are
+sporadic: in a 600-mob fight a villager tick runs 1.5–3.5 ms (twenty times its usual tick; earlier profiles
+put pathfinding there) about once every 40 ticks, unpredictably for the entity but steadily for its type. Wave tasks therefore persist in
+groups (`PersistentTickTasks`): entity types run costliest first, each in tick-list order, in groups of
+one type cut to about equal expected cost, ten per participant, so the pool claims them one at a time
+and costly entities run alone. Groups time themselves (two clock reads per group, not per entity) and
+those times are each type's cost. Groups are recut only when a type's ideal size drifts 25% from its
+current one, and entities reordered only when the list is rebuilt or a type becomes 25% costlier than one
+ahead of it, so a steady wave costs the server thread nothing per entity or per group.
+
 Overlapping ticks can also fail where serial ticks cannot: a value read after another tick removed
 it. Such failures do not repeat, so with `skipFailedEntityTicks` one failed tick is logged and its
 remainder skipped; the same entity failing three ticks running is a real bug and stops the server
@@ -136,7 +217,19 @@ Fastutil field types require small adapters:
 
 Spatial indexes remain domain logic rather than general-purpose containers. `AreaMap`
 paints nearby-player ranges and updates only their symmetric difference. `EntitySectionIndex`
-visits only columns intersecting an entity query, preserving vanilla's packed-key order.
+visits only columns intersecting an entity query, preserving vanilla's packed-key order. Each
+chunk column is one immutable entry (sorted Ys and their sections) replaced on change, so a column
+costs one lock-free map read and readers never see half of a write.
+A section holding 24 or more entities also gets a `CrowdedSection` grid (2×4×2-block cells; built on
+the server thread after the level's ticks, when no box is being written; dropped below half that). It
+only prefilters small box queries such as pushing, which otherwise read every entity's box in the
+section while those entities move on other cores. Candidates still get vanilla's test on the live box
+and the caller's predicate, in the section list's order. The grid lists each entity in the cells its
+current box overlaps whenever no write is open; adds, removes and box writes that change cells open a
+write in a sequence counter for their whole duration (a box write that stays in its cells changes
+nothing and takes no lock). A reader that saw any write overlap it scans the section as vanilla does.
+Box writes from another tick to an entity in a crowded section wait for its owner, as position writes
+do; after an unprotected write (ownership timeout or cycle), grids are bypassed until rebuilt.
 `NavigationIndex` filters invalidation candidates; dirty/custom/long-path cases retain a
 conservative fallback. It does not run pathfinding asynchronously.
 
@@ -145,16 +238,27 @@ conservative fallback. It does not run pathfinding asynchronously.
 - `ParallelChunkCache` serves loaded FULL hits from the concurrent map. `LevelChunk.setLoaded`
   publishes/removes entries; a private publication monitor protects identity-conditional
   removal so an old unload cannot remove a replacement. Reads stay outside that monitor.
-- Misses/status requests stay with vanilla/C2ME under per-position reentrant load locks
-  (or the cache monitor with parallel loading disabled). FULL publication is rechecked
-  after acquiring the load lock. Never publish null or non-FULL results. Minecraft's
+- Misses/status requests stay with vanilla/C2ME. On the server thread they run under per-position
+  reentrant load locks (or the cache monitor with parallel loading disabled); FULL publication is
+  rechecked after acquiring the load lock. Never publish null or non-FULL results. Minecraft's
   own background workers bounce synchronous loading to the server thread.
-- Vanadium workers never wait for chunk work only the server thread can do: it is in the
-  same wave, and C2ME makes new holders visible only during its tick. A worker gets a chunk
-  only if C2ME has already completed the requested status. Otherwise a task run through
-  `WorkerPool.runDeferrable` unwinds with `ServerThreadRequired` and reruns on the server
-  thread after the wave; other callers log a rate-limited warning and wait as before.
-  The server thread defers deferrable tasks the same way while helpers run: it could load,
+- Only the server thread takes load locks (`ChunkLoadRouter`). Only it can finish a miss (C2ME
+  adds new holders, ticket updates and FULL promotion there), so a lock held by any other thread
+  would be held while waiting for the server thread, and the server thread asking for the same
+  chunk would wait for it in turn: the deadlock this replaced. Other threads outside waves run
+  vanilla/C2ME without a lock.
+- Vanadium workers use a chunk where they stand only if C2ME has already completed the requested
+  status (or, without loading, no holder exists). Otherwise a task run through
+  `WorkerPool.runDeferrable` unwinds with `ServerThreadRequired` and reruns on the server thread
+  after the wave. Any other task hands the lookup to the wave's caller, the server thread, with
+  `WorkerPool.callOnWaveCaller` and waits holding no load lock (a rate-limited warning names the
+  caller): the caller serves it between its own claims and while it waits for the wave's tail,
+  outside any task of its own, so the wait ends when the caller's current task does. The served
+  load and the server thread's own non-deferrable loads run chunk-system work beside the workers,
+  as a synchronous load inside a vanilla tick would; mods' load callbacks still wait for the end
+  of the wave. A worker must not hold a lock that the server thread's tasks or chunk loading can
+  wait for while it makes such a lookup; a wait longer than 10 s logs the stalled caller.
+- The server thread defers deferrable tasks the same way while helpers run: it could load,
   but the chunk-system work (status changes, entity and POI loading, mods' load callbacks)
   would then overlap the workers. `WorkerPool.runAfterParallelWave` queues other such
   server-thread work until the wave's tasks have all finished. Spawning is deferrable: it prechecks the chunk's referenced structure starts, so the
@@ -185,7 +289,9 @@ retaining C2ME filtering and vanilla's environment-aware costs. Workers count in
 slices; the caller reduces counts, player caps and charges in input order. Overrides clear
 in `finally`. Spawn attempts remain a separate stage.
 
-Tracking owns reusable per-player diff rows and stable tracker slots through both barriers.
+Tracking owns reusable per-player diff rows and stable tracker slots through both barriers. A level
+without players skips the move scan; moves are detected by position identity, so the first scan after
+a join catches up before the first diff.
 Workers prepare flags without callbacks; one subsequent task per tracker applies changes
 in player order. Chunk packet preparation runs between simulation ticks, keeps selected
 batch order and vanilla packet contents, and falls back inline for small batches.
@@ -202,9 +308,9 @@ share is made safe:
 
 - Entity class groups (`ClassGroupFilterableList`) come from Vanadium's copy-on-write
   `ClassInstanceMultiMap`; `compat.Lithium` cancels Lithium's single-threaded lists. Lithium's entity
-  collision, cramming and projectile-collision shortcuts depend on them and stay on. A section's
-  cramming filter is started by its readers; readers of one section serialize, which matters only at
-  isolation 1, where two regions can read a boundary section at once.
+  collision and projectile-collision shortcuts depend on them and stay on. Its cramming filter
+  (`entity.collisions.unpushable_cramming`) is disabled: entities of any thread change a section's
+  masked list as their feet block changes, and it would bypass the crowded-section grid.
 - POI section storage keeps Lithium's per-column index on a concurrent listening map; writes to one
   column and their index updates hold a column stripe lock, and reads take none.
 - Game-event dispatch reads per-chunk listener maps without the chunk's monitor, so those maps are
@@ -213,6 +319,10 @@ share is made safe:
   only if a write overlapped them.
 - Chunk load/unload callbacks (`ChunkStatusTracker`) run on the server thread, which can change chunk
   status mid-wave; they are queued until the wave's tasks finish, before the chunk unloads.
+- Entity movement tracking (hoppers waiting for items to move) keeps per-section waiting lists that
+  item and container entities empty on every move. In sections a tracker registered with, those
+  moves and every list or registration change hold one lock; elsewhere moves only stamp the section's
+  move time, without it.
 - Tracker interning, the world-border listener registry (every block-entity ticker re-registers after
   a border change) and chunk-section callback registration (hoppers) are synchronized; all are rare.
 

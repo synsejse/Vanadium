@@ -47,7 +47,8 @@ internal object TickSafetyChecks {
         val parallel = Vanadium.config.parallelScheduledTicks
         WorkerPool(2).use { pool ->
             try {
-                Vanadium.scheduler = TickScheduler(pool, 1)
+                // Every wave uses both threads, whatever its measured cost: the check waits for two callbacks at once.
+                Vanadium.scheduler = TickScheduler(pool, 1, participantCostNanos = 0.0)
                 Vanadium.config.enabled = true
                 Vanadium.config.parallelScheduledTicks = true
                 val ticks = LevelTicks<String> { true }

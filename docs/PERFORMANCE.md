@@ -72,6 +72,56 @@ Samples vary by up to 40% within an arm (later sprint windows run faster), so re
 sizes, not precise ratios. Region scheduling stays in use for the other stages; block entities packed
 into one base are still limited by it. These workloads have no players, redstone or modded entities.
 
+## Idle workers at 20 TPS
+
+Tick work at the normal 20 TPS (`/vanadium profile`, 1,201 ticks over 60 s) and mean CPU per thread
+(JFR thread CPU load), 4,096 zombies spread over 1,024 chunks, 24 workers unless noted, one fresh server
+per row and run. Ranges are over runs.
+
+The same build and settings ran in two states. Until about 10:35 on 2026-11-12, ticks were twice as slow
+as under `/tick sprint` unless every worker spun through the gaps. From 13:43 on, idle threads cost
+nothing. The guest saw no difference in its own load (only the measured server was busy, at 3–9 logical
+processors), and it has no cpuidle driver and cannot see host power states, so the cause is on the host.
+
+Slow state (morning):
+
+| Configuration | Runs | Tick avg (ms) | p95 | p99 | CPU per worker | Server thread |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `lean` behaviour (park at tick end, wake at tick start; earlier branch default) | 2 | 12.00–12.23 | 15.9–16.6 | 27.0–29.1 | 20% | 22–23% |
+| …and spin 50 ms between waves of a tick | 1 | 12.22 | 15.9 | 29.4 | 23% | 22% |
+| Workers woken 0.5 / 1 / 2 / 10 ms before each tick | 1 each | 12.52 / 11.99 / 13.27 / 12.05 | 15.4–18.7 | 24.5–34.9 | 21 / 21 / 25 / 39% | 21–24% |
+| Workers spin through everything (`hot` workers; `workerSpinMicros=60000`) | 2 | 6.03–6.57 | 8.0–8.5 | 10.6–12.1 | 99% | 12–13% |
+
+Fast state (afternoon), alternating configurations:
+
+| Configuration | Runs | Tick avg (ms) | p95 | p99 | CPU per worker | Server thread |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `lean` | 6 | 6.26–6.80 | 8.3–9.4 | 13.5–18.3 | 11–12% | 12–13% |
+| Server thread spins the last 1 ms (workers woken 2 ms early) | 1 | 6.37 | 8.6 | 15.5 | 15% | 14% |
+| Server thread spins the last 5 ms | 5 | 6.03–6.97 | 7.8–9.4 | 12.5–17.5 | 11–13% | 21–23% |
+| Server thread spins the last 5 ms, workers woken 2 ms early | 4 | 5.93–7.05 | 7.5–10.2 | 12.4–18.6 | 14–16% | 21–23% |
+| Server thread spins through the gap (`balanced`) | 4 | 6.06–6.53 | 7.5–8.8 | 10.9–16.3 | 11–15% | 98% |
+| Workers woken 25 ms before each tick | 1 | 5.83 | 7.7 | 11.1 | 60% | 11% |
+| `hot` | 5 | 5.50–5.89 | 7.2–7.8 | 9.4–15.8 | 99% | 11–99% |
+| 48 workers, `lean` / server spins the last 5 ms | 1 each | 5.63 / 5.14 | 8.2 / 7.2 | 16.9 / 13.7 | 9% | 11 / 19% |
+
+- In the slow state the server thread's own CPU time per tick doubled (22% against 12% of a core), so its
+  work ran slower, not only its wake-up. Waking workers up to 10 ms early, or keeping them spinning through
+  the tick, did not change that; only spinning through the gaps did.
+- One `hot` run (the 11% server-thread row) predates the server spin in `hot`; its workers spun alike.
+- In the fast state only `hot` stands out: 10–15% lower average and lower tails, for 24 cores.
+- `balanced` (the server thread spinning through the gap, about one core) is the cheapest setting that keeps
+  one thread busy through the gap, as `hot` does. It was not measured in the slow state: whether one
+  spinning thread suffices there is not known. A short server spin (1 or 5 ms) and early worker wake-ups
+  measured no faster than nothing in either state.
+- A later alternating run in the fast state, two fresh servers per mode: `lean` 6.56–7.09 ms average
+  (p95 8.9–9.9), `balanced` 6.37–6.49 (8.6–9.2), `hot` 6.39–6.89 (8.8–9.9). No mode is ahead by more than
+  the run-to-run spread, so `lean` is the default: it is the only one that costs nothing when it does not
+  help. Try `balanced` or `hot` if `/vanadium profile` at 20 TPS shows ticks much slower than a sprint.
+
+Measured 2026-11-12 on `perf/tick-prewake` (based on `perf/first-wave`), `isolation = 2`, the harness of
+`/vanadium profile` in a fresh server per run; environment as below.
+
 ## Environment and limits
 
 Dual Xeon E5-2699 v3 KVM guest, 72 vCPUs exposed as two sockets × 18 cores × two threads,

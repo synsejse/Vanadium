@@ -2,9 +2,9 @@ package com.synsenetwork.vanadium.concurrent
 
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.tick.TickThread
+import com.synsenetwork.vanadium.tick.WorkerPool
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.phys.Vec3
-import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.LongAdder
@@ -19,7 +19,8 @@ import java.util.function.Consumer
  * (merging, breeding) own both through [enterPair]. Block changes and other writes to state that
  * entity ticks share call [enterShared] and run one at a time. Pushes, by far the most frequent foreign
  * write in a crowd, never wait: [deferPush] adds them to the target's inbox and the target applies them when
- * it next owns itself. Reads of other entities take no lock, as between regions.
+ * it next owns itself, or the wave's end does ([drainImpulses]). Reads of other entities take no lock, as between
+ * regions.
  *
  * Outside the flat wave [active] is false and every hook is a no-op.
  */
@@ -34,10 +35,23 @@ object Interactions {
 
     private val locks = OwnerLocks(TimeUnit.MILLISECONDS.toNanos(java.lang.Long.getLong("vanadium.interactionTimeoutMillis", 100)))
 
+    /**
+     * The pool that applies a large wave's leftover pushes in parallel; null applies them on the server thread.
+     * Set for each server lifecycle, to the pool that runs its waves.
+     */
+    @JvmField
+    @Volatile
+    var drainPool: WorkerPool? = null
+
     @Volatile
     private var caller: Thread? = null
-    private val callerContext = Context()
-    private val impulses = ConcurrentLinkedQueue<Entity>()
+
+    /** Targets whose inbox each thread filled first (one entry per empty-to-full change). */
+    private val impulses = DeferredQueue<Entity>()
+    private val callerContext = Context(impulses.register(null))
+    private val applyInline = Consumer<Entity> { if (!it.isRemoved) applyImpulse(it) }
+    private val applyOwned = Consumer<Entity>(::applyOwned)
+    private val runDrainWave = Consumer<List<Runnable>> { slices -> runDrainWave(slices) }
     private val counts = Array(Kind.entries.size) { LongAdder() }
     private val reportedTimeouts = AtomicLong()
     private val lastTimeoutWarning = AtomicLong()
@@ -49,22 +63,34 @@ object Interactions {
     private val LOG_EVERY_WAVES = java.lang.Long.getLong("vanadium.interactionLogWaves", 0)
     private var waves = 0L
 
-    class Context : OwnerLocks.Context() {
+    class Context(internal val pushed: DeferredQueue.Local<Entity>) : OwnerLocks.Context() {
         /** The entity whose wave task runs on this thread, and the vehicle tree it owns. */
         @JvmField var self: Entity? = null
         @JvmField var root: Entity? = null
     }
 
-    /** Server thread: runs [wave], whose tasks call [tick], then applies pushes nobody consumed. */
-    fun runWave(wave: Runnable) {
+    /**
+     * Server thread: runs [wave], whose tasks call [tick], then applies pushes nobody consumed before returning,
+     * so nothing after the wave reads a velocity without them. Many leftovers apply as a wave on [pool].
+     */
+    fun runWave(wave: Runnable) = runWave(wave, drainPool)
+
+    fun runWave(wave: Runnable, pool: WorkerPool?) {
         caller = Thread.currentThread()
         active = true
+        var completed = false
         try {
             wave.run()
+            completed = true
         } finally {
             active = false
-            caller = null
-            drainImpulses()
+            try {
+                // After a failed wave, the leftovers apply inline: a second wave could hide the first failure.
+                drainImpulses(if (completed) pool else null)
+            } finally {
+                active = false
+                caller = null
+            }
             warnAboutTimeouts()
             if (LOG_EVERY_WAVES > 0 && ++waves % LOG_EVERY_WAVES == 0L) {
                 Vanadium.LOGGER.info("Entity interactions over {} waves: {} cycles={} timeouts={} skipped={}", LOG_EVERY_WAVES,
@@ -167,7 +193,7 @@ object Interactions {
 
     /**
      * A push on [target] from another entity's tick: true when it was added to the target's inbox instead of
-     * being applied. The target applies it at the start of its own tick, or the server thread after the wave.
+     * being applied. The target applies it at the start of its own tick, or [runWave] does after the wave.
      */
     @JvmStatic
     fun deferPush(target: Entity, x: Double, y: Double, z: Double): Boolean {
@@ -182,7 +208,7 @@ object Interactions {
         while (true) {
             val pending = inbox.get()
             if (inbox.compareAndSet(pending, pending?.add(x, y, z) ?: Vec3(x, y, z))) {
-                if (pending == null) impulses.add(target)
+                if (pending == null) context.pushed.add(target)
                 break
             }
         }
@@ -223,19 +249,63 @@ object Interactions {
         entity.push(impulse.x, impulse.y, impulse.z)
     }
 
-    private fun drainImpulses() {
-        while (true) {
-            val entity = impulses.poll() ?: break
-            if (!entity.isRemoved) applyImpulse(entity)
+    /**
+     * Applies pushes whose target had already ticked in the wave, or does not tick in it. Each target was listed
+     * by the thread that first filled its inbox; one that consumed it in its tick has an empty inbox by now, and
+     * removed entities keep theirs unapplied, as before. A few apply here; many apply as a wave in which each
+     * target is owned as in its own tick, so a push whose override writes elsewhere still takes the usual scopes.
+     */
+    private fun drainImpulses(pool: WorkerPool?) {
+        drainingPool = pool
+        try {
+            val rounds = impulses.drain(applyInline, applyOwned, if (pool != null) runDrainWave else null)
+            if (rounds > 0) parallelDrains.add(rounds.toLong())
+        } finally {
+            drainingPool = null
         }
     }
+
+    /** The pool of the drain in progress; server thread only. */
+    private var drainingPool: WorkerPool? = null
+
+    private fun runDrainWave(slices: List<Runnable>) {
+        val pool = drainingPool!!
+        active = true
+        try {
+            pool.runWave(slices)
+        } finally {
+            active = false
+        }
+    }
+
+    private fun applyOwned(entity: Entity) {
+        val inbox = (entity as InteractionAccess).`vanadium$impulse`()
+        if (entity.isRemoved || inbox.get() == null) return
+        val context = context() ?: return applyImpulse(entity)
+        val root = entity.rootVehicle
+        context.self = entity
+        context.root = root
+        locks.beginOwn(context, lock(root))
+        try {
+            applyImpulse(entity)
+        } finally {
+            locks.endOwn(context)
+            context.self = null
+            context.root = null
+        }
+    }
+
+    private val parallelDrains = LongAdder()
+
+    /** Parallel rounds of leftover pushes since the server started; for diagnostics and live checks. */
+    val parallelPushDrains: Long get() = parallelDrains.sum()
 
     private fun lock(root: Entity) = (root as InteractionAccess).`vanadium$tickLock`()
 
     private fun context(): Context? {
         val thread = Thread.currentThread()
         if (thread is TickThread) {
-            return thread.context as Context? ?: Context().also { thread.context = it }
+            return thread.context as Context? ?: Context(impulses.register(thread)).also { thread.context = it }
         }
         return if (thread === caller) callerContext else null
     }

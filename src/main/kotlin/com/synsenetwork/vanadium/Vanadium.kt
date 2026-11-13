@@ -3,7 +3,11 @@ package com.synsenetwork.vanadium
 import com.synsenetwork.vanadium.commands.TickBenchmark
 import com.synsenetwork.vanadium.commands.TickProfiler
 import com.synsenetwork.vanadium.commands.VanadiumCommand
+import com.synsenetwork.vanadium.concurrent.Interactions
 import com.synsenetwork.vanadium.config.VanadiumConfig
+import com.synsenetwork.vanadium.entity.CrowdedSection
+import com.synsenetwork.vanadium.tick.IdleWorkers
+import com.synsenetwork.vanadium.tick.ServerSpin
 import com.synsenetwork.vanadium.tick.ServerTickEvent
 import com.synsenetwork.vanadium.tick.TickScheduler
 import com.synsenetwork.vanadium.tick.WaveDiagnostics
@@ -16,8 +20,10 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents
 import net.minecraft.server.MinecraftServer
+import net.minecraft.util.Util
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
+import java.util.function.LongSupplier
 
 /** Mod entry point. Owns the config and, per server lifecycle, the worker pool and tick scheduler. */
 object Vanadium : ModInitializer {
@@ -35,11 +41,16 @@ object Vanadium : ModInitializer {
     private var diagnostics: WaveDiagnostics? = null
     private var tickEvent: ServerTickEvent? = null
 
+    /** The idle-worker mode the running pool uses (a system property may override the config); null when stopped. */
+    fun idleWorkersActive(): IdleWorkers? = pool?.idleWorkers
+
     override fun onInitialize() {
         LOGGER.info("Initializing Vanadium...")
         val holder = AutoConfig.register(VanadiumConfig::class.java) { definition, type -> Toml4jConfigSerializer(definition, type) }
         holder.load()
         config = holder.config
+        // Crowded-section grids are bypassed and rebuilt after an entity write ran without its owner's lock.
+        CrowdedSection.unprotectedWrites = LongSupplier { Interactions.timeouts + Interactions.cycles }
 
         CommandRegistrationCallback.EVENT.register { dispatcher, _, _ -> VanadiumCommand.register(dispatcher) }
         ServerLifecycleEvents.SERVER_STARTING.register(::onServerStarting)
@@ -50,6 +61,13 @@ object Vanadium : ModInitializer {
         }
         ServerTickEvents.END_LEVEL_TICK.register { scheduler.finishWorld() }
         ServerTickEvents.END_SERVER_TICK.register { server ->
+            // How long the server will sleep before the next tick decides whether idle workers park now, and when
+            // they are woken again.
+            pool?.let {
+                val nextTick = server.nextTickTime
+                it.tickEnded(nextTick - Util.getNanos(), server.tickRateManager().isSprinting)
+                ServerSpin.arm(nextTick, it.serverSpinNanos)
+            }
             tickEvent?.commit()
             tickEvent = null
             TickBenchmark.onTickEnd(server)
@@ -63,12 +81,17 @@ object Vanadium : ModInitializer {
         val workers = VanadiumConfig.resolveWorkers()
         LOGGER.info("Will use {} threads, isolation {} chunks", workers, config.isolation)
         val pool = WorkerPool(workers).also { pool = it }
+        Interactions.drainPool = pool
         scheduler = TickScheduler(pool, config.isolation)
         diagnostics = WaveDiagnostics(LOGGER::warn).also { scheduler.diagnostics = it }
     }
 
     private fun onTickStart(server: MinecraftServer) {
         tickEvent = ServerTickEvent().also { it.begin() }
+        pool?.let {
+            it.configureIdle(config.idleWorkersMode())
+            it.tickStarted()
+        }
         config.refreshSerialRules()
         TickProfiler.onTickStart()
         diagnostics?.configure(config.slowWaveMillis, config.detailedTickDiagnostics)
@@ -78,6 +101,8 @@ object Vanadium : ModInitializer {
         TickBenchmark.onServerStopped()
         TickProfiler.onServerStopped()
         diagnostics?.close()
+        ServerSpin.disarm()
+        Interactions.drainPool = null
         pool?.close()
         diagnostics = null
         pool = null
