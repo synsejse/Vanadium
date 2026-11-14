@@ -17,7 +17,7 @@ Edit `config/vanadium.toml`, then run `/vanadium reload` to apply changes live.
 | `serialBlockEntityTypes` | `[]` | Block-entity type IDs that tick serially |
 | `parallelChunkTicks` | `true` | Tick chunks (weather, random ticks) in parallel |
 | `parallelScheduledTicks` | `true` | Run scheduled block/fluid ticks (redstone, fluid spread, leaf decay) in parallel |
-| `parallelSpawning` | `true` | Run per-chunk natural mob spawning in parallel; chunks whose structure lookups need ungenerated chunks rerun on the server thread after the wave |
+| `parallelSpawning` | `true` | Run per-chunk natural mob spawning and the mob count in parallel; chunks whose structure lookups need ungenerated chunks rerun on the server thread after the wave. On dedicated servers, the mob count is also skipped while `spawn_mobs` is false, until something reads it (`/perf` report, mods); see [Architecture](ARCHITECTURE.md#preparation-and-networking) |
 | `parallelTracking` | `true` | Run entity tracking (movement/data packets to watching players) in parallel |
 | `parallelChunkPackets` | `true` | Prepare chunk section packet data in parallel between world ticks |
 | `consolidateFlushes` | `true` | Batch each connection's packets into one flush per tick instead of one per packet |

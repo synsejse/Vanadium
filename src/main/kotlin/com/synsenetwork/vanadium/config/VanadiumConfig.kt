@@ -48,7 +48,8 @@ class VanadiumConfig : ConfigData {
     @field:Comment("Run scheduled block and fluid ticks (redstone, fluid spread, leaf decay) in parallel")
     @JvmField var parallelScheduledTicks = true
 
-    @field:Comment("Run per-chunk natural mob spawning in parallel")
+    @field:Comment("Run per-chunk natural mob spawning and the mob count in parallel. On dedicated servers, also skip the "
+            + "mob count while spawn_mobs is false until something reads it (debug report, mods)")
     @JvmField var parallelSpawning = true
 
     @field:Comment("Run entity tracking (movement/data packets to watching players) in parallel")

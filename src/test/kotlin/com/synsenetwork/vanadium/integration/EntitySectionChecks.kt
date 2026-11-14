@@ -50,6 +50,14 @@ internal object EntitySectionChecks {
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
             level.chunkSource.mainThreadProcessor.managedBlock { System.nanoTime() >= deadline || ready() }
             check(ready(), "fixture sections did not become accessible")
+            // Spawn counting (through C2ME's filter) only sees entities in chunks C2ME simulates; forced chunks
+            // become simulated once their ticket levels propagate, which can lag the sections becoming accessible.
+            fun simulated(): Boolean {
+                val filter = SpawnCountChecks.c2meFilter(SpawnPreparation.capture(0, level, spawnChunks(level), LocalMobCapCalculator(level.chunkSource.chunkMap)))
+                return filter == null || zombies.all { filter.test(it) }
+            }
+            level.chunkSource.mainThreadProcessor.managedBlock { System.nanoTime() >= deadline || simulated() }
+            check(simulated(), "fixture chunks did not become simulated for spawn counting")
             checkStorage(level, zombies)
             checkQueries(level, zombies)
             checkSpawnCounts(level, zombies)
@@ -101,6 +109,9 @@ internal object EntitySectionChecks {
         }
     }
 
+    private fun spawnChunks(level: ServerLevel) =
+        NaturalSpawner.ChunkGetter { key, consumer -> consumer.accept(level.getChunk(ChunkPos.getX(key), ChunkPos.getZ(key))) }
+
     @Suppress("UNCHECKED_CAST")
     private fun checkSpawnCounts(level: ServerLevel, zombies: List<Zombie>) {
         val storage = storage(level)
@@ -109,7 +120,7 @@ internal object EntitySectionChecks {
             check(iterated.size == iterated.toSet().size, "chunk-aware iteration repeated an entity")
             check(iterated.toSet() == level.allEntities.toSet(), "chunk-aware iteration (${iterated.size}) differs from visible entities")
         }
-        val chunks = NaturalSpawner.ChunkGetter { key, consumer -> consumer.accept(level.getChunk(ChunkPos.getX(key), ChunkPos.getZ(key))) }
+        val chunks = spawnChunks(level)
         val map = level.chunkSource.chunkMap
         // Through Lithium's redirect (when present) and Vanadium's count hook, against vanilla's visible entities.
         val world = NaturalSpawner.createState(289, level, chunks, LocalMobCapCalculator(map))

@@ -292,6 +292,21 @@ retaining C2ME filtering and vanilla's environment-aware costs. Workers count in
 slices; the caller reduces counts, player caps and charges in input order. Overrides clear
 in `finally`. Spawn attempts remain a separate stage.
 
+The slices of Lithium's section iteration are ranges of the entity section index's column slots: every
+column keeps a slot in a dense array (a removed column's slot takes the last one), so the caller cuts
+the level into ranges without reading a column, and each worker walks its own columns. A scan records
+each column's entity count, and the next tick's cut is weighted by them (plus a fixed cost per column),
+so crowded columns get ranges of their own; one column is never split. Ranges are valid while no section
+is created or removed, which holds during the counting wave.
+
+Vanilla counts every tick even with `spawn_mobs` false, though only `getLastSpawnState` (debug screen,
+`/perf` report, mods) can then see the result. `SpawnCounts` skips that count on dedicated servers until
+something reads the state: the tick stores an empty placeholder with vanilla's spawnable chunk count,
+and the first read on the server thread outside a wave counts then (from the entities as they are at
+that point), stores it, and makes every later tick count; a read elsewhere returns null (as before the first tick)
+and turns counting on from the next tick. Integrated servers, `enabled = false` and
+`parallelSpawning = false` always count.
+
 Tracking owns reusable per-player diff rows and stable tracker slots through both barriers. A level
 without players skips the move scan; moves are detected by position identity, so the first scan after
 a join catches up before the first diff.

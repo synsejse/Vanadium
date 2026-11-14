@@ -54,7 +54,7 @@ class ServerIntegrationChecks : ModInitializer {
             SpawnCountChecks.run(server)
             ItemChecks.run(level)
             ChunkPacketChecks.run(level)
-            // Last: its forced chunk changes tickets, and EntitySectionChecks does not wait for C2ME simulation levels.
+            // Last: its forced chunk changes tickets.
             EntityHotPathChecks.run(level)
             ReportChecks.start(server)
             println("INTEGRATION_CHECKS_PASSED")
@@ -62,6 +62,7 @@ class ServerIntegrationChecks : ModInitializer {
             val ticked = TickedChecks(server, "ticked_checks")
             EntityCollectionChecks.schedule(level, ticked)
             CrowdChecks.schedule(level, ticked)
+            SpawnSkipChecks.schedule(level, ticked)
             ticked.start { com.synsenetwork.vanadium.live.LiveServer.finish(server, "integration") }
         }
     }
