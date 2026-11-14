@@ -8,7 +8,7 @@ Edit `config/vanadium.toml`, then run `/vanadium reload` to apply changes live.
 | Option | Default | Effect |
 |---|---|---|
 | `enabled` | `true` | Master switch; `false` uses serial ticking, with structural mixins, locks and loaded-chunk lookups still active |
-| `workers` | `0` | `<= 0` = two thirds of the available logical processors (at least one); positive values clamp to 2..max(2, available logical processors) (restart) |
+| `workers` | `0` | `<= 0` = one per physical core, leaving one logical processor for the server thread: min(cores, logical processors − 1), at least one; two thirds of the logical processors where the core count is unknown. Positive values clamp to 2..max(2, available logical processors) (restart) |
 | `isolation` | `2` | Exclusion radius in chunks (1–16, Chebyshev distance) for block entities, chunk ticks, scheduled ticks and spawning. Work at or within this distance never runs concurrently. Region sizes adapt automatically. Entities are not affected |
 | `parallelEntities` | `true` | Tick entities in parallel: all of them in one wave, wherever they are. Each owns itself while it ticks; what entities do to each other is locked per interaction |
 | `skipFailedEntityTicks` | `true` | An entity tick that throws during parallel entity ticking is logged and the rest of that tick skipped, instead of stopping the server; three failures in a row by one entity still stop it |
@@ -29,11 +29,23 @@ Edit `config/vanadium.toml`, then run `/vanadium reload` to apply changes live.
 
 ## Commands
 
-`workers = 0` picks two thirds of the logical processors, because one worker per processor leaves
-none for the server thread, C2ME and the garbage collector: on the 36-core, 72-thread test machine 72
-workers ran 24–51% below the best setting. The best count still depends on the machine and the world
-(24 to 48 there, where the default gives 48), so compare a few values with `/vanadium benchmark`; see
-[worker count](PERFORMANCE.md#worker-count).
+`workers = 0` starts one worker per physical core and leaves one logical processor for the server
+thread, which works alongside the workers in every wave: with SMT it takes a spare sibling, without
+SMT it takes a core. On the 36-core, 72-thread test machine that is 36 workers. Workers beyond the
+physical cores share cores with SMT siblings and mostly spin: 48 workers (the previous default, two
+thirds of the logical processors) ran 11% slower than 36 in combat and within noise elsewhere, and 72
+ran 24–51% below the best. On four cores without SMT, 3 workers beat 4 by 8–16%; on four cores with
+SMT, 4 workers beat 3 by 1–7%.
+
+Cores are counted on Linux from `/sys/devices/system/cpu`, among the online CPUs this process may run
+on (its affinity, as set by `taskset` or a container's cpuset). A CPU quota (cgroup `cpu.max`,
+`-XX:ActiveProcessorCount`) lowers the logical processor count Java reports and caps the result the
+same way. Where the topology cannot be read (Windows, macOS, a container without `/sys`), the default
+stays two thirds of the logical processors, the measured compromise between SMT machines (where one
+worker per logical processor ran up to 51% slower) and machines without it. The startup log names the
+basis: `Will use 36 threads, isolation 2 chunks (36 cores of 72 processors)`. The best count still
+depends on the machine and the world (24 to 48 on the test machine), so compare a few values with
+`/vanadium benchmark`; see [worker count](PERFORMANCE.md#worker-count).
 
 `isolation` sets the spatial exclusion distance independently of worker count, not the size of a region.
 

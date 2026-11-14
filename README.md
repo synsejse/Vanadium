@@ -31,8 +31,8 @@ It also optimizes chunk lookups, nearby-player indexing and packet preparation.
 Minecraft 26.3 on the dual Xeon test VM (36 cores, 72 threads), uncapped tick rate, no players. With
 24 workers Vanadium ran these worlds 7–11× faster than the same server with Lithium alone. More
 workers are not always better: each world peaked at a different count, and one worker per logical
-processor ran 24–51% below the best setting. The default is two thirds of the logical processors;
-try a few values of `workers` on your own machine. [Data, method and limits →](docs/PERFORMANCE.md)
+processor ran 24–51% below the best setting. The default is one worker per physical core, leaving
+a logical processor for the server thread; try a few values of `workers` on your own machine. [Data, method and limits →](docs/PERFORMANCE.md)
 
 ### Getting started
 

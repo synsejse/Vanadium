@@ -15,7 +15,7 @@ Uncapped TPS by `workers`, against the same server with Lithium but without Vana
 | 16 | 185 (175–193) | 1,177 (1,099–1,282) | 239 (231–244) |
 | 24 | 227 (220–231) | 1,326 (1,190–1,449) | **244** (238–254) |
 | 32 | 244 (242–245) | **1,429** (1,299–1,562) | 228 (222–236) |
-| 48 (default) | **262** (252–270) | 1,374 (1,220–1,515) | 201 (189–214) |
+| 48 | **262** (252–270) | 1,374 (1,220–1,515) | 201 (189–214) |
 | 64 | 244 (225–258) | 1,231 (1,111–1,370) | 202 (187–217) |
 | 72 | 145 (140–153) | 706 (617–826) | 186 (170–201) |
 
@@ -27,13 +27,13 @@ Uncapped TPS by `workers`, against the same server with Lithium but without Vana
 - One worker per logical processor (72 here) leaves none for the server thread, C2ME and the
   collector. It ran 45% and 51% below the best setting for the spread-out world and the crowded base,
   and 24% below it for combat.
-- `workers = 0` picks two thirds of the logical processors (48 here): the peak for the spread-out
-  world, 96% of it for the crowded base and 82% for combat.
+- Previously `workers = 0` picked two thirds of the logical processors (48 here): the peak for the
+  spread-out world, 96% of it for the crowded base and 82% for combat. It now picks one worker per
+  physical core (36 here); see [default worker count](#default-worker-count).
 - Combat loses 18% between 24 and 48 workers. A profile at 48 workers showed its entity wave waiting
   on single long villager ticks, which more workers cannot shorten.
 - On this machine 32 workers is the best single setting, within 7% of the peak for all three
-  workloads. Elsewhere, start near two thirds of the physical cores and measure with
-  `/vanadium benchmark`.
+  workloads. Elsewhere, start from the default and measure with `/vanadium benchmark`.
 
 Measured 2026-11-13 on 2.1.0 at commit `f3658bf`, `isolation = 2`. One fresh server JVM per point and
 pass: Lithium alone, an ascending pass over the worker counts, a descending pass, then Lithium alone
@@ -48,6 +48,43 @@ spread-out world, 15,000 for the crowded base and 2,500 for combat. The spread-o
 - An earlier sweep of this table used 1,000-tick windows, which lasted about one second on the crowded
   base and read lower there (Lithium alone: 119 TPS). Do not compare its numbers with these; the
   comparison of builds is the next section.
+
+### Default worker count
+
+`workers = 0` gives min(physical cores, logical processors − 1): every core gets a worker and the
+server thread, which joins every wave, gets the remaining logical processor (an SMT sibling, or a core
+without SMT). Uncapped TPS, mean of eight samples with their range, the same build at four explicit
+counts:
+
+| Workers | Spread out | Crowded base | Combat |
+| ---: | ---: | ---: | ---: |
+| 32 | 269 (260–276) | 1,418 (1,124–1,613) | 258 (244–271) |
+| 35 | 261 (242–279) | 1,428 (1,220–1,639) | 259 (243–273) |
+| 36 (default) | 263 (256–270) | 1,446 (1,333–1,587) | 252 (246–260) |
+| 48 (previous default) | 270 (263–288) | 1,402 (1,220–1,539) | 223 (213–232) |
+
+- 32, 35 and 36 workers are within noise of each other on every workload. 36 against 48: combat
+  +13%, the crowded base +3% (within its spread), the spread-out world −3%.
+- Small machines, emulated with CPU affinity (`taskset`, which the default follows) on the same host:
+
+| CPUs | Workers | Spread out | Combat |
+| --- | ---: | ---: | ---: |
+| 4 cores × 2 threads (CPUs 0–7) | 3 | 87.5 (73.1–96.2) | 123 (117–131) |
+| | 4 (default) | 93.9 (90.8–95.8) | 124 (119–129) |
+| | 5 (previous default) | 93.0 (83.2–98.1) | 128 (119–136) |
+| 4 cores × 1 thread (CPUs 0, 2, 4, 6) | 3 (default) | 84.6 (75.2–90.9) | 117 (110–124) |
+| | 4 | 78.5 (74.9–80.5) | 101 (96–106) |
+
+- Without SMT, one worker per core plus the server thread oversubscribes the cores: 3 workers beat 4
+  by 8% and 16%. With SMT the server thread fits on a sibling, and 4 workers are within noise of 5.
+- These are a 2.3 GHz server CPU's cores pinned to one socket, not a desktop CPU; the comparison
+  between counts is what they show.
+
+Measured 2026-11-14 at commit `a74931b` (`isolation = 2`, explicit `workers`), one fresh server JVM per
+point, four rounds with the order of the counts rotated each round, two `/tick sprint` windows per JVM
+(2,000 / 15,000 / 2,500 ticks as above). The host's vCPUs were pinned 1:1 to host CPUs with guest NUMA
+bound to host nodes, which the worker-count table above predates; the spread-out world measured
+244 TPS at 32 workers there and 269 here. Compare rows within a table, not across them.
 
 ## Before and after the tick-path changes
 
