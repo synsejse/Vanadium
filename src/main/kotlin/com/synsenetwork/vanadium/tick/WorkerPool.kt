@@ -22,6 +22,10 @@ import java.util.function.Supplier
  * thread never issues a wake-up per worker. Idle workers spin for [SpinPolicy]'s budget, which follows the
  * server's tick events, then park. Between ticks, [IdleWorkers] decides whether they park and are woken shortly
  * before the next tick by a timer thread, or keep spinning.
+ *
+ * A wave is claimed in list order through one shared cursor, or, given [WaveHomes], home by home: each participant
+ * runs its own homes' tasks first and takes others' only when it has none left, so the same tasks (and the data they
+ * touch) stay on the same thread from wave to wave.
  */
 class WorkerPool internal constructor(
     threads: Int,
@@ -88,9 +92,12 @@ class WorkerPool internal constructor(
      *
      * @param callerWait optional profiling callback for the caller's tail-wait time
      * @param maxParticipants threads that may run tasks, the caller included; 1 runs the wave inline
+     * @param homes where each task belongs ([WaveHomes]), or null to claim tasks in list order; read before
+     *   this returns only, so the caller may reuse it afterwards
      * @return time participants spent claiming and running tasks, summed over participants
      */
-    fun runWave(tasks: Collection<Runnable>, callerWait: LongConsumer? = null, maxParticipants: Int = Int.MAX_VALUE): Long {
+    fun runWave(tasks: Collection<Runnable>, callerWait: LongConsumer? = null, maxParticipants: Int = Int.MAX_VALUE,
+                homes: WaveHomes? = null): Long {
         val n = tasks.size
         if (n == 0) return 0
         if (n == 1) {
@@ -104,7 +111,7 @@ class WorkerPool internal constructor(
         // At most n participants with the caller, and no more than asked for.
         val helpers = if (rejected) 0 else minOf(workers.size, n - 1, maxOf(0, maxParticipants - 1))
         val caller = if (helpers > 0) CALLER.get() else null
-        val batch = WorkBatch(indexed, helpers + 1, Thread.currentThread(), caller)
+        val batch = WorkBatch(indexed, helpers + 1, Thread.currentThread(), caller, homes)
         if (caller != null) {
             caller.parallelWaves++
             if (helpers > tickPeakHelpers) tickPeakHelpers = helpers
@@ -112,7 +119,7 @@ class WorkerPool internal constructor(
         }
         var waveFailure: Throwable? = null
         try {
-            batch.participate(caller)
+            batch.participate(caller, CALLER_SLOT)
             val waitStart = if (callerWait != null) System.nanoTime() else 0
             try {
                 batch.awaitCompletion(caller, maxOf(CALLER_SPIN_NANOS, spin.callerSpinNanos))
@@ -327,23 +334,57 @@ class WorkerPool internal constructor(
         participants: Int,
         private val waiter: Thread?,
         private val caller: CallerState? = null,
+        homes: WaveHomes? = null,
     ) {
         private val taskCount = tasks.size
         val helpers = participants - 1
 
+        /** [WaveHomes.phases] and [WaveHomes.homes] of a homed wave; 0 for a wave claimed in list order. */
+        private val phases = homes?.phases ?: 0
+        private val homeCount = homes?.homes ?: 0
+
+        /**
+         * Slots per home in [cells], a whole number of cache lines: a home's cells share lines only with each other.
+         * Home h starts at (h + 1) strides; the first and last stride are padding, so no other object's fields
+         * (this batch's, read on every claim) share a line with a cell that is written.
+         */
+        private val stride = maxOf(1, (phases + CELLS_PER_LINE - 1) / CELLS_PER_LINE) * CELLS_PER_LINE
+
+        /**
+         * A homed wave's unclaimed tasks: per home and phase, the next task from the front (high half) and the end
+         * (low half). The home's owner claims from the front, others from the end. Copied from [WaveHomes] here, on
+         * the caller, so a late helper never reads the caller's layout.
+         */
+        private val cells = homes?.let { layout ->
+            require(layout.starts[0] == 0 && layout.starts[phases * homeCount] == taskCount) { "homes do not cover the wave" }
+            AtomicLongArray((homeCount + 2) * stride).also { cells ->
+                for (phase in 0 until phases) for (home in 0 until homeCount) {
+                    val cell = phase * homeCount + home
+                    cells.set((home + 1) * stride + phase, layout.starts[cell].toLong() shl 32 or layout.starts[cell + 1].toLong())
+                }
+            }
+        }
+
         /** Chunks only when tasks greatly outnumber participants; cells stay individually balanced. */
         private val chunk = maxOf(1, taskCount / (participants * 8))
 
-        /** Claim cursor, completion counter and wake cursor, 64 bytes apart so they never share a cache line. */
-        private val counters = AtomicIntegerArray(WAKE + 1).apply { set(REMAINING, taskCount) }
+        /**
+         * Claim cursor, completion counter, wake cursor and, for a homed wave, its leading phases some participant
+         * found empty (so others skip scanning them; cells never refill), 64 bytes apart so they never share a cache
+         * line.
+         */
+        private val counters = AtomicIntegerArray(EMPTY_PHASES + 1).apply { set(REMAINING, taskCount) }
         private val error = AtomicReference<Throwable?>()
         private val busy = AtomicLong()
 
         @Volatile
         private var waiterParked = false
 
-        /** Whether no task is left to claim: a worker that has not seen this batch could not help it. */
-        val fullyClaimed: Boolean get() = counters.get(NEXT) >= taskCount
+        /**
+         * Whether no task is left to claim: a worker that has not seen this batch could not help it. A homed wave
+         * reports it once a participant has found every cell empty.
+         */
+        val fullyClaimed: Boolean get() = if (cells != null) counters.get(EMPTY_PHASES) >= phases else counters.get(NEXT) >= taskCount
 
         /** Set by the caller, after publishing, when some worker may be parked: joining helpers then wake others. */
         @Volatile
@@ -360,7 +401,7 @@ class WorkerPool internal constructor(
          */
         fun wake(workers: Array<WorkerThread>, limit: Int): Int {
             var unparked = 0
-            while (unparked < limit && (taskCount == 0 || counters.get(NEXT) < taskCount)) {
+            while (unparked < limit && (taskCount == 0 || !fullyClaimed)) {
                 val index = counters.getAndIncrement(WAKE)
                 if (index >= helpers) break
                 if (workers[index].wake()) unparked++
@@ -368,9 +409,16 @@ class WorkerPool internal constructor(
             return unparked
         }
 
-        /** Claims and runs tasks; the caller passes its [serving] state and serves helpers' requests between claims. */
-        fun participate(serving: CallerState?) {
+        /**
+         * Claims and runs tasks as participant [slot] (the caller is [CALLER_SLOT], worker i is i + 1); the caller
+         * passes its [serving] state and serves helpers' requests between claims.
+         */
+        fun participate(serving: CallerState?, slot: Int) {
             if (taskCount == 0) return
+            if (cells != null) {
+                participateHomed(serving, slot, cells)
+                return
+            }
             var done = 0
             var begin = 0L
             // A late helper uses the saved count and never reads a list already reused by the caller.
@@ -380,19 +428,91 @@ class WorkerPool internal constructor(
                 if (start >= taskCount) break
                 if (done == 0) begin = System.nanoTime()
                 val end = minOf(taskCount, start + chunk)
-                for (i in start until end) {
-                    try {
-                        tasks[i].run()
-                    } catch (t: Throwable) {
-                        error.compareAndSet(null, t)
-                    }
-                }
+                for (i in start until end) runTask(i)
                 done += end - start
             }
             if (done == 0) return
             // Busy time is recorded before completion so the caller reads it complete after the barrier.
             busy.addAndGet(System.nanoTime() - begin)
             if (counters.addAndGet(REMAINING, -done) == 0 && waiterParked) LockSupport.unpark(waiter)
+        }
+
+        /**
+         * A homed wave: phase by phase, this slot's own homes ([WaveHomes] says which) from their fronts, then every
+         * other home of the phase from its end, nearest home first, then the next phase. Every phase is claimed out
+         * before a participant starts the next, as a list-order claim would, but each slot runs the same homes
+         * every wave while the layout stays the same.
+         *
+         * The loops are split into small methods ([phase], [drain]) so that each is compiled on its own and every
+         * activation is short: a long-running activation stays interpreted after a deoptimization until it returns.
+         */
+        private fun participateHomed(serving: CallerState?, slot: Int, cells: AtomicLongArray) {
+            val begin = System.nanoTime()
+            var done = 0
+            for (phase in 0 until phases) done += phase(serving, slot, cells, phase)
+            if (done == 0) return
+            busy.addAndGet(System.nanoTime() - begin)
+            if (counters.addAndGet(REMAINING, -done) == 0 && waiterParked) LockSupport.unpark(waiter)
+        }
+
+        /** One phase of [participateHomed]; returns the tasks this participant ran. */
+        private fun phase(serving: CallerState?, slot: Int, cells: AtomicLongArray, phase: Int): Int {
+            if (counters.get(EMPTY_PHASES) > phase) return 0
+            val homes = homeCount
+            val participants = helpers + 1
+            var done = 0
+            var home = slot
+            while (home < homes) {
+                done += drain(serving, cells, (home + 1) * stride + phase, true)
+                home += participants
+            }
+            for (step in 1 until homes) {
+                // +1, -1, +2, -2, …: every other home once.
+                val offset = if (step and 1 == 1) (step + 1) / 2 else -(step / 2)
+                done += drain(serving, cells, (Math.floorMod(slot + offset, homes) + 1) * stride + phase, false)
+            }
+            if (counters.get(EMPTY_PHASES) <= phase) counters.accumulateAndGet(EMPTY_PHASES, phase + 1, MAX)
+            return done
+        }
+
+        /** Claims and runs [cell]'s tasks, from the front for its owner, until none is left; returns how many ran. */
+        private fun drain(serving: CallerState?, cells: AtomicLongArray, cell: Int, front: Boolean): Int {
+            var done = 0
+            while (true) {
+                if (serving != null && serving.hasRequests) serving.serveRequests()
+                val task = claim(cells, cell, front)
+                if (task < 0) return done
+                runTask(task)
+                done++
+            }
+        }
+
+        /** Takes one task of [cell] from its front or its end; -1 when it has none left. */
+        private fun claim(cells: AtomicLongArray, cell: Int, front: Boolean): Int {
+            while (true) {
+                val state = cells.get(cell)
+                val next = (state ushr 32).toInt()
+                val end = state.toInt()
+                if (next >= end) return -1
+                if (front) {
+                    if (cells.compareAndSet(cell, state, state + (1L shl 32))) return next
+                } else if (cells.compareAndSet(cell, state, state - 1)) {
+                    return end - 1
+                }
+            }
+        }
+
+        /**
+         * Runs one task, recording its failure. Every wave's tasks, homed or not and of every stage, run through this
+         * one call site, so its receiver types are many and the JIT calls them instead of inlining one: inlined, an
+         * entity tick made the claim loops' compiled code too large, and slow when the compiler gave up.
+         */
+        private fun runTask(index: Int) {
+            try {
+                tasks[index].run()
+            } catch (t: Throwable) {
+                error.compareAndSet(null, t)
+            }
         }
 
         /**
@@ -446,6 +566,11 @@ class WorkerPool internal constructor(
             const val NEXT = 0
             const val REMAINING = 16
             const val WAKE = 32
+            const val EMPTY_PHASES = 48
+            val MAX = java.util.function.IntBinaryOperator(Math::max)
+
+            /** Longs per 64-byte cache line. */
+            const val CELLS_PER_LINE = 8
         }
     }
 
@@ -489,7 +614,7 @@ class WorkerPool internal constructor(
                         // Waking first: workers woken now start while this one claims.
                         if (batch.waking) batch.wake(pool.workers, Int.MAX_VALUE)
                         running = batch
-                        batch.participate(null)
+                        batch.participate(null, index + 1)
                         running = null
                         idleSince = System.nanoTime()
                         rested = false
@@ -529,6 +654,9 @@ class WorkerPool internal constructor(
     }
 
     companion object {
+        /** The wave caller's participant slot in a homed wave; worker i is slot i + 1. */
+        const val CALLER_SLOT = 0
+
         /**
          * Least caller spin while waiting for the wave tail before parking; [SpinPolicy.callerSpinNanos] raises it
          * under pressure.

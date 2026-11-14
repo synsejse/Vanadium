@@ -37,6 +37,11 @@ import java.util.function.LongSupplier
  * The longest group of each wave also feeds [longestNanos], the wave's expected critical path: the caller
  * chooses the wave's participants from it ([Participants]), since a wave ends no sooner than its longest group.
  *
+ * With homes ([dispatch] with a home count, [WaveHomes]), each kind's members are cut into that many equal slices of
+ * member order, groups never crossing a slice; slice h of every kind is home h, and each wave participant runs its
+ * own homes first, so an entity ticks on the same thread from tick to tick while membership stays the same. Kinds
+ * stay phases: every participant claims a kind out before starting the next.
+ *
  * Not thread-safe apart from [changed] and [reclassify]; [dispatch] and [stop] belong to the server thread.
  */
 class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules<E>, private val clock: LongSupplier) {
@@ -67,9 +72,12 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
         fun tick(item: E, body: Consumer<E>)
     }
 
-    /** Runs a wave's [groups], which tick [members] members between them, as one flat wave of [participants] threads. */
+    /**
+     * Runs a wave's [groups], which tick [members] members between them, as one flat wave of [participants] threads;
+     * [homes] says which participant runs which groups, or is null.
+     */
     fun interface WaveRunner {
-        fun run(groups: List<Runnable>, members: Int, participants: Int)
+        fun run(groups: List<Runnable>, members: Int, participants: Int, homes: WaveHomes?)
     }
 
     /**
@@ -107,10 +115,8 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
         internal var rank = 0
         internal var members = 0
 
-        /** Members per group, and this kind's groups in the wave. */
+        /** Members per group. */
         internal var perGroup = 0
-        internal var firstGroup = 0
-        internal var groups = 0
 
         fun estimate(fallback: Double): Double = if (nanosPerTask > 0) nanosPerTask else fallback
     }
@@ -173,6 +179,22 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
     private var groupNanos = LongArray(INITIAL_GROUPS)
     private var groupEnds = LongArray(INITIAL_GROUPS)
     private var groupBegins = LongArray(INITIAL_GROUPS)
+    private var groupMembers = IntArray(INITIAL_GROUPS)
+
+    /** Each group's kind, as its rank in [ranked]. */
+    private var groupKinds = IntArray(INITIAL_GROUPS)
+    private var kindNanos = LongArray(0)
+    private var kindCostliest = DoubleArray(0)
+
+    /**
+     * Homes of the wave ([WaveHomes]), 0 for none: each kind's members are cut into this many equal slices, and a
+     * group never crosses a slice. Slice h of every kind is home h.
+     */
+    private var homeCount = 0
+    private val homes = WaveHomes(1)
+
+    /** Groups made so far by the [plan] in progress. */
+    private var used = 0
 
     /**
      * The wave's expected longest group: smoothed per wave, rising slowly and falling fast, so a long group that
@@ -216,7 +238,19 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
      * [participants] chooses the threads the wave has, the caller included; they size the groups.
      */
     fun dispatch(rulesKey: Any?, labels: Boolean, participants: Participants, body: Consumer<E>, scan: (Consumer<E>) -> Unit,
-                 runWave: WaveRunner) {
+                 runWave: WaveRunner) = dispatch(rulesKey, labels, 0, participants, body, scan, runWave)
+
+    /**
+     * [dispatch] with [homes] homes ([WaveHomes]; 0 or 1 for none): each participant then runs the same slice of
+     * every kind from wave to wave, with kinds still claimed costliest first.
+     */
+    fun dispatch(rulesKey: Any?, labels: Boolean, homes: Int, participants: Participants, body: Consumer<E>,
+                 scan: (Consumer<E>) -> Unit, runWave: WaveRunner) {
+        val homeCount = if (homes > 1) homes else 0
+        if (homeCount != this.homeCount) {
+            this.homeCount = homeCount
+            planned = false
+        }
         update(rulesKey, labels, scan)
         val threads = if (waveSize == 0) 1 else maxOf(1, participants.participants(waveSize, longestNanos))
         plan(threads)
@@ -226,7 +260,7 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
             caller = Thread.currentThread()
             waveStarted = clock.asLong
             callerDone = waveStarted
-            runWave.run(wave, waveSize, threads)
+            runWave.run(wave, waveSize, threads, if (homeCount > 0 && wave.isNotEmpty()) this.homes else null)
             learn()
         } finally {
             this.body = null
@@ -431,33 +465,54 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
         }
         if (same) return
         wave.clear()
-        var used = 0
-        for (kind in ranked) {
-            val perGroup = kind.perGroup.coerceIn(1, kind.count)
-            val groups = (kind.count + perGroup - 1) / perGroup
-            kind.firstGroup = used
-            kind.groups = groups
-            // Equal sizes: the first (count % groups) groups take one extra member.
-            val base = kind.count / groups
-            val extra = kind.count % groups
-            var start = kind.start
-            for (g in 0 until groups) {
-                val group = if (used < groupPool.size) groupPool[used] else Group().also(groupPool::add)
-                group.index = used++
-                group.start = start
-                start += base + if (g < extra) 1 else 0
-                group.end = start
-                wave.add(group)
-            }
+        used = 0
+        val slices = maxOf(1, homeCount)
+        // With homes, phase = kind and cell = one home's slice of it: every participant claims a kind out before the
+        // next, so kinds still start costliest first.
+        if (homeCount > 0) homes.reset(ranked.size, homeCount)
+        for (r in ranked.indices) for (h in 0 until slices) {
+            if (homeCount > 0) homes.set(r, h, used)
+            cutSlice(r, h, slices)
         }
-        if (groupNanos.size < used) {
-            groupNanos = LongArray(used + used / 2)
-            groupEnds = LongArray(groupNanos.size)
-            groupBegins = LongArray(groupNanos.size)
-        }
+        if (homeCount > 0) homes.set(ranked.size, 0, used)
         if (groupPool.size > used * 2 + INITIAL_GROUPS) groupPool.subList(used * 2, groupPool.size).clear()
         planned = true
         plannedParticipants = participants
+    }
+
+    /** Appends the groups of slice [slice] of [slices] of kind rank [r] to [wave]: about equal runs of its members. */
+    private fun cutSlice(r: Int, slice: Int, slices: Int) {
+        val kind = ranked[r]
+        val perGroup = kind.perGroup.coerceIn(1, kind.count)
+        val from = kind.start + (kind.count.toLong() * slice / slices).toInt()
+        val members = kind.start + (kind.count.toLong() * (slice + 1) / slices).toInt() - from
+        if (members == 0) return
+        val groups = (members + perGroup - 1) / perGroup
+        // Equal sizes: the first (members % groups) groups take one extra member.
+        val base = members / groups
+        val extra = members % groups
+        var start = from
+        for (g in 0 until groups) {
+            val group = if (used < groupPool.size) groupPool[used] else Group().also(groupPool::add)
+            if (groupMembers.size <= used) growGroups(used + 1)
+            val size = base + if (g < extra) 1 else 0
+            groupMembers[used] = size
+            groupKinds[used] = r
+            group.index = used++
+            group.start = start
+            start += size
+            group.end = start
+            wave.add(group)
+        }
+    }
+
+    private fun growGroups(needed: Int) {
+        val size = maxOf(needed, groupMembers.size + groupMembers.size / 2)
+        groupNanos = LongArray(size)
+        groupEnds = LongArray(size)
+        groupBegins = LongArray(size)
+        groupMembers = groupMembers.copyOf(size)
+        groupKinds = groupKinds.copyOf(size)
     }
 
     /** Whether some kind's costliest member is costlier, by more than [REORDER_MARGIN], than one ahead of it. */
@@ -483,28 +538,30 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
 
     /**
      * After a completed wave (every group ran): each kind's mean and costliest-member cost from its groups' times,
-     * and the wave's longest group. Groups of a kind are equal but for one member (see [plan]), so a group's
-     * per-member time is its time over its size.
+     * and the wave's longest group. A group's per-member time is its time over its size.
      */
     private fun learn() {
         if (wave.isEmpty()) return
         val nanos = groupNanos
         var waveLongest = 0L
-        for (kind in ranked) {
-            var sum = 0L
-            var costliest = 0.0
-            val base = kind.count / kind.groups
-            val extra = kind.count % kind.groups
-            for (g in kind.firstGroup until kind.firstGroup + kind.groups) {
-                val time = nanos[g]
-                sum += time
-                if (time > waveLongest) waveLongest = time
-                val perMember = time.toDouble() / (base + if (g - kind.firstGroup < extra) 1 else 0)
-                if (perMember > costliest) costliest = perMember
-            }
-            val sample = sum.toDouble() / kind.count
+        if (kindNanos.size < ranked.size) {
+            kindNanos = LongArray(ranked.size)
+            kindCostliest = DoubleArray(ranked.size)
+        }
+        kindNanos.fill(0L, 0, ranked.size)
+        kindCostliest.fill(0.0, 0, ranked.size)
+        for (g in wave.indices) {
+            val time = nanos[g]
+            val r = groupKinds[g]
+            kindNanos[r] += time
+            if (time > waveLongest) waveLongest = time
+            val perMember = time.toDouble() / groupMembers[g]
+            if (perMember > kindCostliest[r]) kindCostliest[r] = perMember
+        }
+        for ((r, kind) in ranked.withIndex()) {
+            val sample = kindNanos[r].toDouble() / kind.count
             kind.nanosPerTask = smooth(kind.nanosPerTask, sample, COST_SMOOTHING)
-            kind.longestNanos = smooth(kind.longestNanos, costliest, COST_SMOOTHING)
+            kind.longestNanos = smooth(kind.longestNanos, kindCostliest[r], COST_SMOOTHING)
         }
         val longest = waveLongest.toDouble()
         longestNanos = smooth(longestNanos, longest, if (longest > longestNanos) LONGEST_RISE else LONGEST_FALL)

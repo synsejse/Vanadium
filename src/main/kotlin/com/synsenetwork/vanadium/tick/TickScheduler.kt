@@ -158,9 +158,10 @@ class TickScheduler internal constructor(
      * protect what it shares ([Interactions] for entities). [units] is the work items the tasks run between them
      * (entities, when each task runs a group of them); costs are learned and reported per unit. Call after the
      * stage's [begin]. [participants] defaults to what the estimates pay for; [flatParticipants] also bounds it by
-     * the wave's longest task.
+     * the wave's longest task. [homes], if given, says which participant runs which tasks ([WaveHomes]).
      */
-    fun runFlat(stage: Stage, tasks: List<Runnable>, units: Int = tasks.size, participants: Int = participants(tasks.size, flatNanosPerTask[stage.ordinal] * units)) {
+    fun runFlat(stage: Stage, tasks: List<Runnable>, units: Int = tasks.size,
+                participants: Int = participants(tasks.size, flatNanosPerTask[stage.ordinal] * units), homes: WaveHomes? = null) {
         if (tasks.isEmpty()) return
         val recording = profile
         recording?.recordFlatWave(stage, units)
@@ -173,7 +174,7 @@ class TickScheduler internal constructor(
             var busy = 0L
             diagnostics?.watch(stage, dimension, 0).use { watch ->
                 val wave = watch?.wrap(tasks) ?: tasks
-                Interactions.runWave { busy = pool.runWave(wave, waitRecorder, participants) }
+                Interactions.runWave { busy = pool.runWave(wave, waitRecorder, participants, homes) }
             }
             learn(flatNanosPerTask, stage.ordinal, busy, units)
         } finally {

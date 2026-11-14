@@ -73,7 +73,8 @@ barriers between colours, but every stage has a full completion barrier. Relativ
 between conflicting regions may change between ticks.
 
 `WorkerPool` publishes one immutable `WorkBatch`; both helpers and the calling server
-thread claim work. One-task waves run inline. Helpers spin before parking; the caller
+thread claim work, in list order through one cursor or, for a homed wave (`WaveHomes`, the entity
+wave below), home by home. One-task waves run inline. Helpers spin before parking; the caller
 spins then parks for the tail (under pressure through tails of up to 10 ms, below). Late helpers use a saved task count, never a list
 that the caller has cleared. Interruption restores the caller's flag only after all work
 finishes. Never hold a monitor needed by workers while joining a wave.
