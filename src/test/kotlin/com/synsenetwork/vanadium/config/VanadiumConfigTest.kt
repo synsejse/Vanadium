@@ -10,29 +10,36 @@ import kotlin.test.assertTrue
 
 class VanadiumConfigTest {
     @Test
-    fun autoWorkersLeaveOnePhysicalCoreForTheServerThread() {
-        assertEquals(35, VanadiumConfig.resolveWorkers(0, 72, 36), "two sockets x 18 cores x 2 threads")
-        assertEquals(35, VanadiumConfig.resolveWorkers(-1, 36, 36), "no SMT: same cores, same count")
-        assertEquals(15, VanadiumConfig.resolveWorkers(0, 32, 16), "16 cores with SMT")
-        assertEquals(23, VanadiumConfig.resolveWorkers(0, 32, 24), "hybrid: 8 SMT cores + 16 single-thread cores")
+    fun autoWorkersUseOnePerPhysicalCore() {
+        assertEquals(36, VanadiumConfig.resolveWorkers(0, 72, 36), "two sockets x 18 cores x 2 threads")
+        assertEquals(16, VanadiumConfig.resolveWorkers(-1, 32, 16), "16 cores with SMT")
+        assertEquals(24, VanadiumConfig.resolveWorkers(0, 32, 24), "hybrid: 8 SMT cores + 16 single-thread cores")
     }
 
     @Test
-    fun autoWorkersOnSmallMachines() {
-        assertEquals(7, VanadiumConfig.resolveWorkers(0, 8, 8), "8 cores, no SMT")
-        assertEquals(3, VanadiumConfig.resolveWorkers(0, 8, 4), "4 cores with SMT")
-        assertEquals(3, VanadiumConfig.resolveWorkers(0, 4, 4), "4 cores, no SMT")
-        assertEquals(1, VanadiumConfig.resolveWorkers(0, 4, 2), "2 cores with SMT")
-        assertEquals(1, VanadiumConfig.resolveWorkers(0, 2, 2), "2 cores, no SMT")
-        assertEquals(1, VanadiumConfig.resolveWorkers(0, 2, 1), "1 core with SMT: never below one")
-        assertEquals(1, VanadiumConfig.resolveWorkers(0, 1, 1))
+    fun withoutSmtTheServerThreadTakesACore() {
+        assertEquals(35, VanadiumConfig.resolveWorkers(0, 36, 36))
+        assertEquals(7, VanadiumConfig.resolveWorkers(0, 8, 8))
+        assertEquals(3, VanadiumConfig.resolveWorkers(0, 4, 4))
+        assertEquals(1, VanadiumConfig.resolveWorkers(0, 2, 2))
+        assertEquals(1, VanadiumConfig.resolveWorkers(0, 1, 1), "never below one")
     }
 
     @Test
-    fun autoWorkersRespectAProcessorQuotaBelowTheCoreCount() {
+    fun autoWorkersOnSmallSmtMachines() {
+        assertEquals(4, VanadiumConfig.resolveWorkers(0, 8, 4), "4 cores x 2 threads")
+        assertEquals(2, VanadiumConfig.resolveWorkers(0, 4, 2), "2 cores x 2 threads")
+        assertEquals(1, VanadiumConfig.resolveWorkers(0, 2, 1), "1 core x 2 threads")
+        assertEquals(3, VanadiumConfig.resolveWorkers(0, 12, 3), "4 threads per core")
+    }
+
+    @Test
+    fun autoWorkersRespectAProcessorQuota() {
         // A cgroup quota (or -XX:ActiveProcessorCount) lowers availableProcessors but not the cores the process may use.
         assertEquals(3, VanadiumConfig.resolveWorkers(0, 4, 36), "quota of 4 CPUs on the 72-thread machine")
-        assertEquals(35, VanadiumConfig.resolveWorkers(0, 48, 36), "a quota above the core count changes nothing")
+        assertEquals(36, VanadiumConfig.resolveWorkers(0, 48, 36), "a quota above the core count changes nothing")
+        assertEquals(36, VanadiumConfig.resolveWorkers(0, 37, 36))
+        assertEquals(35, VanadiumConfig.resolveWorkers(0, 36, 36), "a quota of exactly the cores leaves one for the server")
     }
 
     @Test
