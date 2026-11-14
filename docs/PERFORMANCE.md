@@ -146,6 +146,51 @@ Samples vary by up to 40% within an arm (later sprint windows run faster), so re
 sizes, not precise ratios. Region scheduling stays in use for the other stages; block entities packed
 into one base are still limited by it. These workloads have no players, redstone or modded entities.
 
+## Entity homes
+
+Whether an entity ticks on the same core from tick to tick ([Architecture](ARCHITECTURE.md#flat-entity-wave)).
+Uncapped TPS, mean of eight server runs (each the mean of its two sprint windows) with their range;
+arms alternate with the order reversed every round. Baseline: the build before homes; "homes": with
+them; "homes + pinned": homes plus every worker pinned to its own core, socket by socket (measured,
+not kept).
+
+| Workload, workers | Baseline | Homes | Homes + pinned |
+| --- | ---: | ---: | ---: |
+| Spread out, 36 | 315.6 (310.1–324.8) | **409.7** (386.7–428.5), +29.8% | 394.4 (381.2–411.1), +24.9% |
+| Spread out, 24 | 279.2 (266.8–288.1) | **329.3** (313.8–335.6), +17.9% | 318.2 (293.3–352.3), +14.0% |
+| Crowded base, 36 | 1,922 (1,862–1,980) | **2,025** (1,949–2,112), +5.3% | 1,974 (1,840–2,037), +2.7% |
+| Combat, 36 (homes in every wave) | 294.5 (273.1–304.3) | 278.5 (266.1–294.6), −5.4% | 288.5 (274.8–303.8), −2.0% |
+| Combat, 36 (homes only with every worker, kept) | 281.5 (265.4–292.4) | 289.4 (269.1–305.3), +2.8% | – |
+
+Guest hardware counters over one sprint per arm (`perf stat`, all threads of the server JVM), per
+tick: loads served by a modified line in the other socket's cache (remote HITM), loads forwarded
+from the other socket (remote forward), and cycles stalled with an L2 miss pending per L2 demand
+miss.
+
+| Workload, workers | Remote HITM | Remote forward | Stall cycles per L2 miss |
+| --- | --- | --- | --- |
+| Spread out, 36: baseline → homes → pinned | 36.6K → 8.3K → 4.3K | 32.8K → 6.9K → 4.1K | 124 → 102 → 92 |
+| Spread out, 24 | 39.4K → 8.2K → 3.7K | 34.9K → 7.7K → 3.3K | 99 → 85 → 72 |
+| Crowded base, 36 | 5.0K → 2.7K → 2.0K | 1.4K → 1.0K → 0.9K | 82 → 81 → 86 |
+| Combat, 36 | 16.8K → 16.2K → 12.9K | 5.7K → 5.5K → 4.3K | 68 → – → 69 |
+
+- In the spread-out world, 4,096 zombies each on a core of its own from tick to tick removed four
+  fifths of the cross-socket transfers and a fifth of the cycles per tick (275M → 225M at 36
+  workers). The entity wave took 2.04 ms instead of 2.66.
+- The crowded base has few cross-socket transfers to begin with (its 700 mobs fit in the caches);
+  homes gain 5% there.
+- In combat the wave lasts as long as one villager's path search (about 2.8 ms) whatever the other
+  threads do, and it runs on about 29 of 37 threads. Homes there changed no cache traffic and cost
+  5%, so a wave with fewer threads than homes is claimed in list order.
+- Pinning removed a further half of the remaining remote HITM loads but no tick time. Unpinned, the
+  guest scheduler already kept busy workers on their socket: 0–5% of once-a-second samples found a
+  worker on the other node.
+
+Measured 2026-11-14 on the dual Xeon VM with vCPUs pinned 1:1 and guest NUMA bound to the host
+(above), `isolation = 2`, Lithium 0.26.3, `-Xms4G -Xmx4G`, no other JVM flags. Sprint windows 2,000
+ticks (spread out), 15,000 (crowded base), 2,500 (combat). The combat rows come from two separate
+eight-pair series, so compare within a row.
+
 ## Idle workers at 20 TPS
 
 Tick work at the normal 20 TPS (`/vanadium profile`, 1,201 ticks over 60 s) and mean CPU per thread

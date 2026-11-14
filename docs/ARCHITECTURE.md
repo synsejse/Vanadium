@@ -212,6 +212,25 @@ group. Profiles report each flat wave's longest group, when it started after the
 (`longestGroupStart`), the groups still running when the caller ran out of work, and the average
 participants.
 
+Which thread runs an entity is a matter of caches. Claimed in list order, any worker ticked any
+entity, so an entity ticked on one socket was often ticked on the other the next tick, and every
+line it had written moved across with it. The wave therefore has homes (`WaveHomes`): each type's
+entities are cut into workers + 1 equal slices of tick-list order, groups never cross a slice, and
+slice h of every type is home h, owned by participant h (the server thread is 0, worker i is i + 1).
+A participant drains its own home's groups of a type from the front, then takes other homes' groups
+of that type from the back, nearest home first, and only then starts the next type: types are still
+claimed costliest first. While membership is unchanged an entity stays in its home and on its thread.
+In a spread-out world at 36 workers that cut remote-socket cache transfers about fivefold; see
+[PERFORMANCE.md](PERFORMANCE.md#entity-homes). Only a wave with every worker has homes: one capped by
+its longest tick (`flatParticipants`, a fight) is as long as that tick, ran slower with homes and is
+claimed in list order. Ordering each type by position (a Z-order curve) measured no different from
+tick-list order, and pinning workers to cores, socket by socket, cut cross-socket transfers further
+but not tick time; neither is kept. `-Dvanadium.entityHomes=false` claims every wave in list order.
+
+All waves run their tasks through one call site in `WorkerPool`. A claim loop whose call site sees
+only entity groups gets the whole entity tick inlined by the JIT; every rare branch in it then
+deoptimizes the claim loop, which in measurements stayed interpreted for whole runs.
+
 Overlapping ticks can also fail where serial ticks cannot: a value read after another tick removed
 it. Such failures do not repeat, so with `skipFailedEntityTicks` one failed tick is logged and its
 remainder skipped; the same entity failing three ticks running is a real bug and stops the server
