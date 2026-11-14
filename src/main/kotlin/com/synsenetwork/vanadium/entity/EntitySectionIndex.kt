@@ -8,6 +8,8 @@ import net.minecraft.util.AbortableIterationConsumer
 import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.entity.EntityAccess
 import net.minecraft.world.level.entity.EntitySection
+import net.minecraft.world.level.entity.EntityTypeTest
+import net.minecraft.world.phys.AABB
 import java.util.function.LongFunction
 
 /**
@@ -87,28 +89,58 @@ class EntitySectionIndex<T : EntityAccess> {
     fun forEachAccessibleNonEmpty(
         xMin: Int, yMin: Int, zMin: Int, xMax: Int, yMax: Int, zMax: Int,
         output: AbortableIterationConsumer<EntitySection<T>>,
+    ) = walk(xMin, yMin, zMin, xMax, yMax, zMax, output, null, null, null)
+
+    /** `EntitySectionStorage.forEachAccessibleNonEmptySection`: the sections near [bb], in vanilla order. */
+    fun forEachAccessibleNonEmpty(bb: AABB, output: AbortableIterationConsumer<EntitySection<T>>) =
+        walk(minX(bb), minY(bb), minZ(bb), maxX(bb), maxY(bb), maxZ(bb), output, null, null, null)
+
+    /**
+     * `EntitySectionStorage.getEntities`: each section's `getEntities` for [bb] (and [type], when not null) over
+     * the sections [forEachAccessibleNonEmpty] visits for [bb], in that order, until [output] aborts. Vanilla
+     * builds a capturing section lambda per query; the query is passed down instead, allocating nothing.
+     */
+    fun getEntities(bb: AABB, type: EntityTypeTest<T, *>?, output: AbortableIterationConsumer<*>) =
+        walk(minX(bb), minY(bb), minZ(bb), maxX(bb), maxY(bb), maxZ(bb), null, type, bb, output)
+
+    /** Visits [sections] if not null, otherwise queries each section with [type], [bb] and [entities]. */
+    private fun walk(
+        xMin: Int, yMin: Int, zMin: Int, xMax: Int, yMax: Int, zMax: Int,
+        sections: AbortableIterationConsumer<EntitySection<T>>?,
+        type: EntityTypeTest<T, *>?, bb: AABB?, entities: AbortableIterationConsumer<*>?,
     ) {
         for (x in xMin..xMax) {
             // Z in unsigned packed order: the non-negative part of the range first.
             if (zMin < 0 && zMax >= 0) {
-                for (z in 0..zMax) if (visitColumn(x, z, yMin, yMax, output)) return
-                for (z in zMin..-1) if (visitColumn(x, z, yMin, yMax, output)) return
+                for (z in 0..zMax) if (visitColumn(x, z, yMin, yMax, sections, type, bb, entities)) return
+                for (z in zMin..-1) if (visitColumn(x, z, yMin, yMax, sections, type, bb, entities)) return
             } else {
-                for (z in zMin..zMax) if (visitColumn(x, z, yMin, yMax, output)) return
+                for (z in zMin..zMax) if (visitColumn(x, z, yMin, yMax, sections, type, bb, entities)) return
             }
         }
     }
 
-    /** Returns true when [output] asked to abort. */
-    private fun visitColumn(x: Int, z: Int, yMin: Int, yMax: Int, output: AbortableIterationConsumer<EntitySection<T>>): Boolean {
+    /** Returns true when the visitor or entity consumer asked to abort. */
+    @Suppress("UNCHECKED_CAST")
+    private fun visitColumn(
+        x: Int, z: Int, yMin: Int, yMax: Int,
+        sections: AbortableIterationConsumer<EntitySection<T>>?,
+        type: EntityTypeTest<T, *>?, bb: AABB?, entities: AbortableIterationConsumer<*>?,
+    ): Boolean {
         val column = columns[ChunkPos.pack(x, z)] ?: return false
         val ys = column.ys
-        val sections = column.sections
+        val columnSections = column.sections
         for (i in ys.indices) {
             val y = ys[i]
             if (y < yMin || y > yMax) continue
-            val section = sections[i]
-            if (!section.isEmpty && section.status.isAccessible && output.accept(section).shouldAbort()) return true
+            val section = columnSections[i]
+            if (section.isEmpty || !section.status.isAccessible) continue
+            val next = when {
+                sections != null -> sections.accept(section)
+                type == null -> section.getEntities(bb!!, entities as AbortableIterationConsumer<T>)
+                else -> section.getEntities(type as EntityTypeTest<T, T>, bb!!, entities as AbortableIterationConsumer<T>)
+            }
+            if (next.shouldAbort()) return true
         }
         return false
     }
@@ -188,5 +220,13 @@ class EntitySectionIndex<T : EntityAccess> {
 
         /** Y's position in vanilla's packed section key order. */
         fun unsigned(y: Int): Int = y and 0xFFFFF
+
+        // Vanilla's section box around a query box: two blocks wider, four blocks lower.
+        fun minX(bb: AABB): Int = SectionPos.posToSectionCoord(bb.minX - 2.0)
+        fun minY(bb: AABB): Int = SectionPos.posToSectionCoord(bb.minY - 4.0)
+        fun minZ(bb: AABB): Int = SectionPos.posToSectionCoord(bb.minZ - 2.0)
+        fun maxX(bb: AABB): Int = SectionPos.posToSectionCoord(bb.maxX + 2.0)
+        fun maxY(bb: AABB): Int = SectionPos.posToSectionCoord(bb.maxY + 0.0)
+        fun maxZ(bb: AABB): Int = SectionPos.posToSectionCoord(bb.maxZ + 2.0)
     }
 }

@@ -16,6 +16,7 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.entity.EntityAccess;
 import net.minecraft.world.level.entity.EntitySection;
 import net.minecraft.world.level.entity.EntitySectionStorage;
+import net.minecraft.world.level.entity.EntityTypeTest;
 import net.minecraft.world.level.entity.Visibility;
 import net.minecraft.world.phys.AABB;
 import org.jspecify.annotations.Nullable;
@@ -66,10 +67,25 @@ public abstract class EntitySectionStorageMixin<T extends EntityAccess> implemen
      */
     @Overwrite
     public void forEachAccessibleNonEmptySection(AABB bb, AbortableIterationConsumer<EntitySection<T>> output) {
-        vanadium$index.forEachAccessibleNonEmpty(
-                SectionPos.posToSectionCoord(bb.minX - 2.0), SectionPos.posToSectionCoord(bb.minY - 4.0),
-                SectionPos.posToSectionCoord(bb.minZ - 2.0), SectionPos.posToSectionCoord(bb.maxX + 2.0),
-                SectionPos.posToSectionCoord(bb.maxY + 0.0), SectionPos.posToSectionCoord(bb.maxZ + 2.0), output);
+        vanadium$index.forEachAccessibleNonEmpty(bb, output);
+    }
+
+    /**
+     * @author Vanadium
+     * @reason The same sections as {@code forEachAccessibleNonEmptySection} without a capturing lambda per query.
+     */
+    @Overwrite
+    public void getEntities(AABB bb, AbortableIterationConsumer<T> output) {
+        vanadium$index.getEntities(bb, null, output);
+    }
+
+    /**
+     * @author Vanadium
+     * @reason The same sections as {@code forEachAccessibleNonEmptySection} without a capturing lambda per query.
+     */
+    @Overwrite
+    public <U extends T> void getEntities(EntityTypeTest<T, U> type, AABB bb, AbortableIterationConsumer<U> consumer) {
+        vanadium$index.getEntities(bb, type, consumer);
     }
 
     /**
