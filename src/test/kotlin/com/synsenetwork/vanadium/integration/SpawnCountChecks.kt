@@ -116,11 +116,13 @@ internal object SpawnCountChecks {
         }
         val reference = NaturalSpawner.createState(289, level, chunks, caps())
 
-        // The captured input is Lithium's sliceable section iteration, possibly inside C2ME's filter.
+        // The captured input is Lithium's sliceable section iteration, possibly inside C2ME's filter. The reference
+        // count went through it, so each column's entity count (the next split's weights) is known.
         val captured = SpawnPreparation.capture(289, level, chunks, caps())
-        val sections = (unwrap(captured) as? AccessibleEntities<*>
-            ?: error("spawn count input ${captured.javaClass.name} is not the sliceable section iteration")).snapshot()
-        check(sections.size >= fixture.size && sections.size >= 1024, "only ${sections.size} entities in accessible sections")
+        val columns = (unwrap(captured) as? AccessibleEntities<*>
+            ?: error("spawn count input ${captured.javaClass.name} is not the sliceable section iteration")).columns()
+        val scanned = columns.weight()
+        check(scanned >= fixture.size && scanned >= 1024, "only $scanned entities in accessible sections")
         val filter = c2meFilter(captured)
         if (filter != null) {
             val simulated = fixture.count { filter.test(it) }
@@ -150,11 +152,11 @@ internal object SpawnCountChecks {
             it.localMobCapCalculator.playerMobCounts.clear()
             it.localMobCapCalculator.playersNearChunk.clear()
         }, "entry point", players = false)
-        println("SPAWN_COUNT_CHECKS_PASSED entities=${sections.size} filtered=${filter != null} " +
+        println("SPAWN_COUNT_CHECKS_PASSED entities=$scanned columns=${columns.size} filtered=${filter != null} " +
             "charges=${reference.spawnPotential.charges.size} counts=${reference.mobCategoryCounts}")
     }
 
-    private fun same(expected: NaturalSpawner.SpawnState, actual: NaturalSpawner.SpawnState, what: String, players: Boolean = true) {
+    internal fun same(expected: NaturalSpawner.SpawnState, actual: NaturalSpawner.SpawnState, what: String, players: Boolean = true) {
         check(expected.spawnableChunkCount == actual.spawnableChunkCount, "$what: spawnable chunk count")
         check(expected.mobCategoryCounts == actual.mobCategoryCounts, "$what: counts ${actual.mobCategoryCounts} != ${expected.mobCategoryCounts}")
         val expectedCharges = expected.spawnPotential.charges
@@ -164,7 +166,7 @@ internal object SpawnCountChecks {
             check(POS.get(expectedCharges[i]) == POS.get(actualCharges[i]) && CHARGE.getDouble(expectedCharges[i]) == CHARGE.getDouble(actualCharges[i]),
                 "$what: charge $i differs")
         }
-        for (pos in listOf(BlockPos.ZERO, POS.get(expectedCharges.first()) as BlockPos, BlockPos(-1000, 40, 1000))) {
+        for (pos in listOfNotNull(BlockPos.ZERO, expectedCharges.firstOrNull()?.let { POS.get(it) as BlockPos }, BlockPos(-1000, 40, 1000))) {
             check(expected.spawnPotential.getPotentialEnergyChange(pos, 0.7) == actual.spawnPotential.getPotentialEnergyChange(pos, 0.7),
                 "$what: spawn potential at $pos")
         }
@@ -189,6 +191,6 @@ internal object SpawnCountChecks {
     private fun unwrap(source: Iterable<Entity>): Any? = if (FILTERING?.isInstance(source) == true) field(source, "delegate") else source
 
     @Suppress("UNCHECKED_CAST")
-    private fun c2meFilter(source: Iterable<Entity>): Predicate<Entity>? =
+    internal fun c2meFilter(source: Iterable<Entity>): Predicate<Entity>? =
         if (FILTERING?.isInstance(source) == true) field(source, "predicate") as Predicate<Entity> else null
 }
