@@ -32,8 +32,19 @@ class WorkerPool internal constructor(
     private val spin: SpinPolicy,
     private val callerWakes: Int = CALLER_WAKES,
     private val clock: PrewakeClock = PrewakeClock.SYSTEM,
+    pinWorkers: Boolean = false,
 ) : AutoCloseable {
     constructor(threads: Int) : this(threads, SpinPolicy.fromSystemProperties())
+
+    /** [pinWorkers]: each worker pins itself to a CPU of its own when it starts ([WorkerAffinity]), where it can. */
+    constructor(threads: Int, pinWorkers: Boolean) : this(threads, SpinPolicy.fromSystemProperties(), pinWorkers = pinWorkers)
+
+    /**
+     * The CPU each worker pins itself to, by worker index, or null when workers are not pinned: pinning was not
+     * asked for (`-Dvanadium.pinWorkers` overrides), is unavailable, or this process may use fewer CPUs than it has
+     * workers.
+     */
+    val pinnedCpus: IntArray? = if (PIN_WORKERS ?: pinWorkers) WorkerAffinity.cpusFor(maxOf(1, threads)) else null
 
     private val workers = Array(maxOf(1, threads)) { WorkerThread(this, it) }
 
@@ -603,6 +614,7 @@ class WorkerPool internal constructor(
          * parks again on a stray return instead of spinning: it only leaves for work or for close.
          */
         override fun run() {
+            pool.pinnedCpus?.let { WorkerAffinity.pinCurrent(it[index]) }
             var seen: WorkBatch? = null
             var idleSince = System.nanoTime()
             var rested = false
@@ -683,6 +695,9 @@ class WorkerPool internal constructor(
 
         /** How long a [callOnWaveCaller] request may wait before its `stalled` callback runs. */
         private val REQUEST_STALL_NANOS = java.lang.Long.getLong("vanadium.callerRequestStallSeconds", 10) * 1_000_000_000L
+
+        /** Overrides the configured worker pinning when set. */
+        private val PIN_WORKERS = System.getProperty("vanadium.pinWorkers")?.toBoolean()
 
         /** Whether [tickStarted] wakes the workers the previous tick used. */
         private val PREWAKE = System.getProperty("vanadium.prewake", "true").toBoolean()

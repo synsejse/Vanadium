@@ -75,6 +75,12 @@ class VanadiumConfig : ConfigData {
             + "on your own machine with /vanadium profile. Live next tick; -Dvanadium.idleWorkers overrides it.")
     @JvmField var idleWorkers = "lean"
 
+    @field:Comment("Pin each worker thread to a CPU of its own (Linux only): one hardware thread per physical core, "
+            + "the cores of one socket before the next, so workers that tick neighbouring entities share a socket's "
+            + "cache. Skipped when the server may use fewer CPUs than it has workers. Takes effect on restart; "
+            + "-Dvanadium.pinWorkers overrides it.")
+    @JvmField var pinWorkers = false
+
     @field:Comment("Warn about waves exceeding this many milliseconds. 0 disables diagnostics; live next tick.")
     @JvmField var slowWaveMillis = 0
 
