@@ -31,21 +31,27 @@ Edit `config/vanadium.toml`, then run `/vanadium reload` to apply changes live.
 
 `workers = 0` starts one worker per physical core and leaves one logical processor for the server
 thread, which works alongside the workers in every wave: with SMT it takes a spare sibling, without
-SMT it takes a core. On the 36-core, 72-thread test machine that is 36 workers. Workers beyond the
-physical cores share cores with SMT siblings and mostly spin: 48 workers (the previous default, two
-thirds of the logical processors) ran 11% slower than 36 in combat and within noise elsewhere, and 72
-ran 24–51% below the best. On four cores without SMT, 3 workers beat 4 by 8–16%; on four cores with
-SMT, 4 workers beat 3 by 1–7%.
+SMT it takes a core. On the 36-core, 72-thread test machine that is 36 workers, within 2.5% of the
+best count for every benchmark world. Workers beyond the physical cores share cores with SMT siblings
+and mostly spin: 48 workers (the previous default, two thirds of the logical processors) measured
+within noise of 36, and 72 ran 40–43% below the best in the spread-out and crowded worlds (4% in
+combat, whose entity wave leaves extra workers parked). On four cores without SMT, 3 workers beat 4
+by 8–16%; on four cores with SMT, 4 workers beat 3 by 1–7%.
 
 Cores are counted on Linux from `/sys/devices/system/cpu`, among the online CPUs this process may run
 on (its affinity, as set by `taskset` or a container's cpuset). A CPU quota (cgroup `cpu.max`,
 `-XX:ActiveProcessorCount`) lowers the logical processor count Java reports and caps the result the
 same way. Where the topology cannot be read (Windows, macOS, a container without `/sys`), the default
 stays two thirds of the logical processors, the measured compromise between SMT machines (where one
-worker per logical processor ran up to 51% slower) and machines without it. The startup log names the
+worker per logical processor ran up to 43% slower) and machines without it. The startup log names the
 basis: `Will use 36 threads, isolation 2 chunks (36 cores of 72 processors)`. The best count still
 depends on the machine and the world (24 to 48 on the test machine), so compare a few values with
 `/vanadium benchmark`; see [worker count](PERFORMANCE.md#worker-count).
+
+JVM flags matter as much as `workers` on a multi-socket server: `-XX:+UseNUMA` with transparent huge
+pages, pre-touch and compact object headers added 12–65% on the test machine, at the cost of
+committing the whole heap at startup. See [recommended JVM flags](PERFORMANCE.md#recommended-jvm-flags)
+for the measurements, requirements and when not to use them.
 
 `isolation` sets the spatial exclusion distance independently of worker count, not the size of a region.
 

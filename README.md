@@ -25,14 +25,16 @@ It also optimizes chunk lookups, nearby-player indexing and packet preparation.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/performance-dark.svg">
-  <img src="docs/assets/performance-light.svg" alt="Uncapped TPS by worker count on Minecraft 26.3 with Lithium. Spread out, 4,096 zombies: Lithium alone 21.2, Vanadium 53 at 2 workers, 227 at 24, 262 at 48, 145 at 72. Crowded base, 700 mobs in 4×4 chunks: Lithium alone 187, Vanadium 417 at 2 workers, 1,326 at 24, 1,429 at 32, 706 at 72. Combat, 600 mobs: Lithium alone 23.1, Vanadium 72 at 2 workers, 244 at 24, 201 at 48, 186 at 72.">
+  <img src="docs/assets/performance-light.svg" alt="Uncapped TPS by worker count on Minecraft 26.3 with Lithium. Spread out, 4,096 zombies: Lithium alone 25.5, Vanadium 73 at 2 workers, 337 at 24, 376 at 32, 367 at 36, 224 at 72. Crowded base, 700 mobs in 4×4 chunks: Lithium alone 206, Vanadium 554 at 2 workers, 1,887 at 36, 1,895 at 48, 1,080 at 72. Combat, 600 mobs: Lithium alone 27.9, Vanadium 86 at 2 workers, 304 at 24, 298 at 36, 291 at 72.">
 </picture>
 
 Minecraft 26.3 on the dual Xeon test VM (36 cores, 72 threads), uncapped tick rate, no players. With
-24 workers Vanadium ran these worlds 7–11× faster than the same server with Lithium alone. More
-workers are not always better: each world peaked at a different count, and one worker per logical
-processor ran 24–51% below the best setting. The default is one worker per physical core, leaving
-a logical processor for the server thread; try a few values of `workers` on your own machine. [Data, method and limits →](docs/PERFORMANCE.md)
+the default 36 workers Vanadium ran these worlds 9–14× faster than the same server with Lithium alone.
+Throughput levels off between 24 and 48 workers, and the default (one worker per physical core,
+leaving a logical processor for the server thread) measured within 2.5% of each world's best count;
+one worker per logical processor ran up to 43% below it. On this two-socket machine the
+[recommended JVM flags](docs/PERFORMANCE.md#recommended-jvm-flags) added another 12–65%.
+Try a few values of `workers` on your own machine. [Data, method and limits →](docs/PERFORMANCE.md)
 
 ### Getting started
 
