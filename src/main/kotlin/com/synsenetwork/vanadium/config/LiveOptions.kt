@@ -5,16 +5,12 @@ import me.shedaniel.autoconfig.ConfigData
 import java.lang.reflect.Field
 import java.lang.reflect.Modifier
 
-/** Runtime-only options for `/vanadium set`: booleans, integers and choices; worker count and pinning require a restart. */
+/** Runtime-only options for `/vanadium set`: booleans, integers and choices; worker count requires a restart. */
 object LiveOptions {
-    /** Read once, when the server starts. */
-    private val RESTART_ONLY = setOf("workers", "pinWorkers")
-
     private val fields: Map<String, Field> = VanadiumConfig::class.java.declaredFields
         .filter {
             !Modifier.isStatic(it.modifiers) && !Modifier.isTransient(it.modifiers) &&
-                    (it.type == java.lang.Boolean.TYPE || it.type == String::class.java || it.type == Integer.TYPE) &&
-                    it.name !in RESTART_ONLY
+                    (it.type == java.lang.Boolean.TYPE || it.type == String::class.java || it.type == Integer.TYPE && it.name != "workers")
         }
         .associateBy { it.name }
 

@@ -84,8 +84,7 @@ object Vanadium : ModInitializer {
         } else {
             LOGGER.info("Will use {} threads, isolation {} chunks", workers, config.isolation)
         }
-        val pool = WorkerPool(workers, config.pinWorkers).also { pool = it }
-        pool.pinnedCpus?.let { LOGGER.info("Pinned workers to CPUs {}", it.joinToString(",")) }
+        val pool = WorkerPool(workers).also { pool = it }
         Interactions.drainPool = pool
         scheduler = TickScheduler(pool, config.isolation)
         diagnostics = WaveDiagnostics(LOGGER::warn).also { scheduler.diagnostics = it }
