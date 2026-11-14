@@ -31,7 +31,10 @@ class TickProfile {
 
     /** Wall time of one wave and the threads able to claim its regions; the denominator of utilization. */
     fun recordWaveCapacity(stage: Stage, nanos: Long, participants: Int) {
-        stats(stage).capacityNanos += nanos * participants
+        val stats = stats(stage)
+        stats.capacityNanos += nanos * participants
+        stats.participantWaves++
+        stats.participants += participants
     }
 
     fun recordPreparation(kind: Preparation, jobs: Int, nanos: Long) {
@@ -48,13 +51,15 @@ class TickProfile {
     }
 
     /**
-     * The groups a flat wave's tasks were claimed in: how many, the longest one's time, and how many had not
-     * finished when the dispatching thread ran out of groups to claim (it waited for those).
+     * The groups a flat wave's tasks were claimed in: how many, the longest one's time and how long after the wave's
+     * start it started, and how many had not finished when the dispatching thread ran out of groups to claim (it
+     * waited for those).
      */
-    fun recordFlatGroups(stage: Stage, groups: Int, longestNanos: Long, runningAtTail: Int) {
+    fun recordFlatGroups(stage: Stage, groups: Int, longestNanos: Long, longestStartNanos: Long, runningAtTail: Int) {
         val stats = stats(stage)
         stats.groups += groups
         stats.longestGroups.add(longestNanos)
+        stats.longestGroupStarts.add(longestStartNanos)
         stats.groupsRunningAtTail += runningAtTail
     }
 
@@ -98,10 +103,12 @@ class TickProfile {
                 addProperty("tasks", stats.tasks)
                 addProperty("maxTasksPerRegion", stats.maxTasksPerRegion)
                 stats.utilization()?.let { addProperty("utilization", it) }
+                if (stats.participantWaves > 0) addProperty("avgParticipants", stats.participants.toDouble() / stats.participantWaves)
                 if (stats.longestGroups.count > 0) {
                     addProperty("groups", stats.groups)
                     // Per wave: the longest group, and the groups other threads were still running when the caller's tail wait began.
                     add("longestGroup", stats.longestGroups.toJson())
+                    add("longestGroupStart", stats.longestGroupStarts.toJson())
                     addProperty("groupsRunningAtTailStart", stats.groupsRunningAtTail.toDouble() / stats.longestGroups.count)
                 }
             })
@@ -128,7 +135,10 @@ class TickProfile {
         var maxTasksPerRegion = 0
         var groups = 0L
         val longestGroups = Samples()
+        val longestGroupStarts = Samples()
         var groupsRunningAtTail = 0L
+        var participantWaves = 0L
+        var participants = 0L
 
         fun utilization(): Double? =
             if (capacityNanos == 0L) null else minOf(1.0, regionDurations.totalNanos.toDouble() / capacityNanos)

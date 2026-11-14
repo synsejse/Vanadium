@@ -65,11 +65,11 @@ class PersistentTickTasksTest {
             val wave = ArrayList<Int>()
             var inWave = false
             groups.clear()
-            tasks.dispatch(rulesKey, labels, participants, { item ->
+            tasks.dispatch(rulesKey, labels, { _, _ -> participants }, { item ->
                 (if (inWave) wave else serial).add(item.id)
                 clock.addAndGet(item.cost)
                 during(item)
-            }, { visit -> members.sortedBy { it.id }.forEach(visit::accept) }) { list, units ->
+            }, { visit -> members.sortedBy { it.id }.forEach(visit::accept) }) { list, units, _ ->
                 inWave = true
                 for (group in list) {
                     val before = wave.size
@@ -228,11 +228,11 @@ class PersistentTickTasksTest {
         items.take(1000).forEach(f::add)
         f.tick()
         WorkerPool(4).use { pool ->
-            f.tasks.dispatch(f.rulesKey, false, 5, { item ->
+            f.tasks.dispatch(f.rulesKey, false, { _, _ -> 5 }, { item ->
                 // Each member adds one new item and removes every other old one, as spawns and deaths do from workers.
                 f.add(items[1000 + item.id])
                 if (item.id % 2 == 0) f.remove(item)
-            }, { }) { list, _ -> pool.runWave(list) }
+            }, { }) { list, _, _ -> pool.runWave(list) }
         }
         val (_, wave) = f.tick()
         val expected = (0 until 2000).filter { it >= 1000 || it % 2 == 1 }
@@ -327,10 +327,10 @@ class PersistentTickTasksTest {
         val group = f.tasks.waveGroups.first()
         val ticked = ArrayList<Int>()
         val failure = assertFailsWith<IllegalStateException> {
-            f.tasks.dispatch(f.rulesKey, false, 1, { item ->
+            f.tasks.dispatch(f.rulesKey, false, { _, _ -> 1 }, { item ->
                 ticked.add(item.id)
                 check(item.id != 0 && item.id != 1) { "member ${item.id}" }
-            }, { }) { list, _ -> list.first().run() }
+            }, { }) { list, _, _ -> list.first().run() }
         }
         assertEquals("member 0", failure.message)
         assertSame(group, f.tasks.waveGroups.first())
@@ -352,6 +352,52 @@ class PersistentTickTasksTest {
         assertEquals(0.05, entity.getAsJsonObject("longestGroup").get("p99Ms").asDouble, 1e-9)
         // The fixture runs every group on the dispatching thread, so none is left when it finishes.
         assertEquals(0.0, entity.get("groupsRunningAtTailStart").asDouble)
+        // The slow kind runs first, so its member starts with the wave.
+        assertEquals(0.0, entity.getAsJsonObject("longestGroupStart").get("p99Ms").asDouble)
+    }
+
+    @Test
+    fun aKindWithRareLongTicksRunsBeforeACostlierOnAverage() {
+        val f = Fixture()
+        // "spiky" costs less on average (3,450) than "steady" (5,000), but one member's tick is ten times any other.
+        val steady = List(20) { Item(it, "steady", 5_000) }
+        val spiky = List(20) { Item(20 + it, "spiky", if (it == 7) 50_000 else 1_000) }
+        (steady + spiky).forEach(f::add)
+        repeat(3) { f.tick() }
+        val (_, wave) = f.tick()
+        assertEquals(listOf("spiky", "steady"), kindsInOrder(steady + spiky, wave))
+        assertEquals(spiky.map { it.id } + steady.map { it.id }, wave, "each kind keeps member order")
+    }
+
+    @Test
+    fun theExpectedLongestGroupReachesTheParticipantChoice() {
+        val f = Fixture()
+        val items = List(30) { Item(it, "a", if (it == 4) 40_000 else 1_000) }
+        items.forEach(f::add)
+        val seen = ArrayList<Double>()
+        fun tick() {
+            f.tasks.dispatch(f.rulesKey, false, { members, longest ->
+                assertEquals(30, members)
+                seen.add(longest)
+                4
+            }, { f.clock.addAndGet(it.cost) }, { }) { list, _, participants ->
+                assertEquals(4, participants)
+                list.forEach(Runnable::run)
+            }
+        }
+        f.tick()
+        tick()
+        assertEquals(40_000.0, seen.last(), "unmeasured until a wave ran; then the longest group")
+        repeat(40) { tick() }
+        assertEquals(40_000.0, seen.last(), 1.0)
+        // The long member turns cheap: the estimate falls by half a step per wave, so in a few waves.
+        items[4].cost = 1_000
+        repeat(8) { tick() }
+        assertTrue(seen.last() < 2_000.0, "${seen.takeLast(9)}")
+        // It rises slowly: one long wave moves it only a tenth of the way.
+        items[4].cost = 40_000
+        repeat(2) { tick() }
+        assertTrue(seen.last() < 6_000.0, "${seen.takeLast(3)}")
     }
 
     @Test

@@ -10,7 +10,9 @@ import java.util.function.LongConsumer
  * the work is ([RegionGrid]); regions within [isolation] chunks of each other never run at the same time.
  *
  * Each wave involves only as many threads as its estimated work pays for ([participants]); estimates come
- * from the grids for region stages and from measured busy time per task for flat and preparation waves.
+ * from the grids for region stages and from measured busy time per task for flat and preparation waves. A flat
+ * wave whose longest task is known also gets no more threads than finish the rest of its work while that task
+ * runs ([flatParticipants]).
  *
  * @param participantCostNanos what involving one more thread costs a wave; 0 always uses every worker
  */
@@ -18,6 +20,8 @@ class TickScheduler internal constructor(
     private val pool: WorkerPool,
     isolation: Int,
     private val participantCostNanos: Double,
+    /** Share of a flat wave's longest task within which the other threads should finish ([flatParticipants]); 0 never bounds. */
+    private val criticalPathShare: Double = CRITICAL_PATH_SHARE,
 ) {
     constructor(pool: WorkerPool, isolation: Int) : this(pool, isolation, PARTICIPANT_COST_NANOS)
 
@@ -84,6 +88,24 @@ class TickScheduler internal constructor(
         return Math.sqrt(estimatedNanos / participantCostNanos).toInt().coerceIn(1, most)
     }
 
+    /**
+     * Threads, the caller included, for a flat wave of [units] work items whose longest task is expected to take
+     * [longestNanos] (0 when unknown): [participants], and no more than finish the rest of the wave's work within
+     * [criticalPathShare] of that task's time. The wave cannot end before its longest task does; threads beyond
+     * those would only add claim traffic and spin through the tail, the time the caller waits for that task.
+     */
+    fun flatParticipants(stage: Stage, units: Int, longestNanos: Double): Int =
+        flatParticipants(units, flatNanosPerTask[stage.ordinal] * units, longestNanos)
+
+    /** [flatParticipants] for a wave of about [estimated] work. */
+    internal fun flatParticipants(units: Int, estimated: Double, longestNanos: Double): Int {
+        val threads = participants(units, estimated)
+        if (longestNanos <= 0.0 || estimated <= 0.0 || criticalPathShare <= 0.0) return threads
+        // One thread runs the longest task; the others share the rest.
+        val others = Math.ceil(maxOf(0.0, estimated - longestNanos) / (longestNanos * criticalPathShare)).toInt()
+        return minOf(threads, maxOf(1, 1 + others))
+    }
+
     /** Feeds a wave's busy time into a per-task estimate. */
     private fun learn(estimates: DoubleArray, slot: Int, busyNanos: Long, tasks: Int) {
         if (busyNanos <= 0 || tasks == 0) return
@@ -135,14 +157,14 @@ class TickScheduler internal constructor(
      * Runs [tasks] as one wave with no regions or isolation: every task may run beside any other, so each must
      * protect what it shares ([Interactions] for entities). [units] is the work items the tasks run between them
      * (entities, when each task runs a group of them); costs are learned and reported per unit. Call after the
-     * stage's [begin].
+     * stage's [begin]. [participants] defaults to what the estimates pay for; [flatParticipants] also bounds it by
+     * the wave's longest task.
      */
-    fun runFlat(stage: Stage, tasks: List<Runnable>, units: Int = tasks.size) {
+    fun runFlat(stage: Stage, tasks: List<Runnable>, units: Int = tasks.size, participants: Int = participants(tasks.size, flatNanosPerTask[stage.ordinal] * units)) {
         if (tasks.isEmpty()) return
         val recording = profile
         recording?.recordFlatWave(stage, units)
         val waitRecorder = recording?.let { LongConsumer { nanos -> it.recordWait(stage, nanos) } }
-        val participants = participants(tasks.size, flatNanosPerTask[stage.ordinal] * units)
         val event = WaveEvent()
         event.begin()
         val start = System.nanoTime()
@@ -240,5 +262,11 @@ class TickScheduler internal constructor(
         private val PARTICIPANT_COST_NANOS = java.lang.Long.getLong("vanadium.participantCostNanos", 2_000).toDouble()
 
         private const val COST_SMOOTHING = 0.2
+
+        /**
+         * Default [flatParticipants] share (`vanadium.criticalPathShare`): the other threads finish within this share
+         * of the longest task's expected time, leaving room for its late start and for estimates that run short.
+         */
+        private val CRITICAL_PATH_SHARE = (System.getProperty("vanadium.criticalPathShare") ?: "0.8").toDouble()
     }
 }

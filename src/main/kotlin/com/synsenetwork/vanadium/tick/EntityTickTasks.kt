@@ -20,12 +20,14 @@ class EntityTickTasks(private val list: EntityTickList, private val active: Int2
 
     /**
      * Runs this tick's entities: serial-rule entities inline with [body], in order, then the rest as one wave,
-     * costliest entity types first ([PersistentTickTasks]).
+     * entity types with the costliest ticks first ([PersistentTickTasks]), on as many threads as finish the rest
+     * while the longest tick runs ([TickScheduler.flatParticipants]).
      */
     fun dispatch(scheduler: TickScheduler, body: Consumer<Entity>) {
-        tasks.dispatch(Vanadium.config.serialEntityRulesKey(), scheduler.detailedDiagnostics, scheduler.workerCount + 1, body,
-            list::forEach) { wave, entities ->
-            scheduler.runFlat(Stage.ENTITY, wave, entities)
+        tasks.dispatch(Vanadium.config.serialEntityRulesKey(), scheduler.detailedDiagnostics,
+            { entities, longest -> scheduler.flatParticipants(Stage.ENTITY, entities, longest) }, body,
+            list::forEach) { wave, entities, participants ->
+            scheduler.runFlat(Stage.ENTITY, wave, entities, participants)
         }
         scheduler.profile?.let { tasks.recordLastWave(it, Stage.ENTITY) }
     }

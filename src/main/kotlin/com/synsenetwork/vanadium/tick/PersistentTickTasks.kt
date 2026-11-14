@@ -23,13 +23,19 @@ import java.util.function.LongSupplier
  * The wave is ordered by expected cost, so that long ticks start early instead of being claimed last and
  * leaving the other participants waiting for them. What predicts a member's cost is its kind ([Rules.kind]:
  * the entity type), not its own recent ticks: a member's long ticks are sporadic, while the share of long
- * ticks per kind is stable. Kinds run costliest first, each in member order (which keeps
+ * ticks per kind is stable. Kinds run in order of their costliest member ([Kind.longestNanos]), not of their
+ * mean: one long tick (a villager's path search that exhausts its node budget) outlasts the rest of a wave,
+ * so the kind that has them starts first even when another kind costs as much on average. Each kind runs in
+ * member order (which keeps
  * neighbours together where membership is spatial), and the wave is a fixed list of [Group]s: consecutive
  * members of one kind sized to about the same expected cost, about [GROUPS_PER_PARTICIPANT] per participant,
  * so that the worker pool claims them one at a time and costly members run alone. Each group times itself;
  * that is the only measurement, and it updates its kind's cost after the wave. Groups are cut again, without
  * visiting members, only when a kind's ideal size drifts; members are reordered only when the list is rebuilt
  * or a kind becomes clearly costlier than one ahead of it. Correctness never depends on the order.
+ *
+ * The longest group of each wave also feeds [longestNanos], the wave's expected critical path: the caller
+ * chooses the wave's participants from it ([Participants]), since a wave ends no sooner than its longest group.
  *
  * Not thread-safe apart from [changed] and [reclassify]; [dispatch] and [stop] belong to the server thread.
  */
@@ -61,9 +67,17 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
         fun tick(item: E, body: Consumer<E>)
     }
 
-    /** Runs a wave's [groups], which tick [members] members between them, as one flat wave. */
+    /** Runs a wave's [groups], which tick [members] members between them, as one flat wave of [participants] threads. */
     fun interface WaveRunner {
-        fun run(groups: List<Runnable>, members: Int)
+        fun run(groups: List<Runnable>, members: Int, participants: Int)
+    }
+
+    /**
+     * The threads, the caller included, to run a wave of [members] members with: it sizes the groups. [longestNanos]
+     * is the wave's expected longest group ([PersistentTickTasks.longestNanos]), 0 before any was measured.
+     */
+    fun interface Participants {
+        fun participants(members: Int, longestNanos: Double): Int
     }
 
     inner class Task internal constructor(@JvmField val item: E, internal val kind: Kind) : Runnable {
@@ -82,6 +96,12 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
     internal class Kind(val key: Any) {
         /** Smoothed wall time per member tick; 0 until measured. */
         var nanosPerTask = 0.0
+
+        /**
+         * Smoothed cost of the kind's costliest member: per wave, the largest per-member time of its groups (a costly
+         * kind's groups hold one member each, so that is its longest tick). Ranks the kinds; 0 until measured.
+         */
+        var longestNanos = 0.0
         var start = 0
         var count = 0
         internal var rank = 0
@@ -118,6 +138,7 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
                 }
             }
             val ended = clock.asLong
+            groupBegins[index] = began
             groupNanos[index] = ended - began
             groupEnds[index] = ended
             if (Thread.currentThread() === caller && ended > callerDone) callerDone = ended
@@ -151,6 +172,14 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
     private var sizes = IntArray(16)
     private var groupNanos = LongArray(INITIAL_GROUPS)
     private var groupEnds = LongArray(INITIAL_GROUPS)
+    private var groupBegins = LongArray(INITIAL_GROUPS)
+
+    /**
+     * The wave's expected longest group: smoothed per wave, rising slowly and falling fast, so a long group that
+     * stops recurring soon stops limiting the wave's participants. 0 until measured.
+     */
+    var longestNanos = 0.0
+        private set
 
     /** Whether [wave]'s groups match [order] and the kinds' sizes; cleared when either changes. */
     private var planned = false
@@ -182,21 +211,22 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
 
     /**
      * Brings the tasks up to date, runs serial members through [body] on the calling thread in list order,
-     * then passes the wave's groups and its member count to [runWave]. The list passed stays unchanged until
-     * the next call. [scan] visits every current member; it is used when tracking (re)starts. [participants]
-     * is the most threads the wave can have, the caller included; it sizes the groups.
+     * then passes the wave's groups, its member count and its participants to [runWave]. The list passed stays
+     * unchanged until the next call. [scan] visits every current member; it is used when tracking (re)starts.
+     * [participants] chooses the threads the wave has, the caller included; they size the groups.
      */
-    fun dispatch(rulesKey: Any?, labels: Boolean, participants: Int, body: Consumer<E>, scan: (Consumer<E>) -> Unit,
+    fun dispatch(rulesKey: Any?, labels: Boolean, participants: Participants, body: Consumer<E>, scan: (Consumer<E>) -> Unit,
                  runWave: WaveRunner) {
         update(rulesKey, labels, scan)
-        plan(participants)
+        val threads = if (waveSize == 0) 1 else maxOf(1, participants.participants(waveSize, longestNanos))
+        plan(threads)
         this.body = body
         try {
             for (i in serialTasks.indices) body.accept(serialTasks[i].item)
             caller = Thread.currentThread()
             waveStarted = clock.asLong
             callerDone = waveStarted
-            runWave.run(wave, waveSize)
+            runWave.run(wave, waveSize, threads)
             learn()
         } finally {
             this.body = null
@@ -337,7 +367,7 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
 
     /** Sorts [ranked] costliest first (unmeasured kinds first, so they are measured alone) and assigns segments. */
     private fun rank() {
-        ranked.sortWith(BY_COST)
+        ranked.sortWith(BY_LONGEST)
         var start = 0
         for ((rank, kind) in ranked.withIndex()) {
             kind.rank = rank
@@ -423,17 +453,18 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
         if (groupNanos.size < used) {
             groupNanos = LongArray(used + used / 2)
             groupEnds = LongArray(groupNanos.size)
+            groupBegins = LongArray(groupNanos.size)
         }
         if (groupPool.size > used * 2 + INITIAL_GROUPS) groupPool.subList(used * 2, groupPool.size).clear()
         planned = true
         plannedParticipants = participants
     }
 
-    /** Whether some kind is costlier, by more than [REORDER_MARGIN], than one ahead of it. */
+    /** Whether some kind's costliest member is costlier, by more than [REORDER_MARGIN], than one ahead of it. */
     private fun outOfOrder(): Boolean {
         for (r in 1 until ranked.size) {
-            val ahead = ranked[r - 1].nanosPerTask
-            val behind = ranked[r].nanosPerTask
+            val ahead = ranked[r - 1].longestNanos
+            val behind = ranked[r].longestNanos
             if (ahead > 0 && (behind == 0.0 || behind > ahead * REORDER_MARGIN)) return true
         }
         return false
@@ -450,31 +481,52 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
         return if (tasks == 0) DEFAULT_NANOS else nanos / tasks
     }
 
-    /** After a completed wave (every group ran): each kind's cost from its groups' times. */
+    /**
+     * After a completed wave (every group ran): each kind's mean and costliest-member cost from its groups' times,
+     * and the wave's longest group. Groups of a kind are equal but for one member (see [plan]), so a group's
+     * per-member time is its time over its size.
+     */
     private fun learn() {
         if (wave.isEmpty()) return
         val nanos = groupNanos
+        var waveLongest = 0L
         for (kind in ranked) {
             var sum = 0L
-            for (g in kind.firstGroup until kind.firstGroup + kind.groups) sum += nanos[g]
+            var costliest = 0.0
+            val base = kind.count / kind.groups
+            val extra = kind.count % kind.groups
+            for (g in kind.firstGroup until kind.firstGroup + kind.groups) {
+                val time = nanos[g]
+                sum += time
+                if (time > waveLongest) waveLongest = time
+                val perMember = time.toDouble() / (base + if (g - kind.firstGroup < extra) 1 else 0)
+                if (perMember > costliest) costliest = perMember
+            }
             val sample = sum.toDouble() / kind.count
-            kind.nanosPerTask = if (kind.nanosPerTask == 0.0) sample else kind.nanosPerTask + (sample - kind.nanosPerTask) * COST_SMOOTHING
+            kind.nanosPerTask = smooth(kind.nanosPerTask, sample, COST_SMOOTHING)
+            kind.longestNanos = smooth(kind.longestNanos, costliest, COST_SMOOTHING)
         }
+        val longest = waveLongest.toDouble()
+        longestNanos = smooth(longestNanos, longest, if (longest > longestNanos) LONGEST_RISE else LONGEST_FALL)
     }
 
+    private fun smooth(previous: Double, sample: Double, weight: Double): Double =
+        if (previous == 0.0) sample else previous + (sample - previous) * weight
+
     /**
-     * The last wave's shape for the profile: its groups, the longest one, and how many were still running when
-     * the dispatching thread finished its last group (the start of its tail wait). Server thread, after dispatch.
+     * The last wave's shape for the profile: its groups, the longest one and when it started after the wave did,
+     * and how many were still running when the dispatching thread finished its last group (the start of its tail
+     * wait). Server thread, after dispatch.
      */
     internal fun recordLastWave(profile: TickProfile, stage: Stage) {
         if (wave.isEmpty()) return
-        var longest = 0L
+        var longest = 0
         var running = 0
         for (g in wave.indices) {
-            longest = maxOf(longest, groupNanos[g])
+            if (groupNanos[g] > groupNanos[longest]) longest = g
             if (groupEnds[g] > callerDone) running++
         }
-        profile.recordFlatGroups(stage, wave.size, longest, running)
+        profile.recordFlatGroups(stage, wave.size, groupNanos[longest], groupBegins[longest] - waveStarted, running)
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -537,14 +589,21 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
 
         const val COST_SMOOTHING = 0.1
 
+        /** Smoothing of [longestNanos]: slow up, fast down, so an overestimate (which costs threads) is brief. */
+        const val LONGEST_RISE = 0.1
+        const val LONGEST_FALL = 0.5
+
         /** Assumed cost per member before any kind was measured. */
         const val DEFAULT_NANOS = 50_000.0
 
-        /** Unmeasured kinds first, then costliest first; ties keep their previous order (the sort is stable). */
-        val BY_COST = Comparator<Kind> { a, b ->
+        /**
+         * Unmeasured kinds first, then by costliest member, costliest first; ties keep their previous order (the
+         * sort is stable).
+         */
+        val BY_LONGEST = Comparator<Kind> { a, b ->
             when {
-                a.nanosPerTask == 0.0 || b.nanosPerTask == 0.0 -> (a.nanosPerTask != 0.0).compareTo(b.nanosPerTask != 0.0)
-                else -> b.nanosPerTask.compareTo(a.nanosPerTask)
+                a.longestNanos == 0.0 || b.longestNanos == 0.0 -> (a.longestNanos != 0.0).compareTo(b.longestNanos != 0.0)
+                else -> b.longestNanos.compareTo(a.longestNanos)
             }
         }
 

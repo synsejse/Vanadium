@@ -139,6 +139,25 @@ class TickSchedulerTest {
     }
 
     @Test
+    fun flatWavesGetNoMoreThreadsThanFinishWhileTheLongestTaskRuns() {
+        WorkerPool(35).use { pool ->
+            val scheduler = TickScheduler(pool, 1, participantCostNanos = 1.0, criticalPathShare = 0.8)
+            assertEquals(36, scheduler.flatParticipants(600, 60e6, 0.0), "unknown longest task: every worker")
+            // 60 ms with a 2.5 ms task: the other 57.5 ms over 2 ms slices is 29 threads, plus the one running it.
+            assertEquals(30, scheduler.flatParticipants(600, 60e6, 2.5e6))
+            // Short tasks (a balanced wave) bound nothing.
+            assertEquals(36, scheduler.flatParticipants(4096, 60e6, 50_000.0))
+            // A task nearly as long as the whole wave: one more thread runs what is left; the whole wave, none.
+            assertEquals(2, scheduler.flatParticipants(600, 60e6, 50e6))
+            assertEquals(1, scheduler.flatParticipants(600, 60e6, 60e6))
+            // The work estimate still bounds first.
+            assertEquals(1, TickScheduler(pool, 1, participantCostNanos = 1e9).flatParticipants(600, 60e6, 2.5e6))
+            assertEquals(36, TickScheduler(pool, 1, participantCostNanos = 1.0, criticalPathShare = 0.0)
+                .flatParticipants(600, 60e6, 2.5e6), "a share of 0 never bounds")
+        }
+    }
+
+    @Test
     fun cheapMeasuredWavesRunOnTheCaller() {
         WorkerPool(4).use { pool ->
             // Involving a thread "costs" a second, so any measured wave runs inline; the first is unmeasured.

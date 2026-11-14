@@ -90,7 +90,11 @@ the per-worker Dekker pairing (publish, then read `parked`) whoever does the wak
 where c (`vanadium.participantCostNanos`, 2 µs) is what involving one more thread costs.
 Region stages estimate W from `RegionGrid`; flat and preparation waves from the busy time
 `runWave` reports. Unmeasured waves use every worker; waves too small for a second thread
-run inline.
+run inline. A flat wave also knows its expected longest task L (the entity wave's longest
+group, smoothed: up a tenth, down half per wave). It cannot end before L does, so it gets no
+more than 1 + (W − L) / (0.8 L) threads (`vanadium.criticalPathShare`, 0.8; 0 disables): the
+others finish the rest within 80% of L. In a 600-mob fight at 36 workers that is ~29
+participants instead of 37; more would only spin through the tail.
 
 Idle spinning follows the tick (`SpinPolicy`). Under pressure (sprinting, or the next tick due
 within 2 ms of the end of this one, or within the worker lead below) workers spin 2 ms through
@@ -186,12 +190,19 @@ operations is vanilla's; a mod's own pairwise logic is covered only by the gener
 Wave order is a matter of balance only. A wave ends with its longest ticks, and in a crowd those are
 sporadic: in a 600-mob fight a villager tick runs 1.5–3.5 ms (twenty times its usual tick; earlier profiles
 put pathfinding there) about once every 40 ticks, unpredictably for the entity but steadily for its type. Wave tasks therefore persist in
-groups (`PersistentTickTasks`): entity types run costliest first, each in tick-list order, in groups of
+groups (`PersistentTickTasks`): entity types run in order of their costliest member (per wave, the largest
+per-entity time among the type's groups, smoothed), not their mean, so the type with the long ticks starts
+first even when another type costs as much on average. In that fight about 95% of the longest tick of each
+wave is one `PathFinder.findPath` call that ends without reaching its target (a different villager each
+tick), and the wave ends just after it. Each type runs in tick-list order, in groups of
 one type cut to about equal expected cost, ten per participant, so the pool claims them one at a time
 and costly entities run alone. Groups time themselves (two clock reads per group, not per entity) and
 those times are each type's cost. Groups are recut only when a type's ideal size drifts 25% from its
-current one, and entities reordered only when the list is rebuilt or a type becomes 25% costlier than one
-ahead of it, so a steady wave costs the server thread nothing per entity or per group.
+current one, and entities reordered only when the list is rebuilt or a type's costliest member becomes 25%
+costlier than that of one ahead of it, so a steady wave costs the server thread nothing per entity or per
+group. Profiles report each flat wave's longest group, when it started after the wave did
+(`longestGroupStart`), the groups still running when the caller ran out of work, and the average
+participants.
 
 Overlapping ticks can also fail where serial ticks cannot: a value read after another tick removed
 it. Such failures do not repeat, so with `skipFailedEntityTicks` one failed tick is logged and its
