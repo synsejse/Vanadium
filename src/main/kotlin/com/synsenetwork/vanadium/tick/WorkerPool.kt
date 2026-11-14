@@ -115,7 +115,7 @@ class WorkerPool internal constructor(
             batch.participate(caller)
             val waitStart = if (callerWait != null) System.nanoTime() else 0
             try {
-                batch.awaitCompletion(caller)
+                batch.awaitCompletion(caller, maxOf(CALLER_SPIN_NANOS, spin.callerSpinNanos))
             } finally {
                 callerWait?.accept(System.nanoTime() - waitStart)
             }
@@ -396,13 +396,14 @@ class WorkerPool internal constructor(
         }
 
         /**
-         * The caller's wait for the tail. It serves helpers' requests as they arrive: a helper waiting for one keeps
-         * its task, and so this wait, from finishing. A requester unparks the caller after queueing, so a request
-         * queued after the check below leaves a permit and the park returns at once.
+         * The caller's wait for the tail: it spins up to [spinNanos], then parks until the last task finishes. It
+         * serves helpers' requests as they arrive: a helper waiting for one keeps its task, and so this wait, from
+         * finishing. A requester unparks the caller after queueing, so a request queued after the check below leaves
+         * a permit and the park returns at once.
          */
-        fun awaitCompletion(serving: CallerState?) {
+        fun awaitCompletion(serving: CallerState?, spinNanos: Long) {
             var interrupted = false
-            val deadline = System.nanoTime() + CALLER_SPIN_NANOS
+            val deadline = System.nanoTime() + spinNanos
             while (counters.get(REMAINING) != 0) {
                 if (serving != null && serving.hasRequests) {
                     serving.serveRequests()
@@ -528,7 +529,10 @@ class WorkerPool internal constructor(
     }
 
     companion object {
-        /** Caller spin while waiting for the wave tail before parking. */
+        /**
+         * Least caller spin while waiting for the wave tail before parking; [SpinPolicy.callerSpinNanos] raises it
+         * under pressure.
+         */
         private val CALLER_SPIN_NANOS = java.lang.Long.getLong("vanadium.callerSpinMicros", 200) * 1_000L
 
         /**
@@ -775,6 +779,8 @@ internal class SpinPolicy(
     private val hotNanos: Long = HOT_SPIN_MICROS * 1_000L,
     /** How long before a tick is due the server thread starts spinning in [IdleWorkers.BALANCED]. */
     private val serverLeadNanos: Long = DEFAULT_SERVER_LEAD_MICROS * 1_000L,
+    /** How long a wave's caller spins for its tail under pressure; see [callerSpinNanos]. */
+    private val callerPressureNanos: Long = CALLER_PRESSURE_SPIN_MICROS * 1_000L,
 ) {
     /** What the pool does at the end of a tick. */
     enum class Gap {
@@ -793,6 +799,15 @@ internal class SpinPolicy(
 
     @Volatile
     var workerSpinNanos: Long = longNanos
+        private set
+
+    /**
+     * How long a wave's caller (the server thread) spins for the wave's tail before parking. Its wake-up delays the
+     * tick itself, not only a later wave, and it waits on its own processor; so under pressure (and without tick
+     * events) it spins through tails of up to [callerPressureNanos]: a combat tick's tail is one long entity tick,
+     * often longer than a worker's budget. With slack it spins as long as an idle worker would. Read by the caller.
+     */
+    var callerSpinNanos: Long = if (fixed) longNanos else maxOf(longNanos, callerPressureNanos)
         private set
 
     /**
@@ -879,6 +894,11 @@ internal class SpinPolicy(
             inTick -> shortNanos
             else -> 0L
         }
+        callerSpinNanos = when {
+            fixed -> longNanos
+            underPressure -> maxOf(workerSpinNanos, callerPressureNanos)
+            else -> workerSpinNanos
+        }
     }
 
     companion object {
@@ -895,6 +915,13 @@ internal class SpinPolicy(
         private const val HOT_SPIN_MICROS = 50_000L
 
         /**
+         * Caller spin for a wave's tail under pressure (`vanadium.callerPressureSpinMicros`): longer than the tail of a
+         * 600-mob fight at 36 to 48 workers (1.5 to 2.5 ms, one villager's path search), where 2 ms measured no
+         * better than 200 µs and 5 ms clearly better.
+         */
+        private val CALLER_PRESSURE_SPIN_MICROS = java.lang.Long.getLong("vanadium.callerPressureSpinMicros", 10_000L)
+
+        /**
          * How long before the next tick [IdleWorkers.BALANCED] wakes workers; none by default, as no lead from
          * 0.5 to 10 ms made 20 TPS ticks faster on the Xeon VM (see docs/PERFORMANCE.md).
          */
@@ -907,8 +934,9 @@ internal class SpinPolicy(
         const val DEFAULT_SERVER_LEAD_MICROS = Long.MAX_VALUE / 1_000L
 
         /**
-         * `vanadium.workerSpinMicros` fixes the spin and ignores ticks; `vanadium.workerSlackSpinMicros` sets the
-         * short one, `vanadium.prewakeLeadMicros` the lead, and `vanadium.idleWorkers` forces a mode.
+         * `vanadium.workerSpinMicros` fixes the spin (the caller's included) and ignores ticks;
+         * `vanadium.workerSlackSpinMicros` sets the short one, `vanadium.prewakeLeadMicros` the lead,
+         * `vanadium.callerPressureSpinMicros` the caller's under pressure, and `vanadium.idleWorkers` forces a mode.
          */
         fun fromSystemProperties(): SpinPolicy {
             val fixedMicros = java.lang.Long.getLong("vanadium.workerSpinMicros")

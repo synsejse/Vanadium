@@ -74,7 +74,7 @@ between conflicting regions may change between ticks.
 
 `WorkerPool` publishes one immutable `WorkBatch`; both helpers and the calling server
 thread claim work. One-task waves run inline. Helpers spin before parking; the caller
-spins then parks for the tail. Late helpers use a saved task count, never a list
+spins then parks for the tail (under pressure through tails of up to 10 ms, below). Late helpers use a saved task count, never a list
 that the caller has cleared. Interruption restores the caller's flag only after all work
 finishes. Never hold a monitor needed by workers while joining a wave.
 
@@ -114,6 +114,13 @@ fires no tick events at all. Tick events are the only input: tests and benchmark
 spin 2 ms. `vanadium.workerSpinMicros` fixes the worker spin and ignores ticks;
 `vanadium.idleWorkers` forces a mode; `vanadium.workerSlackSpinMicros`,
 `vanadium.callerSpinMicros`, `vanadium.callerWakes` and `vanadium.prewake` tune the rest.
+
+The wave's caller (the server thread) waits for the tail on its own processor, and its wake-up
+delays the tick itself. Under pressure it spins through tails of up to 10 ms
+(`vanadium.callerPressureSpinMicros`) before parking; with slack it spins as long as an idle
+worker would (at least `vanadium.callerSpinMicros`, 200 µs). The other way round does not
+work: shorter worker spins (10 or 100 µs fixed) halved sprint TPS in a 600-mob fight, and the
+longest entity tick itself took twice as long while the others parked and woke.
 
 **Server spin.** At 20 TPS on the test VM a tick after a long sleep can take twice as long as
 the same tick under `/tick sprint`; see [PERFORMANCE.md](PERFORMANCE.md#idle-workers-at-20-tps).
