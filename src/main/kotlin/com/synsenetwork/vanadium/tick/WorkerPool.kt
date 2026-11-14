@@ -915,9 +915,9 @@ internal class SpinPolicy(
         private const val HOT_SPIN_MICROS = 50_000L
 
         /**
-         * Caller spin for a wave's tail under pressure (`vanadium.callerPressureSpinMicros`): longer than the tail of a
-         * 600-mob fight at 36 to 48 workers (1.5 to 2.5 ms, one villager's path search), where 2 ms measured no
-         * better than 200 µs and 5 ms clearly better.
+         * Caller spin for a wave's tail under pressure (`vanadium.callerPressureSpinMicros`): well past the tail of a
+         * 600-mob fight at 36 to 48 workers (1 to 2.5 ms on average, one villager's path search), so the caller
+         * parks only for waves that run long.
          */
         private val CALLER_PRESSURE_SPIN_MICROS = java.lang.Long.getLong("vanadium.callerPressureSpinMicros", 10_000L)
 
