@@ -242,17 +242,19 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
 
     /**
      * [dispatch] with [homes] homes ([WaveHomes]; 0 or 1 for none): each participant then runs the same slice of
-     * every kind from wave to wave, with kinds still claimed costliest first.
+     * every kind from wave to wave, with kinds still claimed costliest first. Only a wave that gets [homes]
+     * participants has homes. One with fewer is bounded by its longest group ([Participants]); there homes measured
+     * 5% slower in a 600-mob fight and changed no cache traffic, and slots would own a varying number of homes.
      */
     fun dispatch(rulesKey: Any?, labels: Boolean, homes: Int, participants: Participants, body: Consumer<E>,
                  scan: (Consumer<E>) -> Unit, runWave: WaveRunner) {
-        val homeCount = if (homes > 1) homes else 0
+        update(rulesKey, labels, scan)
+        val threads = if (waveSize == 0) 1 else maxOf(1, participants.participants(waveSize, longestNanos))
+        val homeCount = if (homes > 1 && threads >= homes) homes else 0
         if (homeCount != this.homeCount) {
             this.homeCount = homeCount
             planned = false
         }
-        update(rulesKey, labels, scan)
-        val threads = if (waveSize == 0) 1 else maxOf(1, participants.participants(waveSize, longestNanos))
         plan(threads)
         this.body = body
         try {

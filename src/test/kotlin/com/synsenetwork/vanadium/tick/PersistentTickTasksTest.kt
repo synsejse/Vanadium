@@ -74,7 +74,7 @@ class PersistentTickTasksTest {
                 clock.addAndGet(item.cost)
                 during(item)
             }, { visit -> members.sortedBy { it.id }.forEach(visit::accept) }) { list, units, _, layout ->
-                assertEquals(homes > 1, layout != null)
+                assertEquals(homes > 1 && participants >= homes, layout != null)
                 inWave = true
                 if (layout != null) {
                     assertEquals(homes, layout.homes)
@@ -465,9 +465,14 @@ class PersistentTickTasksTest {
         assertEquals(listOf(listOf(0, 1), listOf(2, 3), listOf(4, 5, 6)), (0 until 3).map { f.cells[0 to it] })
         assertEquals(listOf(13, 13, 14), (0 until 3).map { f.cells[1 to it]!!.size })
         assertEquals(light.map { it.id }, (0 until 3).flatMap { f.cells[1 to it]!! })
-        // An unchanged list keeps its cells, whatever the participants.
+        // An unchanged list keeps its cells from tick to tick.
         val cells = HashMap(f.cells)
+        f.tick(participants = 3, homes = 3)
+        assertEquals(cells, f.cells)
+        // Fewer participants than homes (a wave bounded by its longest group): no homes, until all take part again.
         f.tick(participants = 2, homes = 3)
+        assertTrue(f.cells.isEmpty())
+        f.tick(participants = 3, homes = 3)
         assertEquals(cells, f.cells)
         // Without homes, no layout and no slicing.
         f.tick(participants = 3)
@@ -478,25 +483,25 @@ class PersistentTickTasksTest {
     @Test
     fun groupsOfUnequalSizeKeepTheirCut() {
         val f = Fixture()
-        // 50 members, one participant: groups of about 5 (a tenth of the wave), cut within slices of 16, 17 and 17.
-        val items = List(50) { Item(it, "a", 1_000) }
+        // 151 members, three participants: groups of about 5 (a thirtieth of the wave), cut within slices of 50, 50, 51.
+        val items = List(151) { Item(it, "a", 1_000) }
         items.forEach(f::add)
-        f.tick(participants = 1, homes = 3)
+        f.tick(participants = 3, homes = 3)
         val seen = ArrayList<Double>()
         repeat(5) {
             f.tasks.dispatch(f.rulesKey, false, 3, { _, longest ->
                 seen.add(longest)
-                1
+                3
             }, { f.clock.addAndGet(it.cost) }, { }) { list, _, _, homes ->
                 assertEquals(3, homes!!.homes)
                 list.forEach(Runnable::run)
             }
         }
-        f.tick(participants = 1, homes = 3)
-        assertEquals(listOf(4, 4, 4, 4, 5, 4, 4, 4, 5, 4, 4, 4), f.groups.map { it.size })
+        f.tick(participants = 3, homes = 3)
+        assertEquals(List(27) { 5 } + List(4) { 4 }, f.groups.map { it.size })
         assertEquals(5_000.0, seen.last(), "the longest group's time")
         val groups = f.tasks.waveGroups.toList()
-        repeat(3) { f.tick(participants = 1, homes = 3) }
+        repeat(3) { f.tick(participants = 3, homes = 3) }
         assertEquals(groups, f.tasks.waveGroups, "equal cost per member: no new cut")
     }
 }
