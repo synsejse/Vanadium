@@ -219,7 +219,8 @@ Spatial indexes remain domain logic rather than general-purpose containers. `Are
 paints nearby-player ranges and updates only their symmetric difference. `EntitySectionIndex`
 visits only columns intersecting an entity query, preserving vanilla's packed-key order. Each
 chunk column is one immutable entry (sorted Ys and their sections) replaced on change, so a column
-costs one lock-free map read and readers never see half of a write.
+costs one lock-free map read and readers never see half of a write. Entity box queries pass their box,
+type and consumer down to each section instead of vanilla's per-query section lambda.
 A section holding 24 or more entities also gets a `CrowdedSection` grid (2×4×2-block cells; built on
 the server thread after the level's ticks, when no box is being written; dropped below half that). It
 only prefilters small box queries such as pushing, which otherwise read every entity's box in the
@@ -231,7 +232,9 @@ nothing and takes no lock). A reader that saw any write overlap it scans the sec
 Box writes from another tick to an entity in a crowded section wait for its owner, as position writes
 do; after an unprotected write (ownership timeout or cycle), grids are bypassed until rebuilt.
 `NavigationIndex` filters invalidation candidates; dirty/custom/long-path cases retain a
-conservative fallback. It does not run pathfinding asynchronously.
+conservative fallback. It does not run pathfinding asynchronously. The level's path-type cache, read by
+every pathfinding mob, keeps each entry in one atomic long (`PathTypeSlots`: the position hash's high
+bits and the type), so lookups take no lock and stores allocate nothing.
 
 ## World access
 
@@ -303,7 +306,9 @@ Lithium 0.26.3+ is required; Vanadium compiles against it. `fabric.mod.json` dis
 `lithium:options`, the Lithium options whose job Vanadium does with thread-safe structures: chunk
 access, entity class filtering and per-type lists, entity retrieval, the entity tick list, navigation
 tracking and the profiler. It also disables `alloc.chunk_random`, which shares one mutable position per
-world between parallel random ticks. The rest stay enabled, and Lithium state that parallel stages
+world between parallel random ticks, and the experimental suffocation cache
+(`experimental.entity.block_caching.suffocation`, off by default): Vanadium's `isInWall` is an
+allocation-free loop with vanilla's checks. The rest stay enabled, and Lithium state that parallel stages
 share is made safe:
 
 - Entity class groups (`ClassGroupFilterableList`) come from Vanadium's copy-on-write
