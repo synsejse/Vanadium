@@ -54,6 +54,8 @@ class ServerIntegrationChecks : ModInitializer {
             SpawnCountChecks.run(server)
             ItemChecks.run(level)
             ChunkPacketChecks.run(level)
+            // Last: its forced chunk changes tickets, and EntitySectionChecks does not wait for C2ME simulation levels.
+            EntityHotPathChecks.run(level)
             ReportChecks.start(server)
             println("INTEGRATION_CHECKS_PASSED")
             // Checks that need real ticks; the run finishes only after they pass.
