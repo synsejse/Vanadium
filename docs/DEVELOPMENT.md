@@ -2,7 +2,7 @@
 
 Minecraft **26.3**, official unobfuscated names, Java **25**. Versions and the C2ME release
 URL/checksum and Loom/JCTools versions are pinned in `gradle.properties`; Kotlin is pinned
-in `build.gradle.kts` and Gradle by the wrapper. Use `nix develop` and the checked-in `./gradlew`.
+in `build.gradle.kts` and Gradle by the wrapper. Use `nix-shell` or `nix develop` and the checked-in `./gradlew`.
 Initial dependency resolution needs network access.
 
 Player-facing settings and commands are in [configuration](CONFIGURATION.md).
@@ -145,6 +145,17 @@ publishing new measurements. Stage and world profile intervals overlap; do not a
 `./gradlew runServer` and `runClient` retain their normal Loom behavior. For interactive
 use, place the verified C2ME and Lithium releases in that run directory's `mods/`,
 avoiding duplicate versions. `-PvanadiumRunDir=/absolute/path` selects a separate interactive server directory.
-The Nix shell supplies JDK diagnostic tools and Linux Vulkan/OpenGL loaders; graphical
-clients still require a working host display/driver. Do not delete live Gradle cache locks
-if IDE imports contend with the CLI; let the other operation finish instead.
+Start the development client with:
+
+```sh
+nix-shell --run './gradlew runClient'
+```
+
+Or enter `nix-shell` first, then run `./gradlew runClient`. `nix develop -c ./gradlew runClient`
+uses the same shell definition in `nix/shell.nix`; both entry points use the nixpkgs version
+pinned by `flake.lock`. A separate Nix channel is not needed.
+The shell supplies Java 25, JDK diagnostic tools, and Linux graphics/display/audio libraries.
+Graphical clients still use the host display and GPU driver; launch from your desktop session.
+
+Do not delete live Gradle cache locks if IDE imports contend with the CLI; let the other
+operation finish instead.
