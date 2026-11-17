@@ -30,4 +30,9 @@ public abstract class PoiDistanceTrackerMixin extends SectionTracker implements 
     public int vanadium$storedLevel(long sectionPos) {
         return levels.get(sectionPos);
     }
+
+    @Override
+    public int vanadium$levelFromSource(long sectionPos) {
+        return getLevelFromSource(sectionPos);
+    }
 }

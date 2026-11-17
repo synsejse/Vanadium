@@ -45,6 +45,7 @@ class ServerIntegrationChecks : ModInitializer {
             runCheck("ServerThreadChunkChecks.run") { ServerThreadChunkChecks.run(level) }
             runCheck("ChunkWaitChecks.run") { ChunkWaitChecks.run(level) }
             runCheck("LithiumChecks.run") { LithiumChecks.run(level) }
+            runCheck("PoiChecks.run") { PoiChecks.run(level) }
             runCheck("FlatEntityChecks.run") { FlatEntityChecks.run(level) }
             runCheck("SectionMoveChecks.run") { SectionMoveChecks.run(level) }
             runCheck("TickSafetyChecks.run") { TickSafetyChecks.run(level) }

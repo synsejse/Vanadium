@@ -23,9 +23,14 @@ public class SynchronisePlugin implements IMixinConfigPlugin {
     private static final String RAND_VALUE = "com.synsenetwork.vanadium.mixin.world.RandValueMixin";
     private static final Set<String> RAND_VALUE_OWNERS = Set.of("net/minecraft/world/level/Level", "net/minecraft/server/level/ServerLevel");
     private static final String RAND_VALUE_STATE = "com/synsenetwork/vanadium/concurrent/PerThreadRandValue";
-    /** Methods that only read volatile state; locking them would serialize hot read paths. */
+    /**
+     * Methods that only read volatile or concurrent state; locking them would serialize hot read paths.
+     * {@code PoiSection.getRecords} builds a lazy stream over the concurrent per-type sets, consumed after the
+     * monitor would be released anyway; it runs under the POI distance graph's monitor, which takes no other lock.
+     */
     private static final Set<String> UNSYNCHRONIZED = Set.of(
-            "net.minecraft.world.level.lighting.DynamicGraphMinFixedPoint#hasWork");
+            "net.minecraft.world.level.lighting.DynamicGraphMinFixedPoint#hasWork",
+            "net.minecraft.world.entity.ai.village.poi.PoiSection#getRecords");
 
     @Override
     public void onLoad(String mixinPackage) {

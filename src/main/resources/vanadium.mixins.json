@@ -65,6 +65,7 @@
     "world.entity.PersistentEntitySectionManagerMixin",
     "world.poi.PoiDistanceTrackerMixin",
     "world.poi.PoiManagerMixin",
+    "world.poi.PoiRecordMixin",
     "world.storage.SectionStorageMixin",
     "world.storage.SavedDataStorageMixin",
     "world.GameEventDispatcherMixin",

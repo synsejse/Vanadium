@@ -323,7 +323,8 @@ bits and the type), so lookups take no lock and stores allocate nothing.
   same column wait for its first loader, which reads off the server thread; vanilla let a second
   caller read the column before its sections were stored. POI sections synchronize their methods,
   and their per-type map and sets are concurrent: vanilla's record streams and Lithium's iterators
-  are consumed after the section's lock is released, while other regions add POI.
+  are consumed after the section's lock is released, while other regions add POI. Records and the
+  village distance graph follow [POI locking](#poi-locking).
 - Saved-data cache hits are concurrent; misses and snapshot creation synchronize separately
   from asynchronous disk writes. Never hold that monitor across `saveAndJoin` or close waits.
 - Immutable path-type entries prevent torn key/type reads. POI and simulation levels use
@@ -333,6 +334,53 @@ bits and the type), so lookups take no lock and stores allocate nothing.
 
 Isolation does not protect arbitrary cross-region interactions. Shared world monitors and
 collection contracts are still required. Neighbor propagation retains its world monitor.
+
+### POI locking
+
+Villagers in the flat entity wave claim, release and search POI from any thread, and each ticket
+change re-evaluates its section's village-centre level in the distance graph
+(`PoiManager.DistanceTracker`). The monitors, outermost first:
+
+1. A column's unpack stripe (`SectionStorageMixin`), or vanilla's `loadLock` when the server thread
+   unpacks prefetched columns: held while the column's sections are created and `onSectionLoad`
+   reaches the graph. The stripe spans the column's disk read; no section or graph monitor does.
+2. A section's monitor (`SyncAllMixin`): its record map and structural changes (`add`, `remove`,
+   `release`, `refresh`), point reads and Lithium's merged queries, which run status tests and
+   callers' position predicates inside it. `getRecords` only builds a lazy stream over the
+   concurrent per-type sets, so it is left unsynchronized (`SynchronisePlugin`).
+3. The graph's monitor (`DynamicGraphMinFixedPoint` methods, synchronized): terminal. Inside it only
+   the graph's own state, the concurrent section map (`get`, which never loads), the concurrent
+   per-type sets and ticket counts are read. It never waits for another monitor, for disk IO or for a
+   section being created.
+
+Records hold no monitor (`PoiRecordMixin`): tickets change by compare-and-set and are read as
+volatile, and the section's dirty callback runs after the swap. A claim therefore holds nothing, a
+release holds its section, a load holds its stripe, and each takes the graph last. Records used to be
+synchronized too, which deadlocked two villagers: a claim held a record while its dirty callback's
+village check waited for that record's section, and a section read (`getType`) held the section while
+waiting for the record.
+
+Vanilla computes the level it publishes before taking the graph's monitor, so two threads changing one
+section could publish in the opposite order to their reads and leave a stale village centre (or miss
+one). `PoiManagerMixin` re-reads the level inside the monitor: the last update for a section follows
+every change made before it, and the graph converges on the current POI state.
+
+Saving reads ticket counts after the dirty mark: a ticket changes before its column is marked dirty
+(concurrent set), and a write removes the mark before packing, so it either includes the change or the
+column stays marked for a later write.
+
+Limits, unchanged by this ordering:
+
+- C2ME's POI unloading (`chunkSystem.allowPOIUnloading`) flushes and drops a column on the server
+  thread, which can run chunk-system work mid-wave. It does not notify the graph, so levels near the
+  column stay as they were until a nearby update (as with C2ME on vanilla), and a ticket claimed on a
+  record of that column during the unload is lost when the column reloads (logged as "No data for
+  position").
+- A claim of a record that a concurrent block change removes is ordered as claim, then removal: the
+  ticket goes with the record, and vanilla's job-site validation drops the memory.
+- Lithium's queries run callers' predicates under a section monitor. Vanilla's and Lithium's predicates
+  take no POI monitor; a mod predicate that took another section's monitor, or waited for the server
+  thread, could still stall that section.
 
 ## Preparation and networking
 
