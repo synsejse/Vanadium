@@ -1,5 +1,6 @@
 package com.synsenetwork.vanadium.integration
 
+import com.synsenetwork.vanadium.live.TestPlayer
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.network.protocol.game.ClientboundAddEntityPacket
