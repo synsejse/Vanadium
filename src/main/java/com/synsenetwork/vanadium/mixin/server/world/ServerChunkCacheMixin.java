@@ -1,5 +1,6 @@
 package com.synsenetwork.vanadium.mixin.server.world;
 
+import com.llamalad7.mixinextras.injector.ModifyReturnValue;
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
@@ -7,7 +8,7 @@ import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.tick.Stage;
 import com.synsenetwork.vanadium.tick.ChunkTickAccess;
 import com.synsenetwork.vanadium.tick.ChunkTickBatch;
-import com.synsenetwork.vanadium.tick.SpawnPreparation;
+import com.synsenetwork.vanadium.tick.SpawnCounts;
 import com.synsenetwork.vanadium.tick.SpawnTasks;
 import java.util.Collections;
 import java.util.List;
@@ -45,7 +46,28 @@ public abstract class ServerChunkCacheMixin implements ChunkTickAccess {
             target = "Lnet/minecraft/world/level/NaturalSpawner;createState(ILnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/level/NaturalSpawner$ChunkGetter;Lnet/minecraft/world/level/LocalMobCapCalculator;)Lnet/minecraft/world/level/NaturalSpawner$SpawnState;"))
     private NaturalSpawner.SpawnState prepareSpawning(int count, ServerLevel level,
             NaturalSpawner.ChunkGetter chunks, LocalMobCapCalculator caps) {
-        return SpawnPreparation.count(count, level, chunks, caps, chunkMap);
+        return vanadium$spawnCounts().prepare(count, chunks, caps);
+    }
+
+    @Shadow private NaturalSpawner.SpawnState lastSpawnState;
+
+    @Unique
+    private SpawnCounts vanadium$spawnCounts;
+
+    @Unique
+    private SpawnCounts vanadium$spawnCounts() {
+        if (vanadium$spawnCounts == null) vanadium$spawnCounts = new SpawnCounts(level, chunkMap);
+        return vanadium$spawnCounts;
+    }
+
+    /** A count skipped while nothing used it is made when first read; see {@link SpawnCounts}. */
+    @ModifyReturnValue(method = "getLastSpawnState", at = @At("RETURN"))
+    private NaturalSpawner.SpawnState countSkippedSpawnState(NaturalSpawner.SpawnState stored) {
+        SpawnCounts counts = vanadium$spawnCounts;
+        if (counts == null) return stored;
+        NaturalSpawner.SpawnState state = counts.observe(stored);
+        if (state != stored && state != null) lastSpawnState = state;
+        return state;
     }
 
     @Shadow

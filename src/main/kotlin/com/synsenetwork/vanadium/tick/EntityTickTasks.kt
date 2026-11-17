@@ -20,12 +20,16 @@ class EntityTickTasks(private val list: EntityTickList, private val active: Int2
 
     /**
      * Runs this tick's entities: serial-rule entities inline with [body], in order, then the rest as one wave,
-     * costliest entity types first ([PersistentTickTasks]).
+     * entity types with the costliest ticks first ([PersistentTickTasks]), on as many threads as finish the rest
+     * while the longest tick runs ([TickScheduler.flatParticipants]). The wave has a home per possible participant
+     * ([WaveHomes]): each thread ticks the same entities from tick to tick, so their data stays in its core's caches.
      */
     fun dispatch(scheduler: TickScheduler, body: Consumer<Entity>) {
-        tasks.dispatch(Vanadium.config.serialEntityRulesKey(), scheduler.detailedDiagnostics, scheduler.workerCount + 1, body,
-            list::forEach) { wave, entities ->
-            scheduler.runFlat(Stage.ENTITY, wave, entities)
+        tasks.dispatch(Vanadium.config.serialEntityRulesKey(), scheduler.detailedDiagnostics,
+            if (HOMES) scheduler.workerCount + 1 else 0,
+            { entities, longest -> scheduler.flatParticipants(Stage.ENTITY, entities, longest) }, body,
+            list::forEach) { wave, entities, participants, homes ->
+            scheduler.runFlat(Stage.ENTITY, wave, entities, participants, homes)
         }
         scheduler.profile?.let { tasks.recordLastWave(it, Stage.ENTITY) }
     }
@@ -46,4 +50,9 @@ class EntityTickTasks(private val list: EntityTickList, private val active: Int2
     override fun kind(item: Entity): Any = item.type
 
     override fun tick(item: Entity, body: Consumer<Entity>) = Interactions.tick(item, body)
+
+    private companion object {
+        /** Whether the entity wave has homes ([WaveHomes]); `-Dvanadium.entityHomes=false` claims it in list order. */
+        private val HOMES = System.getProperty("vanadium.entityHomes", "true").toBoolean()
+    }
 }

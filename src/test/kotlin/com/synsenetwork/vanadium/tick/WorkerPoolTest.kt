@@ -915,4 +915,137 @@ class WorkerPoolTest {
         const val MINUTE = 60_000_000_000L
         const val LEAD = 60_000_000_000L
     }
+
+    /** One participant owns every home: phase by phase, homes in order, each cell from its front. */
+    @Test
+    fun aLoneCallerRunsAHomedWaveInLayoutOrder() {
+        WorkerPool(2).use { pool ->
+            val ran = ArrayList<Int>()
+            val tasks = List(9) { i -> Runnable { ran.add(i) } }
+            // Two phases over two homes: cells [0,2) [2,5) | [5,6) [6,9).
+            val homes = WaveHomes(2).apply {
+                reset(2)
+                set(0, 0, 0); set(0, 1, 2); set(1, 0, 5); set(1, 1, 6); set(2, 0, 9)
+            }
+            pool.runWave(tasks, null, 1, homes)
+            assertEquals((0 until 9).toList(), ran)
+        }
+    }
+
+    /**
+     * Each slot runs its own home: the caller (slot 0) home 0, worker i home i + 1. Every task waits at a barrier of
+     * all participants, and a participant takes its own home's next task before anything else, so no task can be
+     * stolen before every participant holds one of its own.
+     */
+    @Test
+    fun eachParticipantRunsItsOwnHomeFirst() {
+        repeat(20) {
+            WorkerPool(2).use { pool ->
+                val barrier = CyclicBarrier(3)
+                val ranOn = arrayOfNulls<String>(6)
+                val tasks = List(6) { i ->
+                    Runnable {
+                        ranOn[i] = Thread.currentThread().name
+                        barrier.await(10, TimeUnit.SECONDS)
+                    }
+                }
+                val homes = WaveHomes(3).apply {
+                    reset(1)
+                    set(0, 0, 0); set(0, 1, 2); set(0, 2, 4); set(1, 0, 6)
+                }
+                val caller = Thread.currentThread().name
+                pool.runWave(tasks, null, 3, homes)
+                assertEquals(listOf(caller, caller, "Vanadium-Worker-1", "Vanadium-Worker-1", "Vanadium-Worker-2", "Vanadium-Worker-2"),
+                    ranOn.toList())
+            }
+        }
+    }
+
+    /** Homed waves of every shape run each task exactly once, with stealing, fewer participants than homes and reuse of the layout. */
+    @Test
+    fun homedWavesRunEveryTaskOnce() {
+        WorkerPool(5).use { pool ->
+            val random = java.util.Random(42)
+            val homes = WaveHomes(6)
+            repeat(300) { wave ->
+                val phases = 1 + random.nextInt(4)
+                val count = random.nextInt(200)
+                val visits = AtomicIntegerArray(count)
+                val tasks = List(count) { i ->
+                    Runnable {
+                        visits.incrementAndGet(i)
+                        if (i % 7 == 0) LockSupport.parkNanos(20_000)
+                    }
+                }
+                // Random cell boundaries, some cells empty.
+                val cuts = (List(phases * 6 - 1) { random.nextInt(count + 1) } + 0).sorted()
+                homes.reset(phases)
+                for (cell in cuts.indices) homes.set(cell / 6, cell % 6, cuts[cell])
+                homes.set(phases, 0, count)
+                pool.runWave(tasks, null, 1 + wave % 7, homes)
+                for (i in 0 until count) assertEquals(1, visits.get(i), "wave $wave task $i")
+            }
+        }
+    }
+
+    /** A homed wave runs every task even when some throw, then reports the first failure, as a list-order wave does. */
+    @Test
+    fun homedWavesRunEveryTaskThenFail() {
+        WorkerPool(3).use { pool ->
+            val visits = AtomicIntegerArray(40)
+            val tasks = List(40) { i ->
+                Runnable {
+                    visits.incrementAndGet(i)
+                    if (i % 9 == 4) throw IllegalStateException("task $i")
+                }
+            }
+            val homes = WaveHomes(4).apply {
+                reset(2)
+                for (cell in 0 until 8) set(cell / 4, cell % 4, cell * 5)
+                set(2, 0, 40)
+            }
+            val failure = assertFailsWith<RuntimeException> { pool.runWave(tasks, null, 4, homes) }
+            assertIs<IllegalStateException>(failure.cause)
+            for (i in 0 until 40) assertEquals(1, visits.get(i), "task $i")
+        }
+    }
+
+    /**
+     * The caller serves a helper's [WorkerPool.callOnWaveCaller] request between the claims of its own home: its first
+     * task returns once the request is queued, and its second finds it served already.
+     */
+    @Test
+    fun theCallerServesRequestsBetweenClaimsInAHomedWave() {
+        WorkerPool(1).use { pool ->
+            val caller = AtomicReference<Thread?>()
+            val ranOn = AtomicReference<Thread?>()
+            val servedBeforeSecond = AtomicBoolean(false)
+            val served = AtomicBoolean(false)
+            val tasks = listOf(
+                Runnable {
+                    val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+                    while (!WorkerPool.callerHasRequests() && System.nanoTime() < deadline) Thread.onSpinWait()
+                },
+                Runnable { servedBeforeSecond.set(served.get()) },
+                Runnable {
+                    ranOn.set(WorkerPool.callOnWaveCaller(java.util.function.Supplier {
+                        served.set(true)
+                        Thread.currentThread()
+                    }))
+                },
+            )
+            // The caller (slot 0) owns home 0, tasks 0 and 1; the worker (slot 1) owns home 1, task 2. The caller is
+            // inside task 0 until the worker has claimed task 2 and queued its request.
+            val homes = WaveHomes(2).apply {
+                reset(1)
+                set(0, 0, 0); set(0, 1, 2); set(1, 0, 3)
+            }
+            assertTimeoutPreemptively(Duration.ofSeconds(20)) {
+                caller.set(Thread.currentThread())
+                pool.runWave(tasks, null, 2, homes)
+            }
+            assertSame(caller.get(), ranOn.get())
+            assertTrue(servedBeforeSecond.get(), "the request was not served between the caller's claims")
+        }
+    }
 }

@@ -59,7 +59,8 @@
       "mixin.entity.fast_retrieval": false,
       "mixin.profiler": false,
       "mixin.alloc.chunk_random": false,
-      "mixin.entity.collisions.unpushable_cramming": false
+      "mixin.entity.collisions.unpushable_cramming": false,
+      "mixin.experimental.entity.block_caching.suffocation": false
     }
   }
 }

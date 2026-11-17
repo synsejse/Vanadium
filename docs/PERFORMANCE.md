@@ -4,50 +4,202 @@
 
 Uncapped TPS by `workers`, against the same server with Lithium but without Vanadium and C2ME
 ("Lithium alone", one tick thread, default Lithium options). Means of four samples with their range;
-[all 120 samples](benchmarks/worker-scaling-26.3.csv).
+[all 132 samples](benchmarks/worker-scaling-26.3.csv).
 
 | Workers | Spread out: 4,096 zombies, four per chunk | Crowded base: 700 mixed mobs in 4×4 chunks | Combat: 600 mobs in a 34×34 arena |
 | ---: | ---: | ---: | ---: |
-| Lithium alone | 21.2 (20.6–22.5) | 187 (164–210) | 23.1 (22.1–23.7) |
-| 2 | 53 (48–55) | 417 (377–448) | 72 (71–75) |
-| 4 | 76 (72–79) | 586 (552–629) | 107 (102–110) |
-| 8 | 113 (105–121) | 852 (787–917) | 168 (158–174) |
-| 16 | 185 (175–193) | 1,177 (1,099–1,282) | 239 (231–244) |
-| 24 | 227 (220–231) | 1,326 (1,190–1,449) | **244** (238–254) |
-| 32 | 244 (242–245) | **1,429** (1,299–1,562) | 228 (222–236) |
-| 48 (default) | **262** (252–270) | 1,374 (1,220–1,515) | 201 (189–214) |
-| 64 | 244 (225–258) | 1,231 (1,111–1,370) | 202 (187–217) |
-| 72 | 145 (140–153) | 706 (617–826) | 186 (170–201) |
+| Lithium alone | 25.5 (22.9–27.0) | 206 (188–223) | 27.9 (25.6–30.6) |
+| 2 | 73 (72–75) | 554 (526–581) | 86 (82–89) |
+| 4 | 117 (113–122) | 778 (704–826) | 126 (123–131) |
+| 8 | 176 (169–187) | 1,129 (1,020–1,250) | 192 (185–200) |
+| 16 | 278 (264–301) | 1,605 (1,471–1,754) | 280 (267–301) |
+| 24 | 337 (326–348) | 1,621 (909–2,083) | **304** (296–317) |
+| 32 | **376** (362–383) | 1,871 (1,282–2,273) | 292 (282–303) |
+| 36 (default) | 367 (340–394) | 1,887 (1,639–2,222) | 298 (286–313) |
+| 48 | 371 (348–389) | **1,895** (1,639–2,174) | 288 (279–309) |
+| 64 | 319 (290–353) | 1,845 (1,563–2,083) | 299 (271–322) |
+| 72 | 224 (219–232) | 1,080 (962–1,266) | 291 (265–306) |
 
-- At 24 workers the three workloads run 10.7×, 7.1× and 10.6× faster than Lithium alone. Two workers
-  already give 2.2–3.1×.
-- Gains per worker shrink steadily: 8 workers give 4.6–7.3×, 24 give 7–11×.
-- Each workload peaks at a different count: combat at 16–24 workers, the crowded base at 32, the
-  spread-out world at 48.
+- At the default 36 workers the three workloads run 14.4×, 9.1× and 10.7× faster than Lithium alone.
+  Two workers already give 2.7–3.1×, eight give 5.5–6.9×.
+- Throughput levels off between 24 and 48 workers. The spread-out world peaks at 32, the crowded base
+  at 48 and combat at 24, but the neighbouring counts are within noise: the default of 36 measured
+  98%, 99.6% and 98% of each peak, inside the peak's sample range.
 - One worker per logical processor (72 here) leaves none for the server thread, C2ME and the
-  collector. It ran 45% and 51% below the best setting for the spread-out world and the crowded base,
-  and 24% below it for combat.
-- `workers = 0` picks two thirds of the logical processors (48 here): the peak for the spread-out
-  world, 96% of it for the crowded base and 82% for combat.
-- Combat loses 18% between 24 and 48 workers. A profile at 48 workers showed its entity wave waiting
-  on single long villager ticks, which more workers cannot shorten.
-- On this machine 32 workers is the best single setting, within 7% of the peak for all three
-  workloads. Elsewhere, start near two thirds of the physical cores and measure with
-  `/vanadium benchmark`.
+  collector. It ran 40% and 43% below the best setting for the spread-out world and the crowded base.
+- Combat no longer loses throughput with more workers (it lost 18% from 24 to 48 before the second
+  wave): its entity wave runs on no more threads than its longest tick leaves work for, about 30
+  here, and the other workers stay parked. 72 workers ran 4% below its peak.
+- Against the previous default of 48 workers, 36 measured −1%, −0.4% and +3.5%: within noise on all
+  three. On this machine the default is as good a single setting as any; elsewhere, start from it
+  and measure with `/vanadium benchmark`.
 
-Measured 2026-11-13 on 2.1.0 at commit `f3658bf`, `isolation = 2`. One fresh server JVM per point and
+Measured 2026-11-14 at commit `e29ec28` (after the second wave), `isolation = 2`, no extra JVM flags
+([recommended flags](#recommended-jvm-flags) add 12–65% on top). One fresh server JVM per point and
 pass: Lithium alone, an ascending pass over the worker counts, a descending pass, then Lithium alone
 again. Each JVM runs two `/tick sprint` windows (four samples per point) of 2,000 ticks for the
 spread-out world, 15,000 for the crowded base and 2,500 for combat. The spread-out world force-loads
 32×32 chunks; the other two are the workloads below. Environment as in
-[Environment and limits](#environment-and-limits).
+[Environment and limits](#environment-and-limits), with vCPUs pinned.
 
-- The crowded base's second sprint window is always faster than its first (by 9–22%, with and
-  without Vanadium), which is what widens its ranges. The sprint report rounds to 0.01 ms per tick,
-  about 1.4% at 1,400 TPS.
-- An earlier sweep of this table used 1,000-tick windows, which lasted about one second on the crowded
-  base and read lower there (Lithium alone: 119 TPS). Do not compare its numbers with these; the
-  comparison of builds is the next section.
+- The crowded base's second sprint window is always faster than its first (by 9–22% in earlier
+  sweeps, with and without Vanadium), which is what widens its ranges; one first window at 24
+  workers (909 TPS) is a low outlier. The sprint report rounds to 0.01 ms per tick, about 2% at
+  2,000 TPS.
+- The previous sweep (2026-11-13, before the second wave and before vCPU pinning) read 21.2 / 187 /
+  23.1 TPS for Lithium alone and peaked at 262 / 1,429 / 244. Lithium alone is the same software in
+  both, so part of the difference between sweeps is the machine; compare builds within one table
+  ([before and after the second wave](#before-and-after-the-second-wave)), not across sweeps.
+- An even earlier sweep used 1,000-tick windows, which lasted about one second on the crowded
+  base and read lower there (Lithium alone: 119 TPS). Do not compare its numbers with these.
+
+### Default worker count
+
+`workers = 0` gives min(physical cores, logical processors − 1): every core gets a worker and the
+server thread, which joins every wave, gets the remaining logical processor (an SMT sibling, or a core
+without SMT). Uncapped TPS, mean of eight samples with their range, the same build at four explicit
+counts:
+
+| Workers | Spread out | Crowded base | Combat |
+| ---: | ---: | ---: | ---: |
+| 32 | 269 (260–276) | 1,418 (1,124–1,613) | 258 (244–271) |
+| 35 | 261 (242–279) | 1,428 (1,220–1,639) | 259 (243–273) |
+| 36 (default) | 263 (256–270) | 1,446 (1,333–1,587) | 252 (246–260) |
+| 48 (previous default) | 270 (263–288) | 1,402 (1,220–1,539) | 223 (213–232) |
+
+- 32, 35 and 36 workers are within noise of each other on every workload. 36 against 48: combat
+  +13%, the crowded base +3% (within its spread), the spread-out world −3%.
+- Small machines, emulated with CPU affinity (`taskset`, which the default follows) on the same host:
+
+| CPUs | Workers | Spread out | Combat |
+| --- | ---: | ---: | ---: |
+| 4 cores × 2 threads (CPUs 0–7) | 3 | 87.5 (73.1–96.2) | 123 (117–131) |
+| | 4 (default) | 93.9 (90.8–95.8) | 124 (119–129) |
+| | 5 (previous default) | 93.0 (83.2–98.1) | 128 (119–136) |
+| 4 cores × 1 thread (CPUs 0, 2, 4, 6) | 3 (default) | 84.6 (75.2–90.9) | 117 (110–124) |
+| | 4 | 78.5 (74.9–80.5) | 101 (96–106) |
+
+- Without SMT, one worker per core plus the server thread oversubscribes the cores: 3 workers beat 4
+  by 8% and 16%. With SMT the server thread fits on a sibling, and 4 workers are within noise of 5.
+- These are a 2.3 GHz server CPU's cores pinned to one socket, not a desktop CPU; the comparison
+  between counts is what they show.
+
+Measured 2026-11-14 at commit `a74931b` (`isolation = 2`, explicit `workers`), one fresh server JVM per
+point, four rounds with the order of the counts rotated each round, two `/tick sprint` windows per JVM
+(2,000 / 15,000 / 2,500 ticks as above). The host's vCPUs were pinned 1:1 to host CPUs with guest NUMA
+bound to host nodes; the build predates the second wave below. Compare rows within a table, not
+across them.
+
+## Before and after the second wave
+
+Vanadium before and after the second round of tick-path work: one worker per physical core by
+default, allocation-free hot paths (`Entity.isInWall`, entity box queries, the path-type cache), no
+mob count while `spawn_mobs` is false and a cheaper one otherwise, a shorter combat tail (costliest
+entity kinds first, no more threads than the longest tick leaves work for, the server thread spinning
+through it) and entity homes. Both builds at 36 workers, no extra JVM flags. Means of 16 samples
+(eight server JVMs × two sprint windows) with their range, in uncapped TPS;
+[all 96 samples](benchmarks/second-wave-26.3.csv).
+
+| Workload | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Spread out | 261 (244–275) | 379 (344–427) | +45% |
+| Crowded base | 1,440 (1,220–1,695) | 1,965 (1,639–2,273) | +36% |
+| Combat | 237 (207–273) | 295 (272–329) | +25% |
+
+- "After" ran faster than "before" in all eight rounds of every workload. Like windows agree: first
+  windows +44% / +30% / +27%, second windows +47% / +42% / +23%.
+- Both arms ran with `workers = 36`, so the new default is not part of these numbers. Against the
+  previous default of 48 workers, the "before" build measured 3% faster on the spread-out world and
+  13% slower in combat ([default worker count](#default-worker-count)).
+- **Spawning was off**, as in every benchmark here. A dedicated server with `spawn_mobs` false now
+  skips the mob count; that alone measured +14% on the spread-out world and +26% on the crowded base
+  (against the build before it, eight runs per arm). With spawning on the count still runs every
+  tick: the cheaper count measured +9% on the spread-out world (four runs per arm) and no change on
+  the crowded base, whose 700 mobs are counted serially in both builds. A server with spawning on
+  should therefore expect a smaller gain than this table shows, mostly on the crowded base. Combat
+  was not measured with spawning on.
+
+Measured 2026-11-14, `isolation = 2`: commit `a74931b` (before) against `e29ec28` (after), in
+alternating server JVMs with the order of the builds reversed every round (the same rounds as the
+flag runs below). Sprint windows of 2,000 ticks (spread out), 15,000 (crowded base) and 2,500
+(combat). Environment as in [Environment and limits](#environment-and-limits).
+
+## Recommended JVM flags
+
+On Linux with more than one NUMA node (`lscpu` shows the node count), and with memory to dedicate
+to the server:
+
+```sh
+java -Xms4G -Xmx4G -XX:+UseNUMA -XX:+UseTransparentHugePages -XX:+AlwaysPreTouch \
+     -XX:+UseCompactObjectHeaders -jar server.jar nogui
+```
+
+Use the same value for `-Xms` and `-Xmx`, sized to what the machine can give the server; these
+measurements used 4 GiB, and an earlier study found an 8 GiB heap 6% slower than 4 GiB on the
+spread-out world. Leave room outside the heap for the JVM, mods and operating system; 4 GiB is the
+benchmark heap, not a sizing recommendation for every modpack.
+
+Uncapped TPS at 36 workers with the final build, eight server JVMs per arm (each the mean of its two
+sprint windows) with their range; arms alternate with the order reversed every round:
+
+| Workload | No extra flags | THP + pre-touch + compact headers | …plus `UseNUMA` | `UseNUMA` alone |
+| --- | ---: | ---: | ---: | ---: |
+| Spread out (series 1) | 379 (356–402) | 440 (418–461), +16% | 543 (468–613), +43% | – |
+| Spread out (series 2) | 372 (353–388) | – | **613** (584–638), **+65%** | 547 (519–589), +47% |
+| Crowded base | 1,965 (1,897–2,020) | 2,143 (2,042–2,277), +9% | **2,678** (2,424–2,803), **+36%** | 2,239 (1,595–2,492), +14% |
+| Combat | 295 (285–313) | 291 (271–303), −1% | **329** (319–345), **+12%** | 314 (308–326), +7% |
+
+- All four flags together were ahead of no flags in every round of every workload (32 of 32), and
+  ahead of `UseNUMA` alone in 22 of 24 rounds.
+- `-XX:+UseNUMA` carries most of the gain. With it, G1 hands each thread new objects from heap
+  regions in its own node's memory; with [entity homes](#entity-homes) the same worker ticks the same
+  entities every tick. How much of the gain comes from where entities' own objects live was not
+  measured with hardware counters.
+- Huge pages, pre-touch and compact headers add +16% / +9% / −1% on their own (spread out / crowded
+  base / combat), and +12% / +20% / +5% on top of `UseNUMA`. Combat gains little from them, as
+  before the second wave.
+- At the normal 20 TPS (spread-out world, `/vanadium profile 60`, four alternating servers per arm)
+  the average tick fell from 6.98 ms (6.61–7.39) to 5.15 ms (5.03–5.31), p95 from 10.97 to 7.86 ms and
+  p99 from 22.7 to 14.5 ms.
+- The first spread-out series' `UseNUMA` arm rose from 484 TPS in its first round to about 600 in its
+  last, while the guest's page cache shrank and freed memory on the first node (1 GiB free at the
+  start, 4.4 GiB later). With `UseNUMA` each node holds its share of the heap, so leave free memory
+  on every node; the second series ran with that memory free from the start.
+
+Costs and requirements:
+
+- **The whole heap is committed at start.** `-XX:+AlwaysPreTouch` touches every page of `-Xms`:
+  4.8 GiB resident (4.1 GiB of it huge pages) from startup with a 4 GiB heap, against 3.0–3.8 GiB
+  after 30 seconds without it. Launch to "Done" with all four flags took 28 s on average (up to
+  46 s), against 24 s without them; pre-touching takes longer with a larger heap.
+- **Huge pages need the kernel's consent.** `/sys/kernel/mm/transparent_hugepage/enabled` must be
+  `madvise` (as on the test machine) or `always`; with `never` the flag does nothing. Without
+  pre-touch, huge pages were unreliable in an earlier study: regions first touched late fell back to
+  small pages when the kernel found no free 2 MiB block.
+- **`UseNUMA` needs libnuma** (`libnuma.so.1`, the `numactl` package's library). Without it the JVM
+  prints `NUMA support disabled: Failed to initialize libnuma` and runs as if the flag were absent;
+  the JDK on the test machine could not find it until it was put on `LD_LIBRARY_PATH`, and an
+  earlier study that measured `UseNUMA` as noise ran without it. `-Xlog:gc+init` prints
+  `NUMA Support: Enabled` when it works. On a single-node machine the JVM ignores the flag.
+- **Compact object headers** are a product feature in Java 25
+  ([JDK release notes](https://docs.oracle.com/en/java/javase/25/migrate/significant-changes-jdk-25.html),
+  JEP 519). C2ME, Lithium, Fabric API and Vanadium ran with them in 60 server JVMs without a tick
+  error; other mods were not tested.
+
+When to adjust the flags:
+
+- A machine exposing only one NUMA node: omit `-XX:+UseNUMA`. Check the node count rather than the
+  socket count; the other three flags were measured only on this two-node machine.
+- Memory shared with other services, or a heap you cannot afford to commit up front: drop
+  `-XX:+AlwaysPreTouch` and `-XX:+UseTransparentHugePages`, keep `-XX:+UseNUMA` (its gain above came
+  without them).
+- A kernel with transparent huge pages set to `never` that you cannot change: omit
+  `-XX:+UseTransparentHugePages`; the other flags do not depend on transparent huge pages.
+
+Measured 2026-11-14 at commit `e29ec28`, `workers = 36`, `isolation = 2`, G1, `-Xms4G -Xmx4G` in every
+arm; libnuma on the library path of every arm. Sprint windows as above. The 20 TPS runs used the
+default `idleWorkers = lean`. These runs last a few minutes each; long uptimes (old-generation growth,
+huge-page fragmentation) were not exercised.
 
 ## Before and after the tick-path changes
 
@@ -109,6 +261,51 @@ Samples vary by up to 40% within an arm (later sprint windows run faster), so re
 sizes, not precise ratios. Region scheduling stays in use for the other stages; block entities packed
 into one base are still limited by it. These workloads have no players, redstone or modded entities.
 
+## Entity homes
+
+Whether an entity ticks on the same core from tick to tick ([Architecture](ARCHITECTURE.md#flat-entity-wave)).
+Uncapped TPS, mean of eight server runs (each the mean of its two sprint windows) with their range;
+arms alternate with the order reversed every round. Baseline: the build before homes; "homes": with
+them; "homes + pinned": homes plus every worker pinned to its own core, socket by socket (measured,
+not kept).
+
+| Workload, workers | Baseline | Homes | Homes + pinned |
+| --- | ---: | ---: | ---: |
+| Spread out, 36 | 315.6 (310.1–324.8) | **409.7** (386.7–428.5), +29.8% | 394.4 (381.2–411.1), +24.9% |
+| Spread out, 24 | 279.2 (266.8–288.1) | **329.3** (313.8–335.6), +17.9% | 318.2 (293.3–352.3), +14.0% |
+| Crowded base, 36 | 1,922 (1,862–1,980) | **2,025** (1,949–2,112), +5.3% | 1,974 (1,840–2,037), +2.7% |
+| Combat, 36 (homes in every wave) | 294.5 (273.1–304.3) | 278.5 (266.1–294.6), −5.4% | 288.5 (274.8–303.8), −2.0% |
+| Combat, 36 (homes only with every worker, kept) | 281.5 (265.4–292.4) | 289.4 (269.1–305.3), +2.8% | – |
+
+Guest hardware counters over one sprint per arm (`perf stat`, all threads of the server JVM), per
+tick: loads served by a modified line in the other socket's cache (remote HITM), loads forwarded
+from the other socket (remote forward), and cycles stalled with an L2 miss pending per L2 demand
+miss.
+
+| Workload, workers | Remote HITM | Remote forward | Stall cycles per L2 miss |
+| --- | --- | --- | --- |
+| Spread out, 36: baseline → homes → pinned | 36.6K → 8.3K → 4.3K | 32.8K → 6.9K → 4.1K | 124 → 102 → 92 |
+| Spread out, 24 | 39.4K → 8.2K → 3.7K | 34.9K → 7.7K → 3.3K | 99 → 85 → 72 |
+| Crowded base, 36 | 5.0K → 2.7K → 2.0K | 1.4K → 1.0K → 0.9K | 82 → 81 → 86 |
+| Combat, 36 | 16.8K → 16.2K → 12.9K | 5.7K → 5.5K → 4.3K | 68 → – → 69 |
+
+- In the spread-out world, 4,096 zombies each on a core of its own from tick to tick removed four
+  fifths of the cross-socket transfers and a fifth of the cycles per tick (275M → 225M at 36
+  workers). The entity wave took 2.04 ms instead of 2.66.
+- The crowded base has few cross-socket transfers to begin with (its 700 mobs fit in the caches);
+  homes gain 5% there.
+- In combat the wave lasts as long as one villager's path search (about 2.8 ms) whatever the other
+  threads do, and it runs on about 29 of 37 threads. Homes there changed no cache traffic and cost
+  5%, so a wave with fewer threads than homes is claimed in list order.
+- Pinning removed a further half of the remaining remote HITM loads but no tick time. Unpinned, the
+  guest scheduler already kept busy workers on their socket: 0–5% of once-a-second samples found a
+  worker on the other node.
+
+Measured 2026-11-14 on the dual Xeon VM with vCPUs pinned 1:1 and guest NUMA bound to the host
+(above), `isolation = 2`, Lithium 0.26.3, `-Xms4G -Xmx4G`, no other JVM flags. Sprint windows 2,000
+ticks (spread out), 15,000 (crowded base), 2,500 (combat). The combat rows come from two separate
+eight-pair series, so compare within a row.
+
 ## Idle workers at 20 TPS
 
 Tick work at the normal 20 TPS (`/vanadium profile`, 1,201 ticks over 60 s) and mean CPU per thread
@@ -162,14 +359,23 @@ Measured 2026-11-12 on the branch that added `idleWorkers` (merged in
 
 ## Environment and limits
 
-Dual Xeon E5-2699 v3 KVM guest, 72 vCPUs exposed as two sockets × 18 cores × two threads,
-two NUMA nodes, NixOS/Linux; no explicit affinity. OpenJDK 25.0.4.1, fixed 4GiB G1 heap.
+Dual Xeon E5-2699 v3 (2.3 GHz, about 3.3 GHz with one busy core and 2.7 GHz with all busy) host
+running Proxmox; the benchmarks run in a KVM guest with 72 vCPUs exposed as two sockets × 18 cores ×
+two threads, two NUMA nodes and 15 GiB of memory, NixOS/Linux, transparent huge pages `madvise`. Other
+VMs share the host; guest steal time stays below 1%. Since the evening of 2026-11-13 every vCPU is
+pinned 1:1 to a host CPU (guest SMT siblings on host siblings), and guest NUMA node N (CPUs 0–35 and
+36–71, 8 GiB each, distances 10/20) is bound to host node N, so guest NUMA is real. Measurements dated
+earlier ran unpinned. No affinity inside the guest. OpenJDK 25.0.4.1, fixed 4GiB G1 heap
+(`-Xms4G -Xmx4G`) and no other JVM flags unless a table says so.
 Minecraft 26.3, Loader 0.20.1, Fabric API 0.165.2+26.3, Fabric Language Kotlin 1.14.2+kotlin.2.4.21,
 Cloth Config 26.3.159, Lithium 0.26.3, C2ME 0.4.2-alpha.0.116 with global parallelism four.
 Default `idleWorkers = lean`.
 
 Fresh seed-12345 flat worlds, the mob area force-loaded, view/simulation distance four, midnight,
-spawning/time/weather cycles and mob griefing disabled, no players. Mobs are summoned persistent and
+spawning (`spawn_mobs` false), time and weather cycles and mob griefing disabled, no players. Since
+the second wave a dedicated server skips the mob count while `spawn_mobs` is false, so measurements
+of later builds leave out a cost that a server with spawning on still pays (see
+[the second wave](#before-and-after-the-second-wave)). Mobs are summoned persistent and
 invulnerable (in the arena: with Resistance instead, so that they fight), settle for 30 seconds, then
 two `/tick sprint` windows run back to back in the same JVM. TPS is uncapped **processing
 capacity**, not a higher gameplay tick rate; normally Minecraft runs at 20 TPS. Two windows in one

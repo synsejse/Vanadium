@@ -1,12 +1,16 @@
 package com.synsenetwork.vanadium.entity
 
 import it.unimi.dsi.fastutil.longs.LongAVLTreeSet
+import net.minecraft.core.BlockPos
 import net.minecraft.core.SectionPos
+import net.minecraft.util.AbortableIterationConsumer
 import net.minecraft.util.Continuation
 import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.entity.EntityAccess
 import net.minecraft.world.level.entity.EntitySection
+import net.minecraft.world.level.entity.EntityTypeTest
 import net.minecraft.world.level.entity.Visibility
+import net.minecraft.world.phys.AABB
 import java.lang.reflect.Proxy
 import java.util.IdentityHashMap
 import java.util.concurrent.CountDownLatch
@@ -287,6 +291,79 @@ class EntitySectionIndexTest {
             if (visited == 2) Continuation.ABORT else Continuation.CONTINUE
         }
         assertEquals(2, visited)
+    }
+
+    private interface Marked : EntityAccess
+
+    private fun boxed(box: AABB, marked: Boolean): EntityAccess {
+        val types = if (marked) arrayOf(Marked::class.java) else arrayOf(EntityAccess::class.java)
+        return Proxy.newProxyInstance(javaClass.classLoader, types) { self, method, args ->
+            when (method.name) {
+                "getBoundingBox" -> box
+                "equals" -> self === args[0]
+                "hashCode" -> System.identityHashCode(self)
+                "toString" -> "entity $box"
+                else -> when (method.returnType) {
+                    java.lang.Boolean.TYPE -> false
+                    Integer.TYPE -> 0
+                    else -> null
+                }
+            }
+        } as EntityAccess
+    }
+
+    /** `EntitySectionStorage.getEntities`, plain and typed: vanilla's per-section lambda over the same sections. */
+    @Test
+    fun entityQueriesMatchVanillaSectionLambdas() {
+        val random = Random(11)
+        val index = EntitySectionIndex<EntityAccess>()
+        repeat(400) {
+            val x = random.nextDouble(-70.0, 70.0); val y = random.nextDouble(-40.0, 120.0); val z = random.nextDouble(-70.0, 70.0)
+            val key = SectionPos.asLong(BlockPos.containing(x, y, z))
+            index.getOrCreate(key) { EntitySection(EntityAccess::class.java, Visibility.TICKING) }
+                .add(boxed(AABB(x, y, z, x + 0.6, y + 1.8, z + 0.6), random.nextBoolean()))
+        }
+        index.getOrCreate(SectionPos.asLong(0, 0, 0)) { EntitySection(EntityAccess::class.java, Visibility.HIDDEN) }
+            .add(boxed(AABB(1.0, 1.0, 1.0, 2.0, 2.0, 2.0), true)) // Inaccessible: skipped by both.
+        val type = EntityTypeTest.forClass<EntityAccess, Marked>(Marked::class.java)
+        repeat(300) {
+            val x = random.nextDouble(-80.0, 80.0); val y = random.nextDouble(-50.0, 130.0); val z = random.nextDouble(-80.0, 80.0)
+            val box = AABB(x, y, z, x + random.nextDouble(0.0, 24.0), y + random.nextDouble(0.0, 24.0), z + random.nextDouble(0.0, 24.0))
+            fun vanilla(visit: (EntitySection<EntityAccess>) -> Continuation) = index.forEachAccessibleNonEmpty(
+                SectionPos.posToSectionCoord(box.minX - 2.0), SectionPos.posToSectionCoord(box.minY - 4.0),
+                SectionPos.posToSectionCoord(box.minZ - 2.0), SectionPos.posToSectionCoord(box.maxX + 2.0),
+                SectionPos.posToSectionCoord(box.maxY + 0.0), SectionPos.posToSectionCoord(box.maxZ + 2.0), visit)
+
+            val expected = ArrayList<EntityAccess>()
+            vanilla { it.getEntities(box, AbortableIterationConsumer.forConsumer(expected::add)) }
+            val actual = ArrayList<EntityAccess>()
+            index.getEntities(box, null, AbortableIterationConsumer.forConsumer(actual::add))
+            assertEquals(expected, actual, "box $box")
+
+            val expectedTyped = ArrayList<EntityAccess>()
+            vanilla { it.getEntities(type, box, AbortableIterationConsumer.forConsumer(expectedTyped::add)) }
+            val actualTyped = ArrayList<EntityAccess>()
+            index.getEntities(box, type, AbortableIterationConsumer.forConsumer(actualTyped::add))
+            assertEquals(expectedTyped, actualTyped, "typed box $box")
+            assertTrue(actualTyped.all { it is Marked })
+
+            val sections = ArrayList<EntitySection<EntityAccess>>()
+            vanilla { sections.add(it); Continuation.CONTINUE }
+            val viaBox = ArrayList<EntitySection<EntityAccess>>()
+            index.forEachAccessibleNonEmpty(box) { viaBox.add(it); Continuation.CONTINUE }
+            assertEquals(sections, viaBox, "sections around $box")
+
+            // An abort from the entity consumer ends the whole query.
+            if (expected.size > 1) {
+                val limit = random.nextInt(1, expected.size)
+                val seen = ArrayList<EntityAccess>()
+                index.getEntities(box, null, AbortableIterationConsumer<EntityAccess> {
+                    seen.add(it)
+                    if (seen.size == limit) Continuation.ABORT else Continuation.CONTINUE
+                })
+                assertEquals(expected.subList(0, limit), seen, "aborted box $box")
+            }
+        }
     }
 
     /** Vanilla `forEachAccessibleNonEmptySection` key order, before the per-section checks. */

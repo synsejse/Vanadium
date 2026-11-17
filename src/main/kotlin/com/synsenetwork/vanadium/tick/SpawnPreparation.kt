@@ -14,6 +14,9 @@ import java.util.function.Predicate
 object SpawnPreparation {
     private const val MIN_PARALLEL_ENTITIES = 1024
     private const val TARGET_ENTITIES_PER_JOB = 256
+
+    /** What visiting one chunk column of the section index costs, in entities (a few cache misses either way). */
+    private const val COLUMN_COST = 2
     private val C2ME_FILTER = FilteredSource.find("com.ishland.c2me.base.common.util.FilteringIterable")
 
     private class SourceCapture {
@@ -79,12 +82,17 @@ object SpawnPreparation {
             filter = C2ME_FILTER!!.predicate(entities)
             source = unwrapped
         }
-        // Lithium's section iteration: split the section list by entity position without reading entities here.
+        // Lithium's section iteration: split the index's column slots, weighted by what the previous count saw in
+        // each, without reading any column here. The jobs walk their columns themselves.
         if (source is AccessibleEntities<*>) {
             @Suppress("UNCHECKED_CAST")
-            val sections = (source as AccessibleEntities<Entity>).snapshot()
-            return countSlices(chunkCount, level, sections.size, chunks, localCaps, jobCaps) { from, to ->
-                sections.range(from, to, filter)
+            val columns = (source as AccessibleEntities<Entity>).columns()
+            val cost = columns.weight() + columns.size.toLong() * COLUMN_COST
+            if (cost < MIN_PARALLEL_ENTITIES) return createState(chunkCount, level, columns.range(0, columns.size, filter), chunks, localCaps)
+            val parts = minOf(Vanadium.scheduler.workerCount.toLong() + 1, (cost + TARGET_ENTITIES_PER_JOB - 1) / TARGET_ENTITIES_PER_JOB)
+            val bounds = columns.split(parts.toInt(), COLUMN_COST)
+            return countJobs(chunkCount, level, bounds.size - 1, chunks, localCaps, jobCaps) { job ->
+                columns.range(bounds[job], bounds[job + 1], filter)
             }
         }
         if (source is Collection<Entity> && source.size < MIN_PARALLEL_ENTITIES) {
@@ -110,11 +118,27 @@ object SpawnPreparation {
         if (size < MIN_PARALLEL_ENTITIES) return createState(chunkCount, level, slice(0, size), chunks, localCaps)
         val jobs = minOf(Vanadium.scheduler.workerCount + 1, (size + TARGET_ENTITIES_PER_JOB - 1) / TARGET_ENTITIES_PER_JOB)
         val batchSize = (size + jobs - 1) / jobs
+        return countJobs(chunkCount, level, jobs, chunks, localCaps, jobCaps) { job ->
+            slice(job * batchSize, minOf(size, (job + 1) * batchSize))
+        }
+    }
+
+    /** Counts [jobs] consecutive batches, read through [batch], in one preparation wave, then merges them in order. */
+    private inline fun countJobs(
+        chunkCount: Int,
+        level: ServerLevel,
+        jobs: Int,
+        chunks: NaturalSpawner.ChunkGetter,
+        localCaps: LocalMobCapCalculator,
+        noinline jobCaps: () -> LocalMobCapCalculator,
+        crossinline batch: (job: Int) -> Iterable<Entity>,
+    ): NaturalSpawner.SpawnState {
+        if (jobs <= 1) return createState(chunkCount, level, batch(0), chunks, localCaps)
         val partial = arrayOfNulls<NaturalSpawner.SpawnState>(jobs)
         Vanadium.scheduler.prepare(Preparation.SPAWN_COUNTS, List(jobs) { job ->
-            val batch = slice(job * batchSize, minOf(size, (job + 1) * batchSize))
+            val entities = batch(job)
             Runnable {
-                partial[job] = createState(chunkCount, level, batch, chunks, jobCaps())
+                partial[job] = createState(chunkCount, level, entities, chunks, jobCaps())
             }
         })
         // Merge contiguous batches in source order, including charge order for floating-point sums.

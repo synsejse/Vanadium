@@ -47,6 +47,32 @@ class SpinPolicyTest {
     }
 
     @Test
+    fun theCallerSpinsThroughLongTailsOnlyUnderPressure() {
+        val caller = 10_000_000L
+        val policy = SpinPolicy(long, short, fixed = false, callerPressureNanos = caller)
+        assertEquals(caller, policy.callerSpinNanos, "without tick events")
+        policy.tickEnded(0L, sprinting = true)
+        policy.tickStarted()
+        assertEquals(caller, policy.callerSpinNanos, "sprinting")
+        // With slack the caller spins as long as an idle worker would, and no longer.
+        policy.tickEnded(45_000_000L, sprinting = false)
+        policy.tickStarted()
+        assertEquals(short, policy.callerSpinNanos)
+        // Behind again: back to the long tail spin.
+        policy.tickEnded(-1_000_000L, sprinting = false)
+        policy.tickStarted()
+        assertEquals(caller, policy.callerSpinNanos)
+        // Never shorter than the workers' budget, and a fixed spin applies to the caller too.
+        val hot = SpinPolicy(long, short, fixed = false, hotNanos = 50_000_000L, callerPressureNanos = caller)
+        hot.configure(IdleWorkers.HOT)
+        hot.tickStarted()
+        assertEquals(50_000_000L, hot.callerSpinNanos)
+        val fixed = SpinPolicy(100_000L, 100_000L, fixed = true, callerPressureNanos = caller)
+        fixed.tickStarted()
+        assertEquals(100_000L, fixed.callerSpinNanos)
+    }
+
+    @Test
     fun balancedWakesEarlyAndTreatsAGapShorterThanTheLeadAsPressure() {
         val lead = 5_000_000L
         val policy = SpinPolicy(long, short, fixed = false, leadNanos = lead)

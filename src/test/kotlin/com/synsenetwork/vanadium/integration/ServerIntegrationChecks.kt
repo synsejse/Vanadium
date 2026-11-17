@@ -54,12 +54,15 @@ class ServerIntegrationChecks : ModInitializer {
             SpawnCountChecks.run(server)
             ItemChecks.run(level)
             ChunkPacketChecks.run(level)
+            // Last: its forced chunk changes tickets.
+            EntityHotPathChecks.run(level)
             ReportChecks.start(server)
             println("INTEGRATION_CHECKS_PASSED")
             // Checks that need real ticks; the run finishes only after they pass.
             val ticked = TickedChecks(server, "ticked_checks")
             EntityCollectionChecks.schedule(level, ticked)
             CrowdChecks.schedule(level, ticked)
+            SpawnSkipChecks.schedule(level, ticked)
             ticked.start { com.synsenetwork.vanadium.live.LiveServer.finish(server, "integration") }
         }
     }

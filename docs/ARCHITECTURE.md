@@ -73,8 +73,9 @@ barriers between colours, but every stage has a full completion barrier. Relativ
 between conflicting regions may change between ticks.
 
 `WorkerPool` publishes one immutable `WorkBatch`; both helpers and the calling server
-thread claim work. One-task waves run inline. Helpers spin before parking; the caller
-spins then parks for the tail. Late helpers use a saved task count, never a list
+thread claim work, in list order through one cursor or, for a homed wave (`WaveHomes`, the entity
+wave below), home by home. One-task waves run inline. Helpers spin before parking; the caller
+spins then parks for the tail (under pressure through tails of up to 10 ms, below). Late helpers use a saved task count, never a list
 that the caller has cleared. Interruption restores the caller's flag only after all work
 finishes. Never hold a monitor needed by workers while joining a wave.
 
@@ -90,7 +91,11 @@ the per-worker Dekker pairing (publish, then read `parked`) whoever does the wak
 where c (`vanadium.participantCostNanos`, 2 µs) is what involving one more thread costs.
 Region stages estimate W from `RegionGrid`; flat and preparation waves from the busy time
 `runWave` reports. Unmeasured waves use every worker; waves too small for a second thread
-run inline.
+run inline. A flat wave also knows its expected longest task L (the entity wave's longest
+group, smoothed: up a tenth, down half per wave). It cannot end before L does, so it gets no
+more than 1 + (W − L) / (0.8 L) threads (`vanadium.criticalPathShare`, 0.8; 0 disables): the
+others finish the rest within 80% of L. In a 600-mob fight at 36 workers that is ~29
+participants instead of 37; more would only spin through the tail.
 
 Idle spinning follows the tick (`SpinPolicy`). Under pressure (sprinting, or the next tick due
 within 2 ms of the end of this one, or within the worker lead below) workers spin 2 ms through
@@ -110,6 +115,13 @@ fires no tick events at all. Tick events are the only input: tests and benchmark
 spin 2 ms. `vanadium.workerSpinMicros` fixes the worker spin and ignores ticks;
 `vanadium.idleWorkers` forces a mode; `vanadium.workerSlackSpinMicros`,
 `vanadium.callerSpinMicros`, `vanadium.callerWakes` and `vanadium.prewake` tune the rest.
+
+The wave's caller (the server thread) waits for the tail on its own processor, and its wake-up
+delays the tick itself. Under pressure it spins through tails of up to 10 ms
+(`vanadium.callerPressureSpinMicros`) before parking; with slack it spins as long as an idle
+worker would (at least `vanadium.callerSpinMicros`, 200 µs). The other way round does not
+work: shorter worker spins (10 or 100 µs fixed) halved sprint TPS in a 600-mob fight, and the
+longest entity tick itself took twice as long while the others parked and woke.
 
 **Server spin.** At 20 TPS on the test VM a tick after a long sleep can take twice as long as
 the same tick under `/tick sprint`; see [PERFORMANCE.md](PERFORMANCE.md#idle-workers-at-20-tps).
@@ -186,12 +198,38 @@ operations is vanilla's; a mod's own pairwise logic is covered only by the gener
 Wave order is a matter of balance only. A wave ends with its longest ticks, and in a crowd those are
 sporadic: in a 600-mob fight a villager tick runs 1.5–3.5 ms (twenty times its usual tick; earlier profiles
 put pathfinding there) about once every 40 ticks, unpredictably for the entity but steadily for its type. Wave tasks therefore persist in
-groups (`PersistentTickTasks`): entity types run costliest first, each in tick-list order, in groups of
+groups (`PersistentTickTasks`): entity types run in order of their costliest member (per wave, the largest
+per-entity time among the type's groups, smoothed), not their mean, so the type with the long ticks starts
+first even when another type costs as much on average. In that fight about 95% of the longest tick of each
+wave is one `PathFinder.findPath` call that ends without reaching its target (a different villager each
+tick), and the wave ends just after it. Each type runs in tick-list order, in groups of
 one type cut to about equal expected cost, ten per participant, so the pool claims them one at a time
 and costly entities run alone. Groups time themselves (two clock reads per group, not per entity) and
 those times are each type's cost. Groups are recut only when a type's ideal size drifts 25% from its
-current one, and entities reordered only when the list is rebuilt or a type becomes 25% costlier than one
-ahead of it, so a steady wave costs the server thread nothing per entity or per group.
+current one, and entities reordered only when the list is rebuilt or a type's costliest member becomes 25%
+costlier than that of one ahead of it, so a steady wave costs the server thread nothing per entity or per
+group. Profiles report each flat wave's longest group, when it started after the wave did
+(`longestGroupStart`), the groups still running when the caller ran out of work, and the average
+participants.
+
+Which thread runs an entity is a matter of caches. Claimed in list order, any worker ticked any
+entity, so an entity ticked on one socket was often ticked on the other the next tick, and every
+line it had written moved across with it. The wave therefore has homes (`WaveHomes`): each type's
+entities are cut into workers + 1 equal slices of tick-list order, groups never cross a slice, and
+slice h of every type is home h, owned by participant h (the server thread is 0, worker i is i + 1).
+A participant drains its own home's groups of a type from the front, then takes other homes' groups
+of that type from the back, nearest home first, and only then starts the next type: types are still
+claimed costliest first. While membership is unchanged an entity stays in its home and on its thread.
+In a spread-out world at 36 workers that cut remote-socket cache transfers about fivefold; see
+[PERFORMANCE.md](PERFORMANCE.md#entity-homes). Only a wave with every worker has homes: one capped by
+its longest tick (`flatParticipants`, a fight) is as long as that tick, ran slower with homes and is
+claimed in list order. Ordering each type by position (a Z-order curve) measured no different from
+tick-list order, and pinning workers to cores, socket by socket, cut cross-socket transfers further
+but not tick time; neither is kept. `-Dvanadium.entityHomes=false` claims every wave in list order.
+
+All waves run their tasks through one call site in `WorkerPool`. A claim loop whose call site sees
+only entity groups gets the whole entity tick inlined by the JIT; every rare branch in it then
+deoptimizes the claim loop, which in measurements stayed interpreted for whole runs.
 
 Overlapping ticks can also fail where serial ticks cannot: a value read after another tick removed
 it. Such failures do not repeat, so with `skipFailedEntityTicks` one failed tick is logged and its
@@ -219,7 +257,8 @@ Spatial indexes remain domain logic rather than general-purpose containers. `Are
 paints nearby-player ranges and updates only their symmetric difference. `EntitySectionIndex`
 visits only columns intersecting an entity query, preserving vanilla's packed-key order. Each
 chunk column is one immutable entry (sorted Ys and their sections) replaced on change, so a column
-costs one lock-free map read and readers never see half of a write.
+costs one lock-free map read and readers never see half of a write. Entity box queries pass their box,
+type and consumer down to each section instead of vanilla's per-query section lambda.
 A section holding 24 or more entities also gets a `CrowdedSection` grid (2×4×2-block cells; built on
 the server thread after the level's ticks, when no box is being written; dropped below half that). It
 only prefilters small box queries such as pushing, which otherwise read every entity's box in the
@@ -231,7 +270,9 @@ nothing and takes no lock). A reader that saw any write overlap it scans the sec
 Box writes from another tick to an entity in a crowded section wait for its owner, as position writes
 do; after an unprotected write (ownership timeout or cycle), grids are bypassed until rebuilt.
 `NavigationIndex` filters invalidation candidates; dirty/custom/long-path cases retain a
-conservative fallback. It does not run pathfinding asynchronously.
+conservative fallback. It does not run pathfinding asynchronously. The level's path-type cache, read by
+every pathfinding mob, keeps each entry in one atomic long (`PathTypeSlots`: the position hash's high
+bits and the type), so lookups take no lock and stores allocate nothing.
 
 ## World access
 
@@ -289,6 +330,21 @@ retaining C2ME filtering and vanilla's environment-aware costs. Workers count in
 slices; the caller reduces counts, player caps and charges in input order. Overrides clear
 in `finally`. Spawn attempts remain a separate stage.
 
+The slices of Lithium's section iteration are ranges of the entity section index's column slots: every
+column keeps a slot in a dense array (a removed column's slot takes the last one), so the caller cuts
+the level into ranges without reading a column, and each worker walks its own columns. A scan records
+each column's entity count, and the next tick's cut is weighted by them (plus a fixed cost per column),
+so crowded columns get ranges of their own; one column is never split. Ranges are valid while no section
+is created or removed, which holds during the counting wave.
+
+Vanilla counts every tick even with `spawn_mobs` false, though only `getLastSpawnState` (debug screen,
+`/perf` report, mods) can then see the result. `SpawnCounts` skips that count on dedicated servers until
+something reads the state: the tick stores an empty placeholder with vanilla's spawnable chunk count,
+and the first read on the server thread outside a wave counts then (from the entities as they are at
+that point), stores it, and makes every later tick count; a read elsewhere returns null (as before the first tick)
+and turns counting on from the next tick. Integrated servers, `enabled = false` and
+`parallelSpawning = false` always count.
+
 Tracking owns reusable per-player diff rows and stable tracker slots through both barriers. A level
 without players skips the move scan; moves are detected by position identity, so the first scan after
 a join catches up before the first diff.
@@ -303,7 +359,9 @@ Lithium 0.26.3+ is required; Vanadium compiles against it. `fabric.mod.json` dis
 `lithium:options`, the Lithium options whose job Vanadium does with thread-safe structures: chunk
 access, entity class filtering and per-type lists, entity retrieval, the entity tick list, navigation
 tracking and the profiler. It also disables `alloc.chunk_random`, which shares one mutable position per
-world between parallel random ticks. The rest stay enabled, and Lithium state that parallel stages
+world between parallel random ticks, and the experimental suffocation cache
+(`experimental.entity.block_caching.suffocation`, off by default): Vanadium's `isInWall` is an
+allocation-free loop with vanilla's checks. The rest stay enabled, and Lithium state that parallel stages
 share is made safe:
 
 - Entity class groups (`ClassGroupFilterableList`) come from Vanadium's copy-on-write
