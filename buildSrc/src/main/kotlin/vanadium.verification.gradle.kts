@@ -33,6 +33,10 @@ loom.runs {
             generateRunConfig.set(false)
             systemProperties.put("vanadium.live.mode", fixture.runName)
             systemProperties.put("vanadium.live.jfr", providers.gradleProperty("live.jfr").getOrElse("false"))
+            if (fixture == LiveFixture.INTEGRATION) {
+                systemProperties.put("vanadium.live.ticks", providers.gradleProperty("live.ticks").getOrElse("500"))
+                systemProperties.put("vanadium.live.sprint", providers.gradleProperty("live.sprint").getOrElse("true"))
+            }
             jvmArguments.addAll("-Xms2g", "-Xmx2g", "-XX:+UseG1GC")
             if (fixture == LiveFixture.FEATURE_BENCH) {
                 listOf("workers" to "4", "rounds" to "12", "scale" to "1", "filter" to "", "jfr" to "true").forEach { (key, default) ->
@@ -89,7 +93,7 @@ val prepareRuntimeMods = tasks.register("prepareRuntimeMods") {
 val configurationCache = objects.newInstance(BuildFeaturesAccess::class.java).features.configurationCache.requested.getOrElse(false)
 liveRuns.forEach { (fixture, directory) ->
     tasks.named<JavaExec>("run${fixture.runName.replaceFirstChar(Char::uppercase)}") {
-        group = "verification"
+        group = if (fixture == LiveFixture.FEATURE_BENCH) "benchmark" else "verification"
         dependsOn(runtimeMods, fixture.jarTask)
         timeout.set(Duration.ofMinutes(fixture.timeoutMinutes))
         args("nogui")
@@ -100,7 +104,7 @@ liveRuns.forEach { (fixture, directory) ->
 }
 
 fun registerBench(name: String, summary: String, mainClass: String) = tasks.register<JavaExec>(name) {
-    group = "verification"
+    group = "benchmark"
     description = summary
     dependsOn("testClasses")
     classpath = sourceSets.getByName("test").runtimeClasspath

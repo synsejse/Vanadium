@@ -52,16 +52,10 @@ internal object NavigationChecks {
             val edit = mobs[64].blockPosition()
             val candidates = index.candidates(edit).size
             check(candidates < mobs.size, "dispersed navigation query did not reduce candidates")
-            val fullStart = System.nanoTime()
-            var fullMatches = 0
-            repeat(2000) { for (mob in mobs) if (mob.navigation.shouldRecomputePath(edit)) fullMatches++ }
-            val fullNanos = System.nanoTime() - fullStart
-            val indexedStart = System.nanoTime()
-            var indexedMatches = 0
-            repeat(2000) { for (mob in index.candidates(edit)) if (mob.navigation.shouldRecomputePath(edit)) indexedMatches++ }
-            val indexedNanos = System.nanoTime() - indexedStart
-            check(fullMatches == indexedMatches, "indexed scan changed matches")
-            println("NAVIGATION_CHECKS_PASSED mobs=128 candidates=$candidates fullNanos=$fullNanos indexedNanos=$indexedNanos")
+            val expected = mobs.filter { it.navigation.shouldRecomputePath(edit) }.toSet()
+            val actual = index.candidates(edit).filter { it.navigation.shouldRecomputePath(edit) }.toSet()
+            check(actual == expected, "indexed scan changed matches")
+            println("NAVIGATION_CHECKS_PASSED mobs=128 candidates=$candidates")
         } finally {
             mobs.forEach(index::remove)
         }

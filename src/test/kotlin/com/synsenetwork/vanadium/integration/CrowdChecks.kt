@@ -61,7 +61,7 @@ internal object CrowdChecks {
                 pen(level, x, z)
             }
         }
-        checks.await("crowd chunks to tick entities", 100) { pens.all { (x, z) -> level.isPositionEntityTicking(center(x, z)) } }
+        checks.awaitAsync("crowd chunks to tick entities", 100) { pens.all { (x, z) -> level.isPositionEntityTicking(center(x, z)) } }
         checks.then("spawn a wandering crowd") {
             val random = Random(3)
             val (x, z) = pens[0]

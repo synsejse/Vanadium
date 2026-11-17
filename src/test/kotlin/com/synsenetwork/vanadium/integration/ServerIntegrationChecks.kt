@@ -36,35 +36,44 @@ class ServerIntegrationChecks : ModInitializer {
     override fun onInitialize() {
         com.synsenetwork.vanadium.live.LiveServer.start()
         ServerLifecycleEvents.SERVER_STARTED.register { server ->
-            checkBlocks(server)
-            checkDirty(server)
+            runCheck("checkBlocks") { checkBlocks(server) }
+            runCheck("checkDirty") { checkDirty(server) }
             val level = server.overworld()
-            CollectionReplacementChecks.run(level)
-            ChunkLookupChecks.run(level)
-            ServerThreadChunkChecks.run(level)
-            ChunkWaitChecks.run(level)
-            LithiumChecks.run(level)
-            FlatEntityChecks.run(level)
-            SectionMoveChecks.run(level)
-            TickSafetyChecks.run(level)
-            NavigationChecks.run(level)
-            TrackingChecks.run(level)
-            SpawnChecks.run(level)
-            EntitySectionChecks.run(level)
-            SpawnCountChecks.run(server)
-            ItemChecks.run(level)
-            ChunkPacketChecks.run(level)
+            runCheck("CollectionReplacementChecks.run") { CollectionReplacementChecks.run(level) }
+            runCheck("ChunkLookupChecks.run") { ChunkLookupChecks.run(level) }
+            runCheck("ServerThreadChunkChecks.run") { ServerThreadChunkChecks.run(level) }
+            runCheck("ChunkWaitChecks.run") { ChunkWaitChecks.run(level) }
+            runCheck("LithiumChecks.run") { LithiumChecks.run(level) }
+            runCheck("FlatEntityChecks.run") { FlatEntityChecks.run(level) }
+            runCheck("SectionMoveChecks.run") { SectionMoveChecks.run(level) }
+            runCheck("TickSafetyChecks.run") { TickSafetyChecks.run(level) }
+            runCheck("NavigationChecks.run") { NavigationChecks.run(level) }
+            runCheck("TrackingChecks.run") { TrackingChecks.run(level) }
+            runCheck("SpawnChecks.run") { SpawnChecks.run(level) }
+            runCheck("EntitySectionChecks.run") { EntitySectionChecks.run(level) }
+            runCheck("SpawnCountChecks.run") { SpawnCountChecks.run(server) }
+            runCheck("ItemChecks.run") { ItemChecks.run(level) }
+            runCheck("ChunkPacketChecks.run") { ChunkPacketChecks.run(level) }
             // Last: its forced chunk changes tickets.
-            EntityHotPathChecks.run(level)
-            ReportChecks.start(server)
+            runCheck("EntityHotPathChecks.run") { EntityHotPathChecks.run(level) }
             println("INTEGRATION_CHECKS_PASSED")
             // Checks that need real ticks; the run finishes only after they pass.
             val ticked = TickedChecks(server, "ticked_checks")
             EntityCollectionChecks.schedule(level, ticked)
             CrowdChecks.schedule(level, ticked)
             SpawnSkipChecks.schedule(level, ticked)
-            ticked.start { com.synsenetwork.vanadium.live.LiveServer.finish(server, "integration") }
+            PlayerChecks.schedule(level, ticked)
+            ticked.then("start command reports") { ReportChecks.start(server) }
+            ticked.then("command reports complete and retain their interactions") { ReportChecks.finish(server) }
+            ticked.start { com.synsenetwork.vanadium.live.LiveServer.finish(server, "integration", settleTicks = 2) }
         }
+    }
+
+    private fun runCheck(name: String, action: () -> Unit) {
+        println("LIVE_CHECK_START $name")
+        val start = System.nanoTime()
+        action()
+        println("LIVE_CHECK_DONE $name elapsedMs=${(System.nanoTime() - start) / 1_000_000}")
     }
 
     private fun checkBlocks(server: MinecraftServer) {
