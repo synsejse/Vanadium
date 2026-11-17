@@ -43,7 +43,6 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Mutable;
 import org.spongepowered.asm.mixin.Shadow;
-import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
@@ -55,7 +54,12 @@ public abstract class ServerLevelMixin implements NavigationAccess, EntityTickAc
     @Shadow
     @Final
     @Mutable
-    Set<Mob> navigatingMobs = new NavigationIndex();
+    Set<Mob> navigatingMobs;
+
+    @Inject(method = "<init>", at = @At("RETURN"))
+    private void initializeNavigations(CallbackInfo ci) {
+        navigatingMobs = new NavigationIndex();
+    }
 
     @Override
     public NavigationIndex vanadium$navigations() {
@@ -83,6 +87,8 @@ public abstract class ServerLevelMixin implements NavigationAccess, EntityTickAc
             ticks.tick(time, maxTicks, ticker);
             return;
         }
+        // LevelTicksMixin preserves T when adding the duck interface after Java compilation.
+        @SuppressWarnings("unchecked")
         ScheduledTickAccess<T> access = (ScheduledTickAccess<T>) ticks;
         Vanadium.scheduler.begin(Stage.SCHEDULED_TICK);
         try {

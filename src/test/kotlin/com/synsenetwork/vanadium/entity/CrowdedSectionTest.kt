@@ -287,7 +287,7 @@ class CrowdedSectionTest {
         add(entities.last()) // Armed now: reaching the threshold queues it.
         crowds.refresh(true, live)
         val grid = assertNotNull(slot.grid)
-        assertTrue(entities.all { (it.`vanadium$crowd`() as CrowdedSection.Member<*>?)?.grid === grid })
+        assertTrue(entities.all { it.`vanadium$crowd`()?.grid === grid })
         assertEquals(1, crowds.indexedCount())
 
         // An unprotected write: the grid stops validating and is rebuilt at the next refresh.

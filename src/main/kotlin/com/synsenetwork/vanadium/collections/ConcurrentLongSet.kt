@@ -44,6 +44,8 @@ class ConcurrentLongSet : LongLinkedOpenHashSet() {
 
     override fun clear() = backing.clear()
 
+    // Override the Java accessor; its same-named superclass field is unused storage.
+    @Suppress("PROPERTY_HIDES_JAVA_FIELD")
     override val size: Int get() = backing.size
 
     override fun isEmpty(): Boolean = backing.isEmpty()

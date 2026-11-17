@@ -130,7 +130,7 @@ class VanadiumConfig : ConfigData {
 
     companion object {
         /**
-         * Auto uses one worker per physical core this process may run on, and leaves one processor for the server
+         * Auto uses one worker per system physical core, and leaves one available processor for the server
          * thread, which joins every wave: min(cores, available processors - 1), at least one. With SMT the server
          * thread takes a spare sibling and every core keeps a worker; without SMT it takes a core. Workers beyond
          * the cores share them with SMT siblings, mostly spin, and measured slower (48 of 72 threads: -11% in
@@ -139,18 +139,20 @@ class VanadiumConfig : ConfigData {
          * processors. Explicit values clamp to 2..max(2, available processors).
          */
         @JvmStatic
-        fun resolveWorkers(): Int =
-            resolveWorkers(Vanadium.config.workers, Runtime.getRuntime().availableProcessors(), CpuTopology.cores)
+        fun resolveWorkers(): Int {
+            val workers = Vanadium.config.workers
+            return resolveWorkers(workers, Runtime.getRuntime().availableProcessors(), if (workers <= 0) CpuTopology.cores else null)
+        }
 
         /** How `workers = 0` was resolved, for the startup log. */
         @JvmStatic
         fun describeAutoWorkers(): String {
             val processors = Runtime.getRuntime().availableProcessors()
             val cores = CpuTopology.cores ?: return "two thirds of $processors processors; core topology unknown"
-            return "$cores cores of $processors processors"
+            return "$cores system cores; $processors JVM processors"
         }
 
-        /** [cores]: physical cores among the CPUs this process may run on, or null when unknown. */
+        /** [cores]: system physical cores; [availableProcessors] applies the JVM's process/quota limit. */
         internal fun resolveWorkers(workers: Int, availableProcessors: Int, cores: Int?): Int = when {
             workers > 0 -> workers.coerceIn(2, maxOf(2, availableProcessors))
             cores == null -> maxOf(1, availableProcessors * 2 / 3)
