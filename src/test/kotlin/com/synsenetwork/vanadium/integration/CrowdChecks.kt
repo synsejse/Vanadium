@@ -4,6 +4,10 @@ import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.entity.CrowdSlotAccess
 import com.synsenetwork.vanadium.entity.CrowdedSection
 import com.synsenetwork.vanadium.entity.CrowdedSections
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
+import kotlin.random.Random
 import net.minecraft.core.BlockPos
 import net.minecraft.core.SectionPos
 import net.minecraft.server.level.ServerLevel
@@ -16,13 +20,11 @@ import net.minecraft.world.entity.animal.Animal
 import net.minecraft.world.entity.animal.pig.Pig
 import net.minecraft.world.entity.animal.sheep.Sheep
 import net.minecraft.world.level.block.Blocks
-import net.minecraft.world.level.gamerules.GameRules
 import net.minecraft.world.level.entity.EntitySectionStorage
 import net.minecraft.world.level.entity.EntityTypeTest
 import net.minecraft.world.level.entity.PersistentEntitySectionManager
+import net.minecraft.world.level.gamerules.GameRules
 import net.minecraft.world.phys.AABB
-import kotlin.math.sqrt
-import kotlin.random.Random
 
 /**
  * Crowded-section grids against the real server: in a pen of wandering animals (one section, indexed), every
@@ -153,7 +155,7 @@ internal object CrowdChecks {
             val pig = StillPig(level)
             val angle = i * 2.399963 // Golden angle: distinct directions.
             val r = 0.05 + 0.25 * i / count
-            pig.setPos(c.x + 0.5 + r * Math.cos(angle), FLOOR_Y + 1.0, c.z + 0.5 + r * Math.sin(angle))
+            pig.setPos(c.x + 0.5 + r * cos(angle), FLOOR_Y + 1.0, c.z + 0.5 + r * sin(angle))
             pig.setPersistenceRequired()
             check(level.addFreshEntity(pig)) { "could not add $pig" }
             into.add(pig)

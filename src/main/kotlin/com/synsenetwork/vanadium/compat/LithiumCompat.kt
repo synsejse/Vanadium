@@ -1,18 +1,17 @@
 package com.synsenetwork.vanadium.compat
 
-import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.collections.ConcurrentLongObjectMap
 import com.synsenetwork.vanadium.collections.ConcurrentLongObjectOpenHashMap
 import com.synsenetwork.vanadium.collections.ListeningConcurrentLongObjectMap
 import com.synsenetwork.vanadium.mixin.compat.lithium.ListeningLong2ObjectOpenHashMapAccessor
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
+import java.lang.reflect.Field
+import java.util.function.LongUnaryOperator
 import net.caffeinemc.mods.lithium.common.util.collections.ListeningLong2ObjectOpenHashMap
 import net.minecraft.core.SectionPos
 import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.chunk.storage.SectionStorage
-import java.lang.reflect.Field
-import java.util.function.LongUnaryOperator
 
 /** Keeps Lithium's POI section index on storage that parallel stages can share. */
 object LithiumCompat {
@@ -32,9 +31,6 @@ object LithiumCompat {
         .firstOrNull { it.name == "columns" && it.type == Long2ObjectOpenHashMap::class.java }
         ?.apply { isAccessible = true }
 
-    @Volatile
-    private var reported = false
-
     /**
      * Called after every `SectionStorage` constructor, after Lithium's. Lithium's listening map and column index
      * become concurrent equivalents that drive Lithium's own callbacks; vanilla's map (Lithium's `ai.poi`
@@ -47,12 +43,9 @@ object LithiumCompat {
             return ConcurrentLongObjectMap<R>().also { it.putAll(storage) }
         }
         val columns = columnsField
-        if (storage !is ListeningLong2ObjectOpenHashMap<R> || columns == null) {
-            if (!reported) {
-                reported = true
-                Vanadium.LOGGER.warn("Section storage was replaced by {}; Vanadium cannot make it thread-safe", storage.javaClass.name)
-            }
-            return storage
+        check(storage is ListeningLong2ObjectOpenHashMap<R> && columns != null) {
+            "Unsupported POI section storage: ${storage.javaClass.name}. " +
+                "Vanadium cannot make this layout thread-safe; check Lithium compatibility and other POI mods."
         }
         @Suppress("UNCHECKED_CAST")
         val callbacks = storage as ListeningLong2ObjectOpenHashMapAccessor<R>

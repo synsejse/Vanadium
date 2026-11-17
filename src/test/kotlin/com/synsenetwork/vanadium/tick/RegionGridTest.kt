@@ -1,5 +1,6 @@
 package com.synsenetwork.vanadium.tick
 
+import kotlin.math.abs
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -87,7 +88,7 @@ class RegionGridTest {
             for (i in regions.indices) for (j in i + 1 until regions.size) {
                 if (j in conflicts[i]) continue
                 for ((ax, az) in members[i]) for ((bx, bz) in members[j]) {
-                    val distance = maxOf(Math.abs(ax - bx), Math.abs(az - bz))
+                    val distance = maxOf(abs(ax - bx), abs(az - bz))
                     assertTrue(distance > isolation, "round $round: chunks $ax,$az and $bx,$bz may run together at isolation $isolation")
                 }
             }

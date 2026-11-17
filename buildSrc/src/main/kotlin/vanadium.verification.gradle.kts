@@ -1,3 +1,4 @@
+import com.synsenetwork.vanadium.gradle.InstallRuntimeMods
 import com.synsenetwork.vanadium.gradle.LiveFixture
 import com.synsenetwork.vanadium.gradle.BuildFeaturesAccess
 import com.synsenetwork.vanadium.gradle.PrepareRuntimeMod
@@ -88,6 +89,17 @@ val prepareRuntimeMods = tasks.register("prepareRuntimeMods") {
     group = "fabric"
     description = "Downloads and verifies pinned C2ME and Lithium without adding them to the dev classpath"
     dependsOn(prepareC2me, prepareLithium)
+}
+
+val setupRuntimeMods = tasks.register<InstallRuntimeMods>("setupRuntimeMods") {
+    group = "fabric"
+    description = "Installs verified C2ME and Lithium in the interactive run directory"
+    dependsOn(prepareRuntimeMods)
+    this.runtimeMods.from(prepareC2me.flatMap { it.destination }, prepareLithium.flatMap { it.destination })
+    modsDirectory.set(loom.runs.named("client").flatMap { it.runDirectory }.map { it.dir("mods") })
+}
+listOf("runClient", "runServer").forEach { name ->
+    tasks.named(name) { dependsOn(setupRuntimeMods) }
 }
 
 val configurationCache = objects.newInstance(BuildFeaturesAccess::class.java).features.configurationCache.requested.getOrElse(false)

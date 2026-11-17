@@ -11,8 +11,11 @@ internal object CpuTopology {
 
     /** Hardware/native access is optional: unsupported platforms retain the logical-processor fallback. */
     internal fun detect(query: () -> Int): Int? = try {
-        query().takeIf { it > 0 }
-    } catch (_: RuntimeException) {
+        val count = query()
+        if (count > 0) count else null
+    } catch (_: UnsupportedOperationException) {
+        null
+    } catch (_: SecurityException) {
         null
     } catch (_: LinkageError) {
         null

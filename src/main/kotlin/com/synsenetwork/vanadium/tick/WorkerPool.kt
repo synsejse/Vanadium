@@ -469,7 +469,7 @@ class WorkerPool internal constructor(
             for (step in 1 until homes) {
                 // +1, -1, +2, -2, …: every other home once.
                 val offset = if (step and 1 == 1) (step + 1) / 2 else -(step / 2)
-                done += drain(serving, cells, (Math.floorMod(slot + offset, homes) + 1) * stride + phase, false)
+                done += drain(serving, cells, ((slot + offset).mod(homes) + 1) * stride + phase, false)
             }
             if (counters.get(EMPTY_PHASES) <= phase) counters.accumulateAndGet(EMPTY_PHASES, phase + 1, MAX)
             return done

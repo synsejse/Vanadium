@@ -7,6 +7,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.function.Consumer
 import java.util.function.LongSupplier
+import kotlin.math.ceil
 
 /**
  * One persistent task per member of a tick list, kept across ticks, so that dispatching an unchanged
@@ -429,7 +430,7 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
             if (spare.size < order.size) spare = arrayOfNulls(order.size)
             for (r in kindsBefore.indices) {
                 val kind = kindsBefore[r]
-                System.arraycopy(order, previous[r], spare, kind.start, kind.count)
+                order.copyInto(spare, kind.start, previous[r], previous[r] + kind.count)
             }
             val swap = order
             order = spare
@@ -459,7 +460,7 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
         if (groups > slots * MAX_GROUPS_PER_PARTICIPANT) {
             // Rounding down made too many: scale every kind's groups up so the pool still claims them singly.
             val scale = groups.toDouble() / (slots * GROUPS_PER_PARTICIPANT)
-            for (r in ranked.indices) sizes[r] = Math.ceil(sizes[r] * scale).toInt().coerceIn(1, ranked[r].count)
+            for (r in ranked.indices) sizes[r] = ceil(sizes[r] * scale).toInt().coerceIn(1, ranked[r].count)
         }
         var same = planned && participants == plannedParticipants
         for ((r, kind) in ranked.withIndex()) {

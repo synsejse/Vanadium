@@ -188,7 +188,7 @@ object SpawnPreparation {
             if (existing == null) {
                 target.playerMobCounts[player] = counts
             } else {
-                for (entry in counts.counts.object2IntEntrySet()) existing.counts.mergeInt(entry.key, entry.intValue, Integer::sum)
+                for (entry in counts.counts.object2IntEntrySet()) existing.counts.mergeInt(entry.key, entry.intValue, Int::plus)
             }
         }
     }
@@ -216,7 +216,9 @@ object SpawnPreparation {
                     type.getDeclaredField("predicate").apply { isAccessible = true })
             } catch (_: ReflectiveOperationException) {
                 null
-            } catch (_: RuntimeException) {
+            } catch (_: SecurityException) {
+                null
+            } catch (_: java.lang.reflect.InaccessibleObjectException) {
                 null
             }
         }

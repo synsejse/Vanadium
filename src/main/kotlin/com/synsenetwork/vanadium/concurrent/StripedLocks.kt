@@ -17,7 +17,7 @@ class StripedLocks @JvmOverloads constructor(stripes: Int, private val spins: In
     private val locks: Array<ReentrantLock>
 
     init {
-        require(stripes > 0 && Integer.bitCount(stripes) == 1) { "stripes must be a positive power of two (got $stripes)" }
+        require(stripes > 0 && stripes.countOneBits() == 1) { "stripes must be a positive power of two (got $stripes)" }
         require(spins >= 0) { "spins must not be negative (got $spins)" }
         locks = Array(stripes) { ReentrantLock() }
     }

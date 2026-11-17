@@ -22,7 +22,13 @@ class CpuTopologyTest {
     fun unsupportedOrRestrictedHardwareQueriesUseTheFallback() {
         assertNull(CpuTopology.detect { throw UnsupportedOperationException("unsupported OS") })
         assertNull(CpuTopology.detect { throw SecurityException("restricted native access") })
-        assertNull(CpuTopology.detect { throw IllegalStateException("hardware unavailable") })
+    }
+
+    @Test
+    fun unexpectedHardwareErrorsPropagate() {
+        assertFailsWith<IllegalStateException> {
+            CpuTopology.detect { throw IllegalStateException("broken hardware provider") }
+        }
     }
 
     @Test

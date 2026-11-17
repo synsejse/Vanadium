@@ -101,7 +101,9 @@ class VanadiumConfig : ConfigData {
     fun idleWorkersMode(): IdleWorkers {
         val text = idleWorkers
         if (text !== idleWorkersText) {
-            idleWorkersParsed = IdleWorkers.parse(text) ?: IdleWorkers.LEAN
+            idleWorkersParsed = requireNotNull(IdleWorkers.parse(text)) {
+                "idleWorkers must be one of ${IdleWorkers.names.joinToString()} (got '$text')."
+            }
             idleWorkersText = text
         }
         return idleWorkersParsed

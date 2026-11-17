@@ -2,11 +2,19 @@ package com.synsenetwork.vanadium.integration
 
 import com.synsenetwork.vanadium.chunk.ParallelChunkCache
 import com.synsenetwork.vanadium.collections.ConcurrentIntObjectMap
+import com.synsenetwork.vanadium.collections.ConcurrentLongObjectMap
 import com.synsenetwork.vanadium.collections.ConcurrentLongObjectOpenHashMap
 import com.synsenetwork.vanadium.collections.ListeningConcurrentLongObjectMap
+import com.synsenetwork.vanadium.compat.LithiumCompat
 import com.synsenetwork.vanadium.concurrent.PerThreadRandValue
 import com.synsenetwork.vanadium.tick.WorkerPool
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
+import java.lang.reflect.Modifier
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import net.caffeinemc.mods.lithium.common.entity.movement.CollisionEntityClassGroups
 import net.caffeinemc.mods.lithium.common.util.deduplication.LithiumInterner
 import net.caffeinemc.mods.lithium.common.world.LithiumData
@@ -24,11 +32,6 @@ import net.minecraft.world.entity.ai.village.poi.PoiManager
 import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.chunk.LevelChunk
 import net.minecraft.world.level.chunk.storage.SectionStorage
-import java.lang.reflect.Modifier
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 
 /** Lithium's optimizations stay enabled on state that Vanadium's parallel stages share. */
 internal object LithiumChecks {
@@ -49,6 +52,14 @@ internal object LithiumChecks {
         check(storage is ListeningConcurrentLongObjectMap<*>) { "Lithium POI storage was not made concurrent: ${storage.javaClass}" }
         val columns = SectionStorage::class.java.getDeclaredField("columns").apply { isAccessible = true }.get(level.poiManager)
         check(columns is ConcurrentLongObjectOpenHashMap<*>) { "Lithium POI column index was not made concurrent: ${columns.javaClass}" }
+        check(LithiumCompat.concurrentSectionStorage(level.poiManager, Long2ObjectOpenHashMap<Any>()) is ConcurrentLongObjectMap<*>)
+        val unsupported = object : Long2ObjectOpenHashMap<Any>() {}
+        try {
+            LithiumCompat.concurrentSectionStorage(level.poiManager, unsupported)
+            throw AssertionError("Unknown POI storage was accepted without thread-safety guarantees")
+        } catch (e: IllegalStateException) {
+            check(e.message?.startsWith("Unsupported POI section storage:") == true)
+        }
         // Vanilla also raced here: a second loader of a column could read it before its sections were stored.
         val threads = 8
         val start = CountDownLatch(1)

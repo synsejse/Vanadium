@@ -1,15 +1,16 @@
 package com.synsenetwork.vanadium.entity
 
 import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap
+import java.lang.invoke.MethodHandles
+import java.lang.invoke.VarHandle
+import java.util.function.LongSupplier
+import kotlin.math.floor
 import net.minecraft.core.SectionPos
 import net.minecraft.util.AbortableIterationConsumer
 import net.minecraft.util.Continuation
 import net.minecraft.world.level.entity.EntityAccess
 import net.minecraft.world.level.entity.EntityTypeTest
 import net.minecraft.world.phys.AABB
-import java.lang.invoke.MethodHandles
-import java.lang.invoke.VarHandle
-import java.util.function.LongSupplier
 
 /**
  * A crowded entity section's members binned into cells (2×4×2 blocks: 8×4×8 per section) by the cells
@@ -363,13 +364,13 @@ class CrowdedSection<T : EntityAccess>(sectionKey: Long, @JvmField val epoch: Lo
 
         /** 2-block cells; NaN maps to 0 (it intersects nothing anyway). */
         private fun horizontal(offset: Double): Int {
-            val cell = Math.floor(offset * 0.5)
+            val cell = floor(offset * 0.5)
             return if (!(cell > 0.0)) 0 else if (cell >= 7.0) 7 else cell.toInt()
         }
 
         /** 4-block cells. */
         private fun vertical(offset: Double): Int {
-            val cell = Math.floor(offset * 0.25)
+            val cell = floor(offset * 0.25)
             return if (!(cell > 0.0)) 0 else if (cell >= 3.0) 3 else cell.toInt()
         }
 
