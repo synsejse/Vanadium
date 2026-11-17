@@ -22,7 +22,7 @@ public abstract class PlayerChunkSenderMixin {
             original.call(player);
             return;
         }
-        try (ChunkPacketPreparation ignored = new ChunkPacketPreparation()) {
+        try (ChunkPacketPreparation _ = new ChunkPacketPreparation()) {
             original.call(player);
         }
     }

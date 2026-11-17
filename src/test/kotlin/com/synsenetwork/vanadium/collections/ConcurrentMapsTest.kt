@@ -153,6 +153,39 @@ class ConcurrentMapsTest {
         assertEquals("ab", map.merge(3L, "b") { old, new -> old + new })
     }
 
+    @Test
+    fun intComputationsPreserveFastutilDefaultReturnValues() {
+        val maps = listOf(ConcurrentIntObjectMap<String>(), it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap<String>())
+        for (map in maps) {
+            map.defaultReturnValue("missing")
+            assertEquals("missing", map.computeIfPresent(1) { _, _ -> error("absent key") })
+            assertEquals("missing", map.compute(1) { _, _ -> null })
+            map.put(1, "value")
+            assertEquals("missing", map.computeIfPresent(1) { _, _ -> null })
+            assertFalse(map.containsKey(1))
+            map.put(1, "value")
+            assertEquals("missing", map.merge(1, "new") { _, _ -> null })
+            assertFalse(map.containsKey(1))
+        }
+    }
+
+    @Test
+    fun longComputationsPreserveFastutilDefaultReturnValues() {
+        val maps = listOf(ConcurrentLongObjectMap<String>(), ConcurrentLongObjectOpenHashMap<String>(),
+            it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<String>())
+        for (map in maps) {
+            map.defaultReturnValue("missing")
+            assertEquals("missing", map.computeIfPresent(-1L) { _, _ -> error("absent key") })
+            assertEquals("missing", map.compute(-1L) { _, _ -> null })
+            map.put(-1L, "value")
+            assertEquals("missing", map.computeIfPresent(-1L) { _, _ -> null })
+            assertFalse(map.containsKey(-1L))
+            map.put(-1L, "value")
+            assertEquals("missing", map.merge(-1L, "new") { _, _ -> null })
+            assertFalse(map.containsKey(-1L))
+        }
+    }
+
     /** Vanilla's section storage relies on this: under contention the factory runs at most once per key. */
     @Test
     fun computeIfAbsentIsAtomic() {

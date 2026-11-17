@@ -19,6 +19,8 @@ git diff --check
 
 `build` compiles Kotlin/Java, validates the access widener, runs JUnit 5 tests, and produces
 release/source jars in `build/libs/`. Test reports are in `build/reports/tests/test/`.
+Kotlin warnings and all Java lint warnings fail compilation. Keep unavoidable
+Mixin generic casts and fastutil accessor overrides documented with local suppressions.
 Build and verification configuration is separated:
 
 - `build.gradle.kts`: mod dependencies, toolchains, resources and release packaging.

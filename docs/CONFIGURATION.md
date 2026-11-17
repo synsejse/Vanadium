@@ -38,15 +38,16 @@ within noise of 36, and 72 ran 40–43% below the best in the spread-out and cro
 combat, whose entity wave leaves extra workers parked). On four cores without SMT, 3 workers beat 4
 by 8–16%; on four cores with SMT, 4 workers beat 3 by 1–7%.
 
-Cores are counted on Linux from `/sys/devices/system/cpu`, among the online CPUs this process may run
-on (its affinity, as set by `taskset` or a container's cpuset). A CPU quota (cgroup `cpu.max`,
-`-XX:ActiveProcessorCount`) lowers the logical processor count Java reports and caps the result the
-same way. Where the topology cannot be read (Windows, macOS, a container without `/sys`), the default
-stays two thirds of the logical processors, the measured compromise between SMT machines (where one
-worker per logical processor ran up to 43% slower) and machines without it. The startup log names the
-basis: `Will use 36 threads, isolation 2 chunks (36 cores of 72 processors)`. The best count still
-depends on the machine and the world (24 to 48 on the test machine), so compare a few values with
-`/vanadium benchmark`; see [worker count](PERFORMANCE.md#worker-count).
+Cores are detected through OSHI, the cross-platform hardware library Minecraft already includes,
+using the same code on Windows, macOS and Linux. The reported system core count is capped by Java's
+available logical processor count minus one, which respects JVM-reported affinity and CPU quotas
+(including `-XX:ActiveProcessorCount`). OSHI reports system topology, so this does not identify exactly
+which physical cores a restricted affinity mask includes; set `workers` explicitly when tuning a
+pinned process. If hardware detection is unavailable, the default stays two thirds of Java's available
+processors. Detection happens once per JVM and is skipped when an explicit worker count is used.
+The startup log names both counts: `Will use 36 threads, isolation 2 chunks (36 system cores; 72 JVM processors)`.
+The best count still depends on the machine and the world (24 to 48 on the test machine), so compare a
+few values with `/vanadium benchmark`; see [worker count](PERFORMANCE.md#worker-count).
 
 JVM flags matter as much as `workers` on a multi-socket server: `-XX:+UseNUMA` with transparent huge
 pages, pre-touch and compact object headers added 12–65% on the test machine, at the cost of

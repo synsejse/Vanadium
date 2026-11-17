@@ -48,11 +48,13 @@ kotlin {
     jvmToolchain(25)
     compilerOptions {
         jvmTarget = JvmTarget.JVM_25
+        allWarningsAsErrors = true
     }
 }
 
 tasks.withType<JavaCompile>().configureEach {
     options.release = 25
+    options.compilerArgs.addAll(listOf("-Xlint:all", "-Werror"))
 }
 
 tasks.processResources {

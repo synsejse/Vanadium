@@ -24,6 +24,8 @@ class ConcurrentLongObjectOpenHashMap<V> : Long2ObjectOpenHashMap<V>() {
         backing.defaultReturnValue(rv)
     }
 
+    // Override the Java accessor; its same-named superclass field is unused storage.
+    @Suppress("PROPERTY_HIDES_JAVA_FIELD")
     override val size: Int get() = backing.size
 
     override fun isEmpty(): Boolean = backing.isEmpty()
@@ -77,6 +79,8 @@ class ConcurrentLongObjectOpenHashMap<V> : Long2ObjectOpenHashMap<V>() {
         override fun fastIterator(): ObjectIterator<Long2ObjectMap.Entry<V>> = iterator()
     }
 
+    // Override the Java accessor; its same-named superclass field is unused storage.
+    @Suppress("PROPERTY_HIDES_JAVA_FIELD")
     override val keys: LongSet get() = backing.keys
 
     override val values: ObjectCollection<V> get() = backing.values

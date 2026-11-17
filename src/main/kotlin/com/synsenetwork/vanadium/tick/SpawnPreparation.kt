@@ -79,7 +79,7 @@ object SpawnPreparation {
         var filter: Predicate<Entity>? = null
         val unwrapped = C2ME_FILTER?.takeIf { it.matches(entities) }?.delegate(entities)
         if (unwrapped is Collection<Entity> || unwrapped is AccessibleEntities<*>) {
-            filter = C2ME_FILTER!!.predicate(entities)
+            filter = C2ME_FILTER.predicate(entities)
             source = unwrapped
         }
         // Lithium's section iteration: split the index's column slots, weighted by what the previous count saw in

@@ -38,25 +38,24 @@ class ConcurrentLongObjectMap<V> : AbstractLong2ObjectMap<V>() {
 
     override fun clear() = backing.clear()
 
-    @Suppress("UNCHECKED_CAST")
     override fun computeIfAbsent(key: Long, mappingFunction: LongFunction<out V>): V =
-        backing.computeIfAbsent(PackedPositionKeys.mix(key)) { mappingFunction.apply(key) } as V
+        backing.computeIfAbsent(PackedPositionKeys.mix(key)) { mappingFunction.apply(key) }
 
     /** A partial function that does not define [key] leaves the map unchanged. */
     @Suppress("UNCHECKED_CAST")
     override fun computeIfAbsent(key: Long, mappingFunction: Long2ObjectFunction<out V>): V {
         if (!mappingFunction.containsKey(key)) return get(key) as V
-        return backing.computeIfAbsent(PackedPositionKeys.mix(key)) { mappingFunction.get(key) } as V
+        return backing.computeIfAbsent(PackedPositionKeys.mix(key)) { mappingFunction.get(key) }
     }
 
     override fun computeIfPresent(key: Long, remappingFunction: BiFunction<in Long, in V, out V?>): V? =
-        backing.computeIfPresent(PackedPositionKeys.mix(key)) { _, old -> remappingFunction.apply(key, old) }
+        backing.computeIfPresent(PackedPositionKeys.mix(key)) { _, old -> remappingFunction.apply(key, old) } ?: defRetValue
 
     override fun compute(key: Long, remappingFunction: BiFunction<in Long, in V?, out V?>): V? =
-        backing.compute(PackedPositionKeys.mix(key)) { _, old -> remappingFunction.apply(key, old) }
+        backing.compute(PackedPositionKeys.mix(key)) { _, old -> remappingFunction.apply(key, old) } ?: defRetValue
 
     override fun merge(key: Long, value: V, remappingFunction: BiFunction<in V, in V, out V?>): V? =
-        backing.merge(PackedPositionKeys.mix(key), value!!) { old, new -> remappingFunction.apply(old, new) }
+        backing.merge(PackedPositionKeys.mix(key), value!!) { old, new -> remappingFunction.apply(old, new) } ?: defRetValue
 
     override fun long2ObjectEntrySet(): ObjectSet<Long2ObjectMap.Entry<V>> = entrySetView
 

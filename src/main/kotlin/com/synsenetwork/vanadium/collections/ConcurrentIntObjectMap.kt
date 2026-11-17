@@ -37,25 +37,24 @@ class ConcurrentIntObjectMap<V> : AbstractInt2ObjectMap<V>() {
 
     override fun clear() = backing.clear()
 
-    @Suppress("UNCHECKED_CAST")
     override fun computeIfAbsent(key: Int, mappingFunction: IntFunction<out V>): V =
-        backing.computeIfAbsent(key) { mappingFunction.apply(key) } as V
+        backing.computeIfAbsent(key) { mappingFunction.apply(key) }
 
     /** A partial function that does not define [key] leaves the map unchanged. */
     @Suppress("UNCHECKED_CAST")
     override fun computeIfAbsent(key: Int, mappingFunction: Int2ObjectFunction<out V>): V {
         if (!mappingFunction.containsKey(key)) return get(key) as V
-        return backing.computeIfAbsent(key) { mappingFunction.get(key) } as V
+        return backing.computeIfAbsent(key) { mappingFunction.get(key) }
     }
 
     override fun computeIfPresent(key: Int, remappingFunction: BiFunction<in Int, in V, out V?>): V? =
-        backing.computeIfPresent(key) { _, old -> remappingFunction.apply(key, old) }
+        backing.computeIfPresent(key) { _, old -> remappingFunction.apply(key, old) } ?: defRetValue
 
     override fun compute(key: Int, remappingFunction: BiFunction<in Int, in V?, out V?>): V? =
-        backing.compute(key) { _, old -> remappingFunction.apply(key, old) }
+        backing.compute(key) { _, old -> remappingFunction.apply(key, old) } ?: defRetValue
 
     override fun merge(key: Int, value: V, remappingFunction: BiFunction<in V, in V, out V?>): V? =
-        backing.merge(key, value!!) { old, new -> remappingFunction.apply(old, new) }
+        backing.merge(key, value!!) { old, new -> remappingFunction.apply(old, new) } ?: defRetValue
 
     override fun int2ObjectEntrySet(): ObjectSet<Int2ObjectMap.Entry<V>> = entrySetView
 
