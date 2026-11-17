@@ -296,9 +296,11 @@ bits and the type), so lookups take no lock and stores allocate nothing.
   caller): the caller serves it between its own claims and while it waits for the wave's tail,
   outside any task of its own, so the wait ends when the caller's current task does. The served
   load and the server thread's own non-deferrable loads run chunk-system work beside the workers,
-  as a synchronous load inside a vanilla tick would; mods' load callbacks still wait for the end
-  of the wave. A worker must not hold a lock that the server thread's tasks or chunk loading can
-  wait for while it makes such a lookup; a wait longer than 10 s logs the stalled caller.
+  as a synchronous load inside a vanilla tick would. Region schedulers also serve these requests
+  between regions and while waiting for conflicts or dependencies, outside any region claim: a
+  worker may need a chunk before it can release the region the caller is waiting for. Mods' load
+  callbacks still wait for the end of the wave. A worker must not hold a lock that the server thread's
+  tasks or chunk loading can wait for while it makes such a lookup; a wait longer than 10 s logs the stalled caller.
 - The server thread defers deferrable tasks the same way while helpers run: it could load,
   but the chunk-system work (status changes, entity and POI loading, mods' load callbacks)
   would then overlap the workers. `WorkerPool.runAfterParallelWave` queues other such

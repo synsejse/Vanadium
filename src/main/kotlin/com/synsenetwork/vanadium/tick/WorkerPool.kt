@@ -775,6 +775,15 @@ class WorkerPool internal constructor(
         internal fun callerHasRequests(): Boolean = CALLER.get().hasRequests
 
         /**
+         * For schedulers that run a claim loop inside one pool task: the caller must also serve requests
+         * between regions and while waiting for dependencies. Otherwise a region can wait for the caller
+         * while the caller waits for that region. Cache once per participant; helpers get no pump.
+         * Invoke only outside a region, with no claim or task lock held.
+         */
+        internal fun callerRequestPump(): Runnable? =
+            if (Thread.currentThread() is WorkerThread) null else CALLER.get().takeIf { it.parallelWaves > 0 }
+
+        /**
          * Inside [runDeferrable] during a parallel wave, marks the task for the server thread and returns the signal
          * to throw; otherwise null, and the caller must handle [what] itself. Marking survives a caller swallowing
          * the signal.
@@ -803,7 +812,7 @@ class WorkerPool internal constructor(
         var done = false
     }
 
-    private class CallerState : Deferral() {
+    private class CallerState : Deferral(), Runnable {
         /** Nesting depth of waves with helpers that this thread is running. */
         var parallelWaves = 0
         val afterWave = ArrayList<Runnable>()
@@ -812,6 +821,10 @@ class WorkerPool internal constructor(
         val requests = ConcurrentLinkedQueue<CallerRequest>()
 
         val hasRequests: Boolean get() = !requests.isEmpty()
+
+        override fun run() {
+            if (hasRequests) serveRequests()
+        }
 
         /**
          * Runs every queued request on this thread, outside any task of its own, and releases its requester. The
