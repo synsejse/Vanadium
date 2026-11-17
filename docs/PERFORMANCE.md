@@ -126,8 +126,8 @@ flag runs below). Sprint windows of 2,000 ticks (spread out), 15,000 (crowded ba
 
 ## Recommended JVM flags
 
-On a machine with more than one NUMA node (a multi-socket server; `lscpu` shows the node count), and
-with memory to dedicate to the server:
+On Linux with more than one NUMA node (`lscpu` shows the node count), and with memory to dedicate
+to the server:
 
 ```sh
 java -Xms4G -Xmx4G -XX:+UseNUMA -XX:+UseTransparentHugePages -XX:+AlwaysPreTouch \
@@ -136,9 +136,11 @@ java -Xms4G -Xmx4G -XX:+UseNUMA -XX:+UseTransparentHugePages -XX:+AlwaysPreTouch
 
 Use the same value for `-Xms` and `-Xmx`, sized to what the machine can give the server; these
 measurements used 4 GiB, and an earlier study found an 8 GiB heap 6% slower than 4 GiB on the
-spread-out world. Uncapped TPS at 36 workers with the final build, eight server JVMs per arm
-(each the mean of its two sprint windows) with their range; arms alternate with the order reversed
-every round:
+spread-out world. Leave room outside the heap for the JVM, mods and operating system; 4 GiB is the
+benchmark heap, not a sizing recommendation for every modpack.
+
+Uncapped TPS at 36 workers with the final build, eight server JVMs per arm (each the mean of its two
+sprint windows) with their range; arms alternate with the order reversed every round:
 
 | Workload | No extra flags | THP + pre-touch + compact headers | …plus `UseNUMA` | `UseNUMA` alone |
 | --- | ---: | ---: | ---: | ---: |
@@ -168,8 +170,8 @@ Costs and requirements:
 
 - **The whole heap is committed at start.** `-XX:+AlwaysPreTouch` touches every page of `-Xms`:
   4.8 GiB resident (4.1 GiB of it huge pages) from startup with a 4 GiB heap, against 3.0–3.8 GiB
-  after 30 seconds without it. Launch to "Done" took 27–28 s on average against 24 s (up to 46 s);
-  pre-touching takes longer with a larger heap.
+  after 30 seconds without it. Launch to "Done" with all four flags took 28 s on average (up to
+  46 s), against 24 s without them; pre-touching takes longer with a larger heap.
 - **Huge pages need the kernel's consent.** `/sys/kernel/mm/transparent_hugepage/enabled` must be
   `madvise` (as on the test machine) or `always`; with `never` the flag does nothing. Without
   pre-touch, huge pages were unreliable in an earlier study: regions first touched late fell back to
@@ -179,18 +181,20 @@ Costs and requirements:
   the JDK on the test machine could not find it until it was put on `LD_LIBRARY_PATH`, and an
   earlier study that measured `UseNUMA` as noise ran without it. `-Xlog:gc+init` prints
   `NUMA Support: Enabled` when it works. On a single-node machine the JVM ignores the flag.
-- **Compact object headers** are a product feature in Java 25 (JEP 519). C2ME, Lithium, Fabric API and
-  Vanadium ran with them in 60 server JVMs without a tick error; other mods were not
-  tested.
+- **Compact object headers** are a product feature in Java 25
+  ([JDK release notes](https://docs.oracle.com/en/java/javase/25/migrate/significant-changes-jdk-25.html),
+  JEP 519). C2ME, Lithium, Fabric API and Vanadium ran with them in 60 server JVMs without a tick
+  error; other mods were not tested.
 
-When not to use them:
+When to adjust the flags:
 
-- A single-socket machine: `UseNUMA` does nothing there, and the other three flags were measured
-  only on this two-node machine.
+- A machine exposing only one NUMA node: omit `-XX:+UseNUMA`. Check the node count rather than the
+  socket count; the other three flags were measured only on this two-node machine.
 - Memory shared with other services, or a heap you cannot afford to commit up front: drop
   `-XX:+AlwaysPreTouch` and `-XX:+UseTransparentHugePages`, keep `-XX:+UseNUMA` (its gain above came
   without them).
-- A kernel with transparent huge pages set to `never` that you cannot change.
+- A kernel with transparent huge pages set to `never` that you cannot change: omit
+  `-XX:+UseTransparentHugePages`; the other flags do not depend on transparent huge pages.
 
 Measured 2026-11-14 at commit `e29ec28`, `workers = 36`, `isolation = 2`, G1, `-Xms4G -Xmx4G` in every
 arm; libnuma on the library path of every arm. Sprint windows as above. The 20 TPS runs used the
