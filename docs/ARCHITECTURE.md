@@ -36,6 +36,15 @@ indexing remain installed even with `enabled=false`. Projectiles, entities in po
 configured exact-ID exceptions tick serially. A serial passenger routes its whole vehicle
 tree through the serial path.
 
+Block entities also tick serially, on the server thread before the wave, while a neighbouring chunk
+of theirs is still loading (`BlockEntityNeighbourhood`). Vanilla ticks them once their chunk's ticket
+level allows block ticking, before its ticking future (which needs every neighbour FULL) completes, and
+a tick may read past the chunk's edge: `BlockEntity.setChanged` notifies comparators up to two blocks
+out through a solid block, unchecked. On a worker that read would wait for the server thread to load
+the neighbour mid-wave. Random ticks, scheduled ticks and entities already wait for those futures, so
+only block entities need this. Reads farther than 16 blocks (a spawner with a custom spawn range) can
+still reach a chunk that is not FULL; they keep the mid-wave fallback in `ParallelChunkCache`.
+
 ## Planning and execution
 
 Entity and chunk collection keep their tasks across ticks instead of rebuilding them on the server
