@@ -10,7 +10,10 @@ enum class LiveFixture(
     val resources: List<String> = emptyList(),
 ) {
     INTEGRATION("integration", "integration", "integration-checks", "integrationChecksJar", 5),
-    FEATURE_BENCH("featureBench", "featurebench", "feature-bench", "featureBenchJar", 20, listOf("feature-bench.mixins.json"));
+    FEATURE_BENCH("featureBench", "featurebench", "feature-bench", "featureBenchJar", 20, listOf("feature-bench.mixins.json")),
+
+    /** Manual whole-server benchmark; its timeout grows with the requested ticks (see MixedBenchSettings). */
+    MIXED_BENCH("mixedBench", "mixedbench", "mixed-bench", "mixedBenchJar", 10);
 
     val descriptor: String get() = "$modName.fabric.mod.json"
     val jarName: String get() = "$modName.jar"

@@ -1,4 +1,4 @@
-package com.synsenetwork.vanadium.integration
+package com.synsenetwork.vanadium.live
 
 import com.mojang.authlib.GameProfile
 import io.netty.channel.ChannelFutureListener

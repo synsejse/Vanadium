@@ -13,16 +13,20 @@ import java.nio.file.Path
 object LiveServer {
     fun start() {
         if (!java.lang.Boolean.getBoolean("vanadium.live.jfr")) return
-        val recording = Recording(Configuration.getConfiguration("profile"))
-        recording.enable("jdk.JavaMonitorEnter").withThreshold(Duration.ofNanos(100_000))
-        recording.enable("jdk.ThreadPark").withThreshold(Duration.ofNanos(100_000))
-        recording.enable("jdk.ExecutionSample").withPeriod(Duration.ofMillis(5))
+        val recording = recording()
         recording.start()
         ServerLifecycleEvents.SERVER_STOPPED.register {
             recording.stop()
             recording.dump(Path.of("live.jfr"))
             recording.close()
         }
+    }
+
+    /** The live JFR settings: profile events plus 100µs monitor/park thresholds and 5 ms execution samples. */
+    fun recording() = Recording(Configuration.getConfiguration("profile")).apply {
+        enable("jdk.JavaMonitorEnter").withThreshold(Duration.ofNanos(100_000))
+        enable("jdk.ThreadPark").withThreshold(Duration.ofNanos(100_000))
+        enable("jdk.ExecutionSample").withPeriod(Duration.ofMillis(5))
     }
 
     fun finish(server: MinecraftServer, mode: String, settleTicks: Int = 20) {

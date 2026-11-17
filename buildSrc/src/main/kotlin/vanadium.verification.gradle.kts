@@ -1,5 +1,7 @@
 import com.synsenetwork.vanadium.gradle.InstallRuntimeMods
 import com.synsenetwork.vanadium.gradle.LiveFixture
+import com.synsenetwork.vanadium.gradle.LiveSettings
+import com.synsenetwork.vanadium.gradle.MixedBenchSettings
 import com.synsenetwork.vanadium.gradle.BuildFeaturesAccess
 import com.synsenetwork.vanadium.gradle.PrepareRuntimeMod
 import com.synsenetwork.vanadium.gradle.PrepareLiveRun
@@ -22,6 +24,7 @@ tasks.named<Test>("test") {
 }
 
 val testOutput = sourceSets.named("test").map { it.output }
+val mixedBench = MixedBenchSettings { providers.gradleProperty(it).orNull }
 val liveRuns = LiveFixture.entries.associateWith {
     layout.projectDirectory.dir(".vanadium/runs/${it.runName}-${UUID.randomUUID()}")
 }
@@ -38,7 +41,12 @@ loom.runs {
                 systemProperties.put("vanadium.live.ticks", providers.gradleProperty("live.ticks").getOrElse("500"))
                 systemProperties.put("vanadium.live.sprint", providers.gradleProperty("live.sprint").getOrElse("true"))
             }
-            jvmArguments.addAll("-Xms2g", "-Xmx2g", "-XX:+UseG1GC")
+            if (fixture == LiveFixture.MIXED_BENCH) {
+                systemProperties.putAll(mixedBench.systemProperties)
+                jvmArguments.addAll(mixedBench.jvmArgs)
+            } else {
+                jvmArguments.addAll("-Xms2g", "-Xmx2g", "-XX:+UseG1GC")
+            }
             if (fixture == LiveFixture.FEATURE_BENCH) {
                 listOf("workers" to "4", "rounds" to "12", "scale" to "1", "filter" to "", "jfr" to "true").forEach { (key, default) ->
                     systemProperties.put("vanadium.bench.$key", providers.gradleProperty("bench.$key").getOrElse(default))
@@ -105,12 +113,15 @@ listOf("runClient", "runServer").forEach { name ->
 val configurationCache = objects.newInstance(BuildFeaturesAccess::class.java).features.configurationCache.requested.getOrElse(false)
 liveRuns.forEach { (fixture, directory) ->
     tasks.named<JavaExec>("run${fixture.runName.replaceFirstChar(Char::uppercase)}") {
-        group = if (fixture == LiveFixture.FEATURE_BENCH) "benchmark" else "verification"
+        group = if (fixture == LiveFixture.INTEGRATION) "verification" else "benchmark"
+        if (fixture == LiveFixture.MIXED_BENCH) description = "Manual realistic whole-server benchmark (one mode per run; see docs/PROFILING.md)"
         dependsOn(runtimeMods, fixture.jarTask)
-        timeout.set(Duration.ofMinutes(fixture.timeoutMinutes))
+        val mixed = fixture == LiveFixture.MIXED_BENCH
+        timeout.set(Duration.ofMinutes(if (mixed) maxOf(fixture.timeoutMinutes, mixedBench.timeoutMinutes) else fixture.timeoutMinutes))
         args("nogui")
         doFirst(PrepareLiveRun(directory.asFile, configurationCache, layout.projectDirectory.file(".vanadium/eula.txt").asFile,
-            runtimeMods.map { it.get().destination.get().asFile }, layout.buildDirectory.file("test-mods/${fixture.jarName}").get().asFile, fixture.runName))
+            runtimeMods.map { it.get().destination.get().asFile }, layout.buildDirectory.file("test-mods/${fixture.jarName}").get().asFile, fixture.runName,
+            if (mixed) mixedBench.liveSettings else LiveSettings()))
         doLast(VerifyLiveRun(fixture.runName, providers.gradleProperty("live.jfr").getOrElse("false").toBoolean()))
     }
 }

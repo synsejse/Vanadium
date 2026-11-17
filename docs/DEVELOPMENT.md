@@ -105,7 +105,7 @@ passengers, events, navigation invalidation, tracking diffs, spawn-count reducti
 item conservation and chunk packet encoding/sending. The JFR option records monitor/park
 events at 100µs plus execution/allocation samples into the run's `live.jfr`.
 
-`integration/TestPlayer.kt` provides reusable real `ServerPlayer` instances joined through
+`live/TestPlayer.kt` (shared by the live fixtures) provides reusable real `ServerPlayer` instances joined through
 `PlayerList.placeNewPlayer` and ticked through `ServerConnectionListener`. Only the transport is
 mocked: packets are recorded, client actions use the real packet handlers, and teleport/chunk/keepalive
 acknowledgements arrive on the next connection tick. Each server tick drives one simulated
@@ -128,6 +128,8 @@ world-safety or performance claim.
 ./gradlew benchCrowdQueries
 ./gradlew runFeatureBench
 ./gradlew runFeatureBench -Pbench.filter='spawn-.*' -Pbench.rounds=2 -Pbench.scale=0.1 -Pbench.jfr=false
+./gradlew runMixedBench -Pmixed.mode=enabled
+./gradlew runMixedBench -Pmixed.mode=serial
 ```
 
 `runFeatureBench` uses another fresh isolated server and a test-only mod. It runs paired
@@ -137,6 +139,13 @@ Defaults are four helpers, isolation two, 12 paired rounds, scale 1 and JFR enab
 `bench.workers`, `bench.rounds`, `bench.scale`, `bench.filter` and `bench.jfr` are Gradle
 properties. Reduced scale/rounds only check the harness; they are not performance evidence.
 For independent JVM samples, invoke the task again; each run gets a new world and JVM.
+
+`runMixedBench` is a manual whole-server benchmark: real players over the mocked transport
+walking around player bases with furnaces, hoppers, redstone, farms, animals and villagers on
+generated terrain with natural spawning, measured in fixed-tick windows. It runs one mode per
+invocation in a fresh `.vanadium/runs/mixedBench-UUID/` directory and takes several minutes; see
+[profiling](PROFILING.md#mixed-whole-server-benchmark) for the workload, `mixed.*` properties,
+outputs and how to compare modes. It is never part of `build` or `runIntegration`.
 
 For whole-server measurements use `/vanadium benchmark`, `/vanadium profile`, and the
 JDK's `jcmd`/`jfr` tools; see [profiling](PROFILING.md). Old exploratory harnesses and 26.2 reports have been removed; current chart evidence is

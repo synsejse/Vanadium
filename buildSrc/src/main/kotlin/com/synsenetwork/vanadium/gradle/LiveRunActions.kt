@@ -14,6 +14,7 @@ class PrepareLiveRun(
     private val runtimeMods: List<File>,
     private val fixture: File,
     private val mode: String,
+    private val settings: LiveSettings = LiveSettings(),
 ) : Action<Task> {
     override fun execute(task: Task) {
         check(!configurationCache) { "Live runs require --no-configuration-cache for fresh launch directories" }
@@ -27,25 +28,38 @@ class PrepareLiveRun(
         fixture.copyTo(run.resolve("mods/${fixture.name}"))
         eula.copyTo(run.resolve("eula.txt"))
         val port = ServerSocket(0).use { it.localPort }
-        run.resolve("server.properties").writeText("""
-            server-ip=127.0.0.1
-            server-port=$port
-            online-mode=true
-            level-seed=12345
-            level-type=minecraft:flat
-            generator-settings={"layers":[{"height":1,"block":"minecraft:bedrock"},{"height":2,"block":"minecraft:dirt"},{"height":1,"block":"minecraft:grass_block"}],"biome":"minecraft:plains","structure_overrides":[]}
-            max-tick-time=${if (mode == "featureBench") -1 else 60000}
-            view-distance=4
-            simulation-distance=4
-            max-players=1
-            spawn-protection=0
-            pause-when-empty-seconds=-1
-        """.trimIndent() + "\n")
-        run.resolve("config/vanadium.toml").writeText("workers = 4\nisolation = 2\n")
-        run.resolve("config/c2me.toml").writeText("version = 3\nglobalExecutorParallelism = 4\n")
+        val properties = linkedMapOf(
+            "server-ip" to "127.0.0.1",
+            "server-port" to "$port",
+            "online-mode" to "true",
+            "level-seed" to "12345",
+            "level-type" to "minecraft:flat",
+            "generator-settings" to """{"layers":[{"height":1,"block":"minecraft:bedrock"},{"height":2,"block":"minecraft:dirt"},""" +
+                """{"height":1,"block":"minecraft:grass_block"}],"biome":"minecraft:plains","structure_overrides":[]}""",
+            "max-tick-time" to if (mode == "featureBench") "-1" else "60000",
+            "view-distance" to "4",
+            "simulation-distance" to "4",
+            "max-players" to "1",
+            "spawn-protection" to "0",
+            "pause-when-empty-seconds" to "-1",
+        )
+        properties.putAll(settings.serverProperties)
+        run.resolve("server.properties").writeText(properties.entries.joinToString("\n", postfix = "\n") { (key, value) -> "$key=$value" })
+        run.resolve("config/vanadium.toml").writeText(settings.vanadium.entries.joinToString("\n", postfix = "\n") { (key, value) -> "$key = $value" })
+        settings.c2meParallelism?.let { run.resolve("config/c2me.toml").writeText("version = 3\nglobalExecutorParallelism = $it\n") }
         task.logger.lifecycle("Isolated live run: $run")
     }
 }
+
+/**
+ * Per-fixture launch settings. [serverProperties] override the isolated defaults; [vanadium] is the whole
+ * `vanadium.toml`; a null [c2meParallelism] leaves C2ME on its own default.
+ */
+data class LiveSettings(
+    val serverProperties: Map<String, String> = emptyMap(),
+    val vanadium: Map<String, String> = linkedMapOf("workers" to "4", "isolation" to "2"),
+    val c2meParallelism: Int? = 4,
+) : java.io.Serializable
 
 class VerifyLiveRun(private val mode: String, private val jfr: Boolean) : Action<Task> {
     override fun execute(task: Task) {
