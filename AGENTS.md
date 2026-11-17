@@ -9,8 +9,10 @@ Do not upgrade Minecraft, mappings, Loom, Gradle, Kotlin, or runtime mods as inc
 
 ## Environment and commands
 
-- Enter `nix develop` (or `nix develop path:.` while new Nix files are untracked).
-  The shell supplies Java 25, nixfmt, and common CLI tools.
+- Enter `nix-shell` or `nix develop` (use `nix develop path:.` while new Nix files are untracked).
+  Both use `nix/shell.nix` and the nixpkgs pin in `flake.lock`.
+  The shell supplies Java 25, nixfmt, common CLI tools, and Linux client runtime libraries.
+  `nix-shell --run './gradlew runClient'` launches the interactive client.
 - Always use `./gradlew`, not a system Gradle. Kotlin and Java compile with a Java 25 toolchain.
 - `./gradlew genSources`: generate Minecraft sources for reviewing injection targets.
 - `./gradlew build`: compile, validate the access widener, test, and produce distributable jars.

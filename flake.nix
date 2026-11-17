@@ -21,29 +21,7 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in
         {
-          default = pkgs.mkShellNoCC {
-            packages = with pkgs; [
-              jdk25
-              bash
-              git
-              ripgrep
-              curl
-              jq
-              unzip
-              zip
-              nixfmt
-            ];
-            JAVA_HOME = "${pkgs.jdk25}";
-            # LWJGL loads graphics APIs dynamically when starting the client.
-            shellHook = pkgs.lib.optionalString pkgs.stdenv.isLinux ''
-              export LD_LIBRARY_PATH="${
-                pkgs.lib.makeLibraryPath [
-                  pkgs.vulkan-loader
-                  pkgs.libglvnd
-                ]
-              }''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-            '';
-          };
+          default = import ./nix/shell.nix { inherit pkgs; };
         }
       );
 
@@ -61,7 +39,7 @@
                 ];
               }
               ''
-                nixfmt --check ${./flake.nix}
+                nixfmt --check ${./flake.nix} ${./shell.nix} ${./nix/shell.nix}
                 touch "$out"
               '';
         }
