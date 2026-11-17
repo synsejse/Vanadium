@@ -25,6 +25,8 @@ Do not upgrade Minecraft, mappings, Loom, Gradle, Kotlin, or runtime mods as inc
 - `./gradlew benchSectionIndex`: entity section box queries, column index against the previous two-map layout.
 - `./gradlew benchCrowdQueries`: push-sized queries in sections of 10/50/200 entities, full scan against cells, with movers.
 - `./gradlew prepareRuntimeMods`: download and verify pinned C2ME and Lithium into `.vanadium/mods`.
+- `./gradlew setupRuntimeMods`: install those jars into the interactive run's `mods/`, preserving other mods
+  and rejecting conflicts. `runClient`/`runServer` depend on it; `-PvanadiumRunDir=...` selects their shared directory.
 - `./gradlew runIntegration`: live Kotlin/Java tests plus startup/tick/save/shutdown in a fresh
   `.vanadium/runs/` directory. Requires accepted `.vanadium/eula.txt`; never touches personal `run/`.
   Scenarios sprint within a shared 500-tick budget (`-Plive.ticks=N`); async readiness waits are paced.

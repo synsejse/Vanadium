@@ -107,9 +107,12 @@ object VanadiumCommand {
 
     private fun reload(ctx: CommandContext<CommandSourceStack>): Int {
         val holder = AutoConfig.getConfigHolder(VanadiumConfig::class.java)
-        val loaded = holder.load()
+        if (!holder.load()) {
+            // AutoConfig resets its holder to defaults on failure; keep the running config intact.
+            holder.config = Vanadium.config
+            return fail(ctx, "config reload failed — check the file and server log; active values were retained")
+        }
         Vanadium.config = holder.config
-        if (!loaded) return fail(ctx, "config reload failed — check the file and server log; /vanadium status shows active values")
         feedback(ctx, "config reloaded from disk")
         return SUCCESS
     }

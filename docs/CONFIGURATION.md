@@ -3,7 +3,8 @@
 ## Configuration
 
 Edit `config/vanadium.toml`, then run `/vanadium reload` to apply changes live.
-`workers` requires a server restart. Commands do not modify or save configuration values.
+`workers` requires a server restart. A failed `/vanadium reload` retains the active settings.
+`/vanadium set` changes in-memory values; commands do not write the configuration file.
 
 | Option | Default | Effect |
 |---|---|---|

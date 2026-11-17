@@ -1,6 +1,8 @@
 package com.synsenetwork.vanadium.tick
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
+import kotlin.math.abs
+import kotlin.math.ceil
 
 /**
  * One stage's tasks for one wave, planned into regions that adapt to where the work is.
@@ -142,13 +144,13 @@ class RegionGrid {
 
     /** Tasks a region may hold before it splits: a share of the work per participant, at least the smallest worthwhile region. */
     private fun targetTasks(participants: Int): Int {
-        val minimum = if (nanosPerTask > 0) Math.ceil(MIN_REGION_NANOS / nanosPerTask).toInt() else 1
+        val minimum = if (nanosPerTask > 0) ceil(MIN_REGION_NANOS / nanosPerTask).toInt() else 1
         return maxOf(1, logSize / (participants * SPLIT_FACTOR), minimum)
     }
 
     private fun canReuse(participants: Int, isolation: Int, target: Int): Boolean {
         if (planned.isEmpty() || reuses >= MAX_REUSES || participants != planParticipants || isolation != planIsolation) return false
-        if (Math.abs(logSize - planTasks) * 4 > planTasks) return false
+        if (abs(logSize - planTasks) * 4 > planTasks) return false
         if (target > planTarget * 2 || target * 2 < planTarget) return false
         for (bucket in activeBuckets) if (bucket.planGeneration != planGeneration) return false
         return true

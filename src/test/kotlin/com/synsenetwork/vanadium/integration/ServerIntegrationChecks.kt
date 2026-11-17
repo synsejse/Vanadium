@@ -2,6 +2,12 @@ package com.synsenetwork.vanadium.integration
 
 import com.mojang.authlib.GameProfile
 import it.unimi.dsi.fastutil.longs.LongSet
+import java.util.UUID
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.function.BooleanSupplier
 import net.fabricmc.api.ModInitializer
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
 import net.minecraft.core.BlockPos
@@ -24,18 +30,13 @@ import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.GameType
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.chunk.LevelChunk
-import java.util.UUID
-import java.util.concurrent.CompletableFuture
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
-import java.util.function.BooleanSupplier
 
 /** Live Fabric regression checks; packaged only by integrationChecksJar. */
 class ServerIntegrationChecks : ModInitializer {
     override fun onInitialize() {
         com.synsenetwork.vanadium.live.LiveServer.start()
         ServerLifecycleEvents.SERVER_STARTED.register { server ->
+            runCheck("ConfigChecks.run") { ConfigChecks.run(server) }
             runCheck("checkBlocks") { checkBlocks(server) }
             runCheck("checkDirty") { checkDirty(server) }
             val level = server.overworld()

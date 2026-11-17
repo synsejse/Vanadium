@@ -70,7 +70,7 @@ class PathTypeSlotsTest {
             if (keysInSlot.size < 8 && key !in keysInSlot) keysInSlot.add(key)
         }
         val keys = bySlot.values.flatten().toLongArray()
-        fun typeOf(key: Long) = types[Math.floorMod(key, types.size.toLong()).toInt()]
+        fun typeOf(key: Long) = types[key.mod(types.size.toLong()).toInt()]
         val threads = 6
         val pool = Executors.newFixedThreadPool(threads)
         val start = CountDownLatch(1)

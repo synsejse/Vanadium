@@ -7,6 +7,8 @@ import com.synsenetwork.vanadium.diagnostics.WaveDiagnostics
 import com.synsenetwork.vanadium.diagnostics.WaveEvent
 import java.util.EnumMap
 import java.util.function.LongConsumer
+import kotlin.math.ceil
+import kotlin.math.sqrt
 
 /**
  * Server-thread stage collection and dispatch. Worlds run sequentially, with a barrier per stage. Entities
@@ -89,7 +91,7 @@ class TickScheduler internal constructor(
     internal fun participants(tasks: Int, estimatedNanos: Double): Int {
         val most = maxOf(1, minOf(pool.workerCount + 1, tasks))
         if (estimatedNanos <= 0.0 || participantCostNanos <= 0.0) return most
-        return Math.sqrt(estimatedNanos / participantCostNanos).toInt().coerceIn(1, most)
+        return sqrt(estimatedNanos / participantCostNanos).toInt().coerceIn(1, most)
     }
 
     /**
@@ -106,7 +108,7 @@ class TickScheduler internal constructor(
         val threads = participants(units, estimated)
         if (longestNanos <= 0.0 || estimated <= 0.0 || criticalPathShare <= 0.0) return threads
         // One thread runs the longest task; the others share the rest.
-        val others = Math.ceil(maxOf(0.0, estimated - longestNanos) / (longestNanos * criticalPathShare)).toInt()
+        val others = ceil(maxOf(0.0, estimated - longestNanos) / (longestNanos * criticalPathShare)).toInt()
         return minOf(threads, maxOf(1, 1 + others))
     }
 

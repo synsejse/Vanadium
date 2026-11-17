@@ -372,7 +372,8 @@ share is made safe:
   (`entity.collisions.unpushable_cramming`) is disabled: entities of any thread change a section's
   masked list as their feet block changes, and it would bypass the crowded-section grid.
 - POI section storage keeps Lithium's per-column index on a concurrent listening map; writes to one
-  column and their index updates hold a column stripe lock, and reads take none.
+  column and their index updates hold a column stripe lock, and reads take none. An unsupported
+  storage layout stops initialization instead of continuing with an unsafe shared map.
 - Game-event dispatch reads per-chunk listener maps without the chunk's monitor, so those maps are
   concurrent and removal takes the monitor that creation already held. The per-world dispatcher
   storage takes a write lock for its rare updates; reads are optimistic and retry under a read lock

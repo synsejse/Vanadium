@@ -68,8 +68,10 @@ tasks.processResources {
 loom {
     accessWidenerPath = file("src/main/resources/vanadium.accesswidener")
     runs {
-        named("server") {
-            runDirectory.set(file(providers.gradleProperty("vanadiumRunDir").getOrElse("run")))
+        listOf("client", "server").forEach { name ->
+            named(name) {
+                runDirectory.set(file(providers.gradleProperty("vanadiumRunDir").getOrElse("run")))
+            }
         }
     }
 }

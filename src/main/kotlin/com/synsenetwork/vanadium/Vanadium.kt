@@ -47,7 +47,6 @@ object Vanadium : ModInitializer {
     override fun onInitialize() {
         LOGGER.info("Initializing Vanadium...")
         val holder = AutoConfig.register(VanadiumConfig::class.java) { definition, type -> Toml4jConfigSerializer(definition, type) }
-        holder.load()
         config = holder.config
         // Crowded-section grids are bypassed and rebuilt after an entity write ran without its owner's lock.
         CrowdedSection.unprotectedWrites = LongSupplier { Interactions.timeouts + Interactions.cycles }

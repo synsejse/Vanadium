@@ -44,10 +44,11 @@ object PerformanceResults {
     }
 
     /** Server-relative path for chat messages, falling back to the absolute path. */
-    fun describe(server: MinecraftServer, file: Path?): String = when (file) {
-        null -> "not saved (see log)"
-        else -> runCatching { server.serverDirectory.toAbsolutePath().relativize(file.toAbsolutePath()).toString() }
-            .getOrDefault(file.toString())
+    fun describe(server: MinecraftServer, file: Path): String = try {
+        server.serverDirectory.toAbsolutePath().relativize(file.toAbsolutePath()).toString()
+    } catch (_: IllegalArgumentException) {
+        // Paths on different Windows drives cannot be made relative to each other.
+        file.toString()
     }
 
     private fun environment(server: MinecraftServer) = JsonObject().apply {

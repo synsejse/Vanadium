@@ -1,12 +1,12 @@
 package com.synsenetwork.vanadium.config
 
 import com.synsenetwork.vanadium.tick.IdleWorkers
-import net.minecraft.resources.Identifier
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import net.minecraft.resources.Identifier
 
 class VanadiumConfigTest {
     @Test
@@ -81,6 +81,7 @@ class VanadiumConfigTest {
         assertEquals(IdleWorkers.LEAN, config.idleWorkersMode(), "a changed value is reparsed")
         config.idleWorkers = "warm"
         assertFailsWith<me.shedaniel.autoconfig.ConfigData.ValidationException> { config.validatePostLoad() }
+        assertFailsWith<IllegalArgumentException> { config.idleWorkersMode() }
     }
 
     @Test

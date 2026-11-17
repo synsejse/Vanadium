@@ -1,9 +1,9 @@
 package com.synsenetwork.vanadium.config
 
 import com.synsenetwork.vanadium.tick.IdleWorkers
-import me.shedaniel.autoconfig.ConfigData
 import java.lang.reflect.Field
 import java.lang.reflect.Modifier
+import me.shedaniel.autoconfig.ConfigData
 
 /** Runtime-only options for `/vanadium set`: booleans, integers and choices; worker count requires a restart. */
 object LiveOptions {
@@ -35,9 +35,13 @@ object LiveOptions {
                 "false", "off" -> false
                 else -> return "$name takes true/false or on/off"
             }
-            String::class.java -> choices(name)?.firstOrNull { it.equals(text, ignoreCase = true) }
-                ?: return "$name takes one of ${choices(name)?.joinToString() ?: "a word"}"
-            else -> text.toIntOrNull() ?: return "$name takes an integer"
+            String::class.java -> {
+                val choices = checkNotNull(choices(name)) { "No accepted values registered for live option '$name'" }
+                choices.firstOrNull { it.equals(text, ignoreCase = true) }
+                    ?: return "$name takes one of ${choices.joinToString()}"
+            }
+            Integer.TYPE -> text.toIntOrNull() ?: return "$name takes an integer"
+            else -> error("Unsupported live option type: ${field.type.name}")
         }
         val previous = field.get(config)
         field.set(config, value)

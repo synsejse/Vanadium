@@ -64,6 +64,10 @@ Then run:
 release jars into the run's `mods/`. Vanadium compiles against the verified Lithium jar (`compileOnly`),
 and unit tests use it to check mixin bindings, including injections into methods Lithium merges.
 Fabric API, Fabric Language Kotlin and Cloth Config are normal Gradle dependencies.
+`./gradlew setupRuntimeMods` also installs the verified jars into the interactive run's `mods/`;
+`runClient` and `runServer` run this setup automatically. A conflicting C2ME/Lithium version
+or modified pinned file stops setup with its path; other mods are kept. Neither task flattens
+C2ME's nested jars into the development classpath.
 
 `runIntegration` builds a test-only Fabric mod from `src/test/kotlin/`, starts a dedicated
 server through Loom, and runs the live assertions in-process. It also executes the mod's
@@ -142,9 +146,10 @@ publishing new measurements. Stage and world profile intervals overlap; do not a
 
 ## Interactive development
 
-`./gradlew runServer` and `runClient` retain their normal Loom behavior. For interactive
-use, place the verified C2ME and Lithium releases in that run directory's `mods/`,
-avoiding duplicate versions. `-PvanadiumRunDir=/absolute/path` selects a separate interactive server directory.
+`./gradlew runServer` and `runClient` automatically install verified C2ME and Lithium into
+`run/mods/` before launch. To install them without starting the game (including before an IDE
+launch), use `./gradlew setupRuntimeMods`. `-PvanadiumRunDir=/absolute/path` selects a separate
+interactive client/server directory for both setup and launch.
 Start the development client with:
 
 ```sh
