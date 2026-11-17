@@ -1,6 +1,6 @@
 package com.synsenetwork.vanadium.mixin.entity.ai.pathing;
 
-import com.synsenetwork.vanadium.tracking.PathTypeSlots;
+import com.synsenetwork.vanadium.navigation.PathTypeSlots;
 import java.util.concurrent.atomic.AtomicLongArray;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.BlockGetter;

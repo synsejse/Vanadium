@@ -1,6 +1,6 @@
 package com.synsenetwork.vanadium.mixin.server;
 
-import com.synsenetwork.vanadium.commands.TickBenchmark;
+import com.synsenetwork.vanadium.diagnostics.TickBenchmark;
 import java.util.function.Supplier;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;

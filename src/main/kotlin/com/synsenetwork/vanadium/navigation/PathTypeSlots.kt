@@ -1,8 +1,8 @@
-package com.synsenetwork.vanadium.tracking
+package com.synsenetwork.vanadium.navigation
 
 import it.unimi.dsi.fastutil.HashCommon
-import net.minecraft.world.level.pathfinder.PathType
 import java.util.concurrent.atomic.AtomicLongArray
+import net.minecraft.world.level.pathfinder.PathType
 
 /**
  * The level-wide path type cache (`PathTypeCacheMixin`), read and written by every pathfinding mob on every

@@ -2,7 +2,7 @@ package com.synsenetwork.vanadium.featurebench
 
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.chunk.ChunkPacketPreparation
-import com.synsenetwork.vanadium.tick.SpawnPreparation
+import com.synsenetwork.vanadium.spawning.SpawnPreparation
 import net.minecraft.core.BlockPos
 import net.minecraft.network.protocol.game.ClientboundLevelChunkPacketData
 import net.minecraft.server.level.ServerLevel

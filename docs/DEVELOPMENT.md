@@ -27,6 +27,15 @@ Build and verification configuration is separated:
 - `buildSrc/src/main/kotlin/vanadium.verification.gradle.kts`: unit tests, live fixtures and benchmarks.
 - `buildSrc/src/main/kotlin/com/synsenetwork/vanadium/gradle/`: typed download/launch actions and fixture definitions.
 
+Production packages follow responsibilities: `tick/` owns wave scheduling and dispatch;
+`navigation/` owns path invalidation and path-type caching; `spawning/` owns counting and
+deferral; `diagnostics/` owns profiling, JFR events, the watchdog and performance reports.
+`commands/VanadiumCommand.kt` registers the command tree and calls those components.
+Corresponding unit tests live in the same packages; live Fabric scenarios remain in `integration/`.
+`PreparationKind` labels independent jobs, and `PerformanceResults` publishes their captures.
+Package moves change class names in stack traces; the `vanadium.*` JFR event names, enum labels,
+JSON fields and command paths remain stable.
+
 Run `./gradlew -p buildSrc check` for the build-logic tests; they validate verified downloads
 and rejection of corrupt artifacts without accessing the network.
 

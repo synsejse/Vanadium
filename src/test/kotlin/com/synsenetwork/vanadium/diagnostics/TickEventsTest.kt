@@ -1,8 +1,12 @@
-package com.synsenetwork.vanadium.tick
+package com.synsenetwork.vanadium.diagnostics
 
+import com.synsenetwork.vanadium.tick.PreparationKind
+import com.synsenetwork.vanadium.tick.Stage
+import com.synsenetwork.vanadium.tick.TickScheduler
+import com.synsenetwork.vanadium.tick.WorkerPool
+import java.nio.file.Files
 import jdk.jfr.Recording
 import jdk.jfr.consumer.RecordingFile
-import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -23,7 +27,7 @@ class TickEventsTest {
                 scheduler.begin(Stage.BLOCK_ENTITY)
                 for (x in intArrayOf(0, 0, 4, 8)) scheduler.enqueue(Stage.BLOCK_ENTITY, x, 0, {}, null)
                 scheduler.run(Stage.BLOCK_ENTITY)
-                scheduler.prepare(Preparation.TRACKING_DIFFS, List(5) { Runnable {} })
+                scheduler.prepare(PreparationKind.TRACKING_DIFFS, List(5) { Runnable {} })
                 tick.commit()
                 recording.stop()
                 recording.dump(file)

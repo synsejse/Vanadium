@@ -3,9 +3,13 @@ package com.synsenetwork.vanadium.integration
 import com.mojang.authlib.GameProfile
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.entity.AccessibleEntities
-import com.synsenetwork.vanadium.tick.SpawnPreparation
+import com.synsenetwork.vanadium.spawning.SpawnPreparation
 import com.synsenetwork.vanadium.tick.TickScheduler
 import com.synsenetwork.vanadium.tick.WorkerPool
+import java.util.UUID
+import java.util.concurrent.TimeUnit
+import java.util.function.Predicate
+import kotlin.random.Random
 import net.minecraft.core.BlockPos
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ChunkHolder
@@ -25,10 +29,6 @@ import net.minecraft.world.level.LocalMobCapCalculator
 import net.minecraft.world.level.NaturalSpawner
 import net.minecraft.world.level.PotentialCalculator
 import net.minecraft.world.level.biome.Biomes
-import java.util.UUID
-import java.util.concurrent.TimeUnit
-import java.util.function.Predicate
-import kotlin.random.Random
 
 /**
  * Whole-level parallel spawn counting against a serial `NaturalSpawner.createState` over the same live

@@ -1,6 +1,7 @@
-package com.synsenetwork.vanadium.tick
+package com.synsenetwork.vanadium.spawning
 
 import com.synsenetwork.vanadium.Vanadium
+import com.synsenetwork.vanadium.tick.WorkerPool
 import net.minecraft.server.level.ChunkMap
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.level.LocalMobCapCalculator
@@ -36,18 +37,19 @@ class SpawnCounts(private val level: ServerLevel, private val chunkMap: ChunkMap
 
     /** Replaces `tickChunks`' `createState`. */
     fun prepare(chunkCount: Int, chunks: NaturalSpawner.ChunkGetter, localCaps: LocalMobCapCalculator): NaturalSpawner.SpawnState {
-        if (Vanadium.config.enabled && Vanadium.config.parallelSpawning && !observed && level.server.isDedicatedServer &&
-            !level.gameRules.get(GameRules.SPAWN_MOBS)) {
-            // No entity: just the empty state, through other mods' wrappers as vanilla's would be.
-            val placeholder = SpawnPreparation.createState(chunkCount, level, emptyList(), chunks, localCaps)
-            deferredChunkCount = chunkCount
-            deferredChunks = chunks
-            deferred = placeholder
-            return placeholder
+        val config = Vanadium.config
+        if (!config.enabled || !config.parallelSpawning || observed || !level.server.isDedicatedServer ||
+            level.gameRules.get(GameRules.SPAWN_MOBS)) {
+            deferred = null
+            deferredChunks = null
+            return SpawnPreparation.count(chunkCount, level, chunks, localCaps, chunkMap)
         }
-        deferred = null
-        deferredChunks = null
-        return SpawnPreparation.count(chunkCount, level, chunks, localCaps, chunkMap)
+        // Keep the placeholder compatible with other mods' wrappers around vanilla counting.
+        val placeholder = SpawnPreparation.createState(chunkCount, level, emptyList(), chunks, localCaps)
+        deferredChunkCount = chunkCount
+        deferredChunks = chunks
+        deferred = placeholder
+        return placeholder
     }
 
     /**
@@ -59,8 +61,8 @@ class SpawnCounts(private val level: ServerLevel, private val chunkMap: ChunkMap
         val placeholder = deferred
         if (placeholder == null || stored !== placeholder) return stored
         observed = true
-        val chunks = deferredChunks
-        if (chunks == null || !level.server.isSameThread || WorkerPool.isParallelWaveCaller()) return null
+        val chunks = deferredChunks ?: return null
+        if (!level.server.isSameThread || WorkerPool.isParallelWaveCaller()) return null
         val state = NaturalSpawner.createState(deferredChunkCount, level, chunks, LocalMobCapCalculator(chunkMap))
         deferred = null
         deferredChunks = null

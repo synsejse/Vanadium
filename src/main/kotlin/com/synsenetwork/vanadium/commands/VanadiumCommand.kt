@@ -7,19 +7,21 @@ import com.mojang.brigadier.context.CommandContext
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.config.LiveOptions
 import com.synsenetwork.vanadium.config.VanadiumConfig
+import com.synsenetwork.vanadium.diagnostics.TickBenchmark
+import com.synsenetwork.vanadium.diagnostics.TickProfiler
 import com.synsenetwork.vanadium.tick.ServerSpin
 import com.synsenetwork.vanadium.tick.SpinPolicy
+import java.lang.reflect.Modifier
 import me.shedaniel.autoconfig.AutoConfig
 import net.fabricmc.loader.api.FabricLoader
 import net.minecraft.ChatFormatting
 import net.minecraft.commands.CommandSourceStack
-import net.minecraft.commands.SharedSuggestionProvider
 import net.minecraft.commands.Commands.argument
 import net.minecraft.commands.Commands.literal
+import net.minecraft.commands.SharedSuggestionProvider
 import net.minecraft.network.chat.Component
 import net.minecraft.network.chat.MutableComponent
 import net.minecraft.server.permissions.Permissions
-import java.lang.reflect.Modifier
 
 /** Registers /vanadium status, live options, config reload, profiling, and benchmarking commands. */
 object VanadiumCommand {
@@ -115,7 +117,8 @@ object VanadiumCommand {
     /** Runtime-only change for A/B comparisons; `/vanadium reload` restores the file's values. */
     private fun set(ctx: CommandContext<CommandSourceStack>): Int {
         val option = StringArgumentType.getString(ctx, "option")
-        LiveOptions.set(Vanadium.config, option, StringArgumentType.getString(ctx, "value"))?.let { return fail(ctx, it) }
+        val error = LiveOptions.set(Vanadium.config, option, StringArgumentType.getString(ctx, "value"))
+        if (error != null) return fail(ctx, error)
         val shown = when (val value = LiveOptions.get(Vanadium.config, option)) {
             is Boolean -> if (value) "on" else "off"
             else -> value.toString()

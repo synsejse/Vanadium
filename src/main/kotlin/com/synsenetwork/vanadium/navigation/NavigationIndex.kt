@@ -1,6 +1,10 @@
-package com.synsenetwork.vanadium.tracking
+package com.synsenetwork.vanadium.navigation
 
+import com.synsenetwork.vanadium.tracking.AreaMap
 import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.LongAdder
+import kotlin.math.floor
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.entity.Entity
@@ -8,9 +12,6 @@ import net.minecraft.world.entity.Mob
 import net.minecraft.world.entity.ai.navigation.PathNavigation
 import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.pathfinder.Path
-import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.atomic.LongAdder
-import kotlin.math.floor
 
 /**
  * Conservative candidate index for vanilla's navigation invalidation (`ServerLevel.navigatingMobs`).
@@ -74,9 +75,13 @@ class NavigationIndex : AbstractMutableSet<Mob>() {
         private val snapshot = members.toList().iterator()
         private var current: Mob? = null
         override fun hasNext(): Boolean = snapshot.hasNext()
-        override fun next(): Mob = snapshot.next().also { current = it }
+        override fun next(): Mob {
+            val mob = snapshot.next()
+            current = mob
+            return mob
+        }
         override fun remove() {
-            remove(current ?: throw IllegalStateException())
+            this@NavigationIndex.remove(current ?: throw IllegalStateException())
             current = null
         }
     }
@@ -105,7 +110,11 @@ class NavigationIndex : AbstractMutableSet<Mob>() {
      * Only entries queued before the refresh starts are processed; later invalidations stay dirty.
      */
     fun refresh() {
-        val recentQueries = synchronized(this) { queriesSinceRefresh.also { queriesSinceRefresh = 0 } }
+        val recentQueries = synchronized(this) {
+            val count = queriesSinceRefresh
+            queriesSinceRefresh = 0
+            count
+        }
         val changedAgain = touched
         if (changedAgain) touched = false
         val dirtyMobs = dirtyCount.sum()

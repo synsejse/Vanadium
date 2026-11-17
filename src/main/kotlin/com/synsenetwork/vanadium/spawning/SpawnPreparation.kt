@@ -1,14 +1,15 @@
-package com.synsenetwork.vanadium.tick
+package com.synsenetwork.vanadium.spawning
 
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.entity.AccessibleEntities
-import net.minecraft.server.level.ServerLevel
+import com.synsenetwork.vanadium.tick.PreparationKind
+import java.lang.reflect.Field
+import java.util.function.Predicate
 import net.minecraft.server.level.ChunkMap
+import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.level.LocalMobCapCalculator
 import net.minecraft.world.level.NaturalSpawner
-import java.lang.reflect.Field
-import java.util.function.Predicate
 
 /** Count stable entity batches independently, then combine state before any spawn callback can run. */
 object SpawnPreparation {
@@ -77,10 +78,13 @@ object SpawnPreparation {
         // the per-entity chunk lookup runs inside the parallel batches instead of a serial copy.
         var source = entities
         var filter: Predicate<Entity>? = null
-        val unwrapped = C2ME_FILTER?.takeIf { it.matches(entities) }?.delegate(entities)
-        if (unwrapped is Collection<Entity> || unwrapped is AccessibleEntities<*>) {
-            filter = C2ME_FILTER.predicate(entities)
-            source = unwrapped
+        val wrapper = C2ME_FILTER
+        if (wrapper != null && wrapper.matches(entities)) {
+            val delegate = wrapper.delegate(entities)
+            if (delegate is Collection<Entity> || delegate is AccessibleEntities<*>) {
+                filter = wrapper.predicate(entities)
+                source = delegate
+            }
         }
         // Lithium's section iteration: split the index's column slots, weighted by what the previous count saw in
         // each, without reading any column here. The jobs walk their columns themselves.
@@ -135,7 +139,7 @@ object SpawnPreparation {
     ): NaturalSpawner.SpawnState {
         if (jobs <= 1) return createState(chunkCount, level, batch(0), chunks, localCaps)
         val partial = arrayOfNulls<NaturalSpawner.SpawnState>(jobs)
-        Vanadium.scheduler.prepare(Preparation.SPAWN_COUNTS, List(jobs) { job ->
+        Vanadium.scheduler.prepare(PreparationKind.SPAWN_COUNTS, List(jobs) { job ->
             val entities = batch(job)
             Runnable {
                 partial[job] = createState(chunkCount, level, entities, chunks, jobCaps())
@@ -163,8 +167,9 @@ object SpawnPreparation {
 
     @JvmStatic
     fun entitiesForCount(original: Iterable<Entity>): Iterable<Entity> {
-        sourceCapture.get()?.let {
-            it.entities = original
+        val capture = sourceCapture.get()
+        if (capture != null) {
+            capture.entities = original
             return emptyList()
         }
         return countingEntities.get() ?: original

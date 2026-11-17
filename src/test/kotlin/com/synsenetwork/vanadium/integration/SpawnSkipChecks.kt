@@ -1,7 +1,8 @@
 package com.synsenetwork.vanadium.integration
 
-import com.synsenetwork.vanadium.tick.SpawnCounts
-import com.synsenetwork.vanadium.tick.SpawnPreparation
+import com.synsenetwork.vanadium.spawning.SpawnCounts
+import com.synsenetwork.vanadium.spawning.SpawnPreparation
+import kotlin.random.Random
 import net.minecraft.server.level.ChunkHolder
 import net.minecraft.server.level.ServerChunkCache
 import net.minecraft.server.level.ServerLevel
@@ -14,7 +15,6 @@ import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.LocalMobCapCalculator
 import net.minecraft.world.level.NaturalSpawner
 import net.minecraft.world.level.gamerules.GameRules
-import kotlin.random.Random
 
 /**
  * The spawn count of real ticks against vanilla's own `NaturalSpawner.createState` over the same entities: with

@@ -1,14 +1,13 @@
-package com.synsenetwork.vanadium.commands
+package com.synsenetwork.vanadium.diagnostics
 
 import com.google.gson.JsonObject
 import com.synsenetwork.vanadium.Vanadium
-import com.synsenetwork.vanadium.tick.TickProfile
 import net.minecraft.commands.CommandSourceStack
 import net.minecraft.network.chat.Component
 
 /**
  * One bounded profile at a time, started/stopped and sampled exclusively on the server thread. Finished
- * profiles are published through [Results] as well as reported in chat and the log.
+ * profiles are published through [PerformanceResults] as well as reported in chat and the log.
  */
 object TickProfiler {
     private var active: TickProfile? = null
@@ -57,9 +56,9 @@ object TickProfiler {
             addProperty("seconds", (System.nanoTime() - startedAt) / 1e9)
             add("profile", profile.toJson())
         }
-        val file = recipient?.let { Results.publish(it.server, "profile", result) }
+        val file = recipient?.let { PerformanceResults.publish(it.server, "profile", result) }
         val report = PerformanceReport("profile", result, configuration,
-            if (file == null) null else Results.describe(recipient.server, file))
+            if (file == null) null else PerformanceResults.describe(recipient.server, file))
         lastReport = report
         active = null
         source = null

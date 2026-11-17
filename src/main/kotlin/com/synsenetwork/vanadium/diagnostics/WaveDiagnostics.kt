@@ -1,5 +1,7 @@
-package com.synsenetwork.vanadium.tick
+package com.synsenetwork.vanadium.diagnostics
 
+import com.synsenetwork.vanadium.tick.Region
+import com.synsenetwork.vanadium.tick.Stage
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -44,12 +46,20 @@ class WaveDiagnostics internal constructor(
     fun watch(stage: Stage, dimension: String, isolation: Int): Watch? {
         if (!enabled) return null
         if (automatic && polling == null) {
-            val scheduler = executor ?: Executors.newSingleThreadScheduledExecutor { task ->
-                Thread(task, "Vanadium-Wave-Watchdog").apply { isDaemon = true }
-            }.also { executor = it }
+            var scheduler = executor
+            if (scheduler == null) {
+                scheduler = Executors.newSingleThreadScheduledExecutor { task ->
+                    val thread = Thread(task, "Vanadium-Wave-Watchdog")
+                    thread.isDaemon = true
+                    thread
+                }
+                executor = scheduler
+            }
             polling = scheduler.scheduleWithFixedDelay(::poll, 100, 100, TimeUnit.MILLISECONDS)
         }
-        return Watch(stage, dimension, isolation, thresholdNanos, detailedLabels, clock.asLong).also { current = it }
+        val watch = Watch(stage, dimension, isolation, thresholdNanos, detailedLabels, clock.asLong)
+        current = watch
+        return watch
     }
 
     /** Called only by the watchdog (or by deterministic tests using an injected clock). */

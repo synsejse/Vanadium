@@ -1,18 +1,19 @@
 package com.synsenetwork.vanadium
 
-import com.synsenetwork.vanadium.commands.TickBenchmark
-import com.synsenetwork.vanadium.commands.TickProfiler
 import com.synsenetwork.vanadium.commands.VanadiumCommand
 import com.synsenetwork.vanadium.concurrent.Interactions
 import com.synsenetwork.vanadium.config.VanadiumConfig
+import com.synsenetwork.vanadium.diagnostics.ServerTickEvent
+import com.synsenetwork.vanadium.diagnostics.TickBenchmark
+import com.synsenetwork.vanadium.diagnostics.TickProfiler
+import com.synsenetwork.vanadium.diagnostics.WaveDiagnostics
 import com.synsenetwork.vanadium.entity.CrowdedSection
+import com.synsenetwork.vanadium.navigation.NavigationAccess
 import com.synsenetwork.vanadium.tick.IdleWorkers
 import com.synsenetwork.vanadium.tick.ServerSpin
-import com.synsenetwork.vanadium.tick.ServerTickEvent
 import com.synsenetwork.vanadium.tick.TickScheduler
-import com.synsenetwork.vanadium.tick.WaveDiagnostics
 import com.synsenetwork.vanadium.tick.WorkerPool
-import com.synsenetwork.vanadium.tracking.NavigationAccess
+import java.util.function.LongSupplier
 import me.shedaniel.autoconfig.AutoConfig
 import me.shedaniel.autoconfig.serializer.Toml4jConfigSerializer
 import net.fabricmc.api.ModInitializer
@@ -23,7 +24,6 @@ import net.minecraft.server.MinecraftServer
 import net.minecraft.util.Util
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
-import java.util.function.LongSupplier
 
 /** Mod entry point. Owns the config and, per server lifecycle, the worker pool and tick scheduler. */
 object Vanadium : ModInitializer {

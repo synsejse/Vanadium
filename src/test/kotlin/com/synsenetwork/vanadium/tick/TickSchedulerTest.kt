@@ -196,7 +196,7 @@ class TickSchedulerTest {
 
             fun preparation(gate: CountDownLatch?): Set<Thread> {
                 val threads = ConcurrentHashMap.newKeySet<Thread>()
-                scheduler.prepare(Preparation.CHUNK_BATCH, List(5) {
+                scheduler.prepare(PreparationKind.CHUNK_BATCH, List(5) {
                     Runnable {
                         threads.add(Thread.currentThread())
                         if (gate != null) {

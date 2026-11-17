@@ -1,4 +1,4 @@
-package com.synsenetwork.vanadium.commands
+package com.synsenetwork.vanadium.diagnostics
 
 import com.google.gson.JsonObject
 import com.synsenetwork.vanadium.Vanadium
@@ -74,10 +74,10 @@ object TickBenchmark {
             addProperty("avgTps", totalTicks / seconds)
             addProperty("peakTps", peak)
         }
-        val file = Results.publish(server, "benchmark", result)
+        val file = PerformanceResults.publish(server, "benchmark", result)
         val report = PerformanceReport("benchmark", result,
             "${Vanadium.scheduler.workerCount} helpers + server thread · isolation ${Vanadium.scheduler.isolation}",
-            file?.let { Results.describe(server, it) })
+            file?.let { PerformanceResults.describe(server, it) })
         lastReport = report
         val message = report.view()
         Vanadium.LOGGER.info(message.string)

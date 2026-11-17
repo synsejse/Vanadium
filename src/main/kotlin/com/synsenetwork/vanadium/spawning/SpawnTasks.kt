@@ -1,10 +1,13 @@
-package com.synsenetwork.vanadium.tick
+package com.synsenetwork.vanadium.spawning
 
 import com.synsenetwork.vanadium.chunk.ParallelChunkCache
+import com.synsenetwork.vanadium.tick.Stage
+import com.synsenetwork.vanadium.tick.TickScheduler
+import com.synsenetwork.vanadium.tick.WorkerPool
+import java.util.concurrent.ConcurrentLinkedQueue
 import net.minecraft.server.level.ServerChunkCache
 import net.minecraft.world.level.chunk.ChunkAccess
 import net.minecraft.world.level.chunk.status.ChunkStatus
-import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
  * One world's natural-spawning tasks. Spawn checks look up structure starts, which can be chunks that only the

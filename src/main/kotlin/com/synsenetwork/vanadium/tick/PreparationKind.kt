@@ -1,7 +1,7 @@
 package com.synsenetwork.vanadium.tick
 
 /** Independent jobs run through [TickScheduler.prepare], named for profiles and JFR events. */
-enum class Preparation {
+enum class PreparationKind {
     /** Entity stage collection: chunk keys and tasks for large entity lists. */
     ENTITY_BATCH,
 

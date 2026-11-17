@@ -3,12 +3,13 @@ package com.synsenetwork.vanadium.tracking
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.mixin.server.network.ServerEntityAccessor
 import com.synsenetwork.vanadium.mixin.server.world.TrackedEntityAccessor
-import com.synsenetwork.vanadium.tick.Preparation
+import com.synsenetwork.vanadium.tick.PreparationKind
 import com.synsenetwork.vanadium.tick.Stage
 import it.unimi.dsi.fastutil.ints.IntArrayList
 import it.unimi.dsi.fastutil.objects.Reference2LongLinkedOpenHashMap
 import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap
 import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet
+import kotlin.math.ceil
 import net.minecraft.core.SectionPos
 import net.minecraft.server.level.ChunkMap.TrackedEntity
 import net.minecraft.server.level.DistanceManager
@@ -16,7 +17,6 @@ import net.minecraft.server.level.ServerEntity
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.phys.Vec3
-import kotlin.math.ceil
 
 /**
  * Inverted entity-tracking index, replacing the O(entities x players) scans in vanilla's tracking tick.
@@ -25,7 +25,7 @@ import kotlin.math.ceil
  * then one task per tracker applies them in player order. TRACKING cells ensure each tracker's listener
  * set and entry state are only touched by one worker.
  *
- * Each tracker is painted onto an [AreaMap] square of its own track distance, so "which trackers must
+ * Each tracker is indexed onto an [AreaMap] square of its own track distance, so "which trackers must
  * consider player P" is one lookup. Freshly loaded trackers spend [STAGING_TICKS] in a brute-force
  * staging queue first: short-lived entities (items, arrows, XP) usually die before ever paying the
  * paint/erase churn. Trackers with no player in range are not ticked; the first watcher triggers a
@@ -42,7 +42,7 @@ class NearbyTrackers {
     private val trackingTasks = Reference2ObjectOpenHashMap<TrackedEntity, TrackingTask>()
 
     /** Last observed position identity per player; a fresh key counts as moved. */
-    private val playerPrevPos = Reference2ObjectOpenHashMap<ServerPlayer, Vec3>()
+    private val previousPlayerPositions = Reference2ObjectOpenHashMap<ServerPlayer, Vec3>()
 
     /** Every task in slot order; rebuilt on the server thread after membership changes. */
     private val ordered = ArrayList<TrackingTask>()
@@ -59,7 +59,8 @@ class NearbyTrackers {
      */
     @Synchronized
     fun add(tracker: TrackedEntity, players: List<ServerPlayer>) {
-        (tracker.entity as? ServerPlayer)?.let { playerDiffs[it] = PlayerDiff(it) }
+        val player = tracker.entity as? ServerPlayer
+        if (player != null) playerDiffs[player] = PlayerDiff(player)
         trackingTasks[tracker] = TrackingTask(tracker)
         membershipChanged = true
         staging.put(tracker, tick)
@@ -69,12 +70,14 @@ class NearbyTrackers {
     /** Unregisters a tracker; the caller still runs vanilla's removal broadcast afterwards. */
     @Synchronized
     fun remove(tracker: TrackedEntity) {
-        (tracker.entity as? ServerPlayer)?.let(::removePlayer)
+        val player = tracker.entity as? ServerPlayer
+        if (player != null) removePlayer(player)
         staging.removeLong(tracker)
-        trackingTasks.remove(tracker)?.let { task ->
+        val task = trackingTasks.remove(tracker)
+        if (task != null) {
             membershipChanged = true
-            if (task.painted != UNPAINTED) {
-                task.painted = UNPAINTED
+            if (task.indexedChunk != NOT_INDEXED) {
+                task.indexedChunk = NOT_INDEXED
                 areaMap.remove(tracker)
             }
         }
@@ -83,8 +86,9 @@ class NearbyTrackers {
 
     private fun removePlayer(player: ServerPlayer) {
         for (tracker in staging.keys) tracker.removePlayer(player)
-        playerPrevPos.remove(player)
-        playerDiffs.remove(player)?.known?.forEach { it.removePlayer(player) }
+        previousPlayerPositions.remove(player)
+        val diff = playerDiffs.remove(player) ?: return
+        for (tracker in diff.known) tracker.removePlayer(player)
     }
 
     /**
@@ -104,7 +108,7 @@ class NearbyTrackers {
         migrateStaging()
         tickStaging(players, tickets, scanned)
         diffPlayers(players, tickets)
-        for (player in players) playerPrevPos[player] = player.position()
+        for (player in players) previousPlayerPositions[player] = player.position()
     }
 
     /** Assigns stable slots and move-scan ranges; no membership change can occur during [tick]. */
@@ -126,7 +130,7 @@ class NearbyTrackers {
      */
     private fun detectMoves() {
         if (ordered.size < MIN_PARALLEL_TRACKERS || moveScans.size < 2) moveScans.forEach(MoveScan::run)
-        else Vanadium.scheduler.prepare(Preparation.TRACKING_MOVES, moveScans)
+        else Vanadium.scheduler.prepare(PreparationKind.TRACKING_MOVES, moveScans)
         // Only chunk-crossers, in slot order as before; each scan listed its own.
         for (scan in moveScans) {
             val repaints = scan.repaints
@@ -135,14 +139,14 @@ class NearbyTrackers {
                 task.repaint = false
                 val chunk = task.tracker.entity.chunkPosition()
                 areaMap.update(task.tracker, chunk.x(), chunk.z(), task.tracker.radius)
-                task.painted = task.chunk
+                task.indexedChunk = task.chunk
             }
         }
     }
 
     /** One contiguous slice of trackers; independent of every other slice. */
     private inner class MoveScan(private val start: Int, private val end: Int) : Runnable {
-        /** Slots in this slice that crossed a chunk while painted, ascending. */
+        /** Slots in this slice that crossed a chunk while indexed, ascending. */
         val repaints = IntArrayList()
 
         override fun run() {
@@ -151,12 +155,12 @@ class NearbyTrackers {
                 val task = ordered[i]
                 val entity = task.tracker.entity
                 val position = entity.position()
-                task.moved = position !== task.prevPos
+                task.moved = position !== task.previousPosition
                 if (!task.moved) continue
-                task.prevPos = position
+                task.previousPosition = position
                 val chunk = entity.chunkPosition().pack()
                 task.chunk = chunk
-                task.repaint = task.painted != UNPAINTED && chunk != task.painted
+                task.repaint = task.indexedChunk != NOT_INDEXED && chunk != task.indexedChunk
                 if (task.repaint) repaints.add(i)
                 // Vanilla's own tracking loop reads this; keep it current without allocating per move.
                 val access = task.tracker.access
@@ -179,7 +183,7 @@ class NearbyTrackers {
             staging.removeFirstLong()
             val chunk = tracker.entity.chunkPosition()
             areaMap.add(tracker, chunk.x(), chunk.z(), tracker.radius)
-            trackingTasks[tracker]!!.painted = chunk.pack()
+            trackingTasks[tracker]!!.indexedChunk = chunk.pack()
         }
     }
 
@@ -191,7 +195,7 @@ class NearbyTrackers {
         for (tracker in staging.keys) {
             val entity = tracker.entity
             val task = trackingTasks[tracker]!!
-            val moved = if (scanned) task.moved else entity.position() !== task.prevPos
+            val moved = if (scanned) task.moved else entity.position() !== task.previousPosition
             val shouldTick = moved || entity.needsSync || tickets.inEntityTickingRange(entity.chunkPosition().pack())
             enqueue(tracker) {
                 if (shouldTick) tracker.entry.sendChanges()
@@ -203,20 +207,23 @@ class NearbyTrackers {
     /** Diffs each player's in-range tracker set against what they knew last tick. */
     private fun diffPlayers(players: List<ServerPlayer>, tickets: DistanceManager) {
         if (players.isEmpty()) return
-        val diffs = players.mapNotNull { player ->
-            playerDiffs[player]?.apply {
-                current = areaMap.objectsAt(player.chunkPosition().pack())
-                playerMoved = playerPrevPos[player] !== player.position()
-                this.tickets = tickets
-                if (actions.size < ordered.size) actions = ByteArray(maxOf(ordered.size, actions.size * 2))
+        val diffs = ArrayList<PlayerDiff>(players.size)
+        for (player in players) {
+            val diff = playerDiffs[player] ?: continue
+            diff.current = areaMap.objectsAt(player.chunkPosition().pack())
+            diff.playerMoved = previousPlayerPositions[player] !== player.position()
+            diff.tickets = tickets
+            if (diff.actions.size < ordered.size) {
+                diff.actions = ByteArray(maxOf(ordered.size, diff.actions.size * 2))
             }
+            diffs.add(diff)
         }
         // tick() excludes membership/index changes. Each job owns exactly one player's known set; workers
         // write separate action arrays and never invoke tracking callbacks. Slots are assigned on the
         // caller and remain stable through both preparation and tracking barriers.
         val comparisons = diffs.sumOf { it.known.size.toLong() + it.current.size }
         if (diffs.size < 2 || comparisons < MIN_PARALLEL_COMPARISONS) diffs.forEach(PlayerDiff::run)
-        else Vanadium.scheduler.prepare(Preparation.TRACKING_DIFFS, diffs)
+        else Vanadium.scheduler.prepare(PreparationKind.TRACKING_DIFFS, diffs)
         for (task in ordered) {
             if (diffs.any { it.actions[task.slot].toInt() != 0 }) {
                 task.diffs = diffs
@@ -259,10 +266,10 @@ class NearbyTrackers {
         var diffs: List<PlayerDiff>? = null
 
         /** Position identity at the previous scan; null counts as moved. */
-        var prevPos: Vec3? = null
+        var previousPosition: Vec3? = null
 
-        /** Chunk the tracker's area-map square is centered on, or [UNPAINTED] while staged. */
-        var painted = UNPAINTED
+        /** Chunk the tracker's area-map square is centered on, or [NOT_INDEXED] while staged. */
+        var indexedChunk = NOT_INDEXED
         var chunk = 0L
         var moved = false
         var repaint = false
@@ -305,7 +312,7 @@ class NearbyTrackers {
          */
         private const val MIN_PARALLEL_TRACKERS = 256
         private const val TRACKERS_PER_JOB = 128
-        private const val UNPAINTED = Long.MIN_VALUE
+        private const val NOT_INDEXED = Long.MIN_VALUE
         /** Per-player action flags for one tracker, stored as bytes. */
         private const val REMOVE = 1
         private const val SEND = 2

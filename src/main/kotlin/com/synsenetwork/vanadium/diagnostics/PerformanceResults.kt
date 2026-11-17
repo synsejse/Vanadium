@@ -1,22 +1,22 @@
-package com.synsenetwork.vanadium.commands
+package com.synsenetwork.vanadium.diagnostics
 
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonObject
 import com.synsenetwork.vanadium.Vanadium
-import net.fabricmc.loader.api.FabricLoader
-import net.minecraft.server.MinecraftServer
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import net.fabricmc.loader.api.FabricLoader
+import net.minecraft.server.MinecraftServer
 
 /**
  * Machine-readable command results. Each result is logged as one `VANADIUM_RESULT {json}` line, so
  * scripts can read the console, and saved under `vanadium/results/` in the server directory.
  * Every result records the configuration and versions it was measured with.
  */
-object Results {
+object PerformanceResults {
     const val LOG_PREFIX = "VANADIUM_RESULT "
 
     private val COMPACT = GsonBuilder().serializeSpecialFloatingPointValues().create()
