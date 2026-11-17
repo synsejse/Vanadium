@@ -1,7 +1,10 @@
 package com.synsenetwork.vanadium.integration
 
-import com.synsenetwork.vanadium.tracking.NavigationAccess
-import com.synsenetwork.vanadium.tracking.NavigationIndex
+import com.synsenetwork.vanadium.navigation.NavigationAccess
+import com.synsenetwork.vanadium.navigation.NavigationIndex
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.entity.EntityTypes
@@ -10,9 +13,6 @@ import net.minecraft.world.entity.ai.navigation.PathNavigation
 import net.minecraft.world.entity.animal.pig.Pig
 import net.minecraft.world.level.pathfinder.Node
 import net.minecraft.world.level.pathfinder.Path
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
 
 internal object NavigationChecks {
     fun run(level: ServerLevel) {

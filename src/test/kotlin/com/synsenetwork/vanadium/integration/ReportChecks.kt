@@ -1,8 +1,8 @@
 package com.synsenetwork.vanadium.integration
 
 import com.mojang.serialization.JsonOps
-import com.synsenetwork.vanadium.commands.TickBenchmark
-import com.synsenetwork.vanadium.commands.TickProfiler
+import com.synsenetwork.vanadium.diagnostics.TickBenchmark
+import com.synsenetwork.vanadium.diagnostics.TickProfiler
 import net.minecraft.network.chat.ComponentSerialization
 import net.minecraft.server.MinecraftServer
 

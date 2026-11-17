@@ -1,6 +1,10 @@
 package com.synsenetwork.vanadium.tick
 
 import com.synsenetwork.vanadium.concurrent.Interactions
+import com.synsenetwork.vanadium.diagnostics.PreparationEvent
+import com.synsenetwork.vanadium.diagnostics.TickProfile
+import com.synsenetwork.vanadium.diagnostics.WaveDiagnostics
+import com.synsenetwork.vanadium.diagnostics.WaveEvent
 import java.util.EnumMap
 import java.util.function.LongConsumer
 
@@ -32,7 +36,7 @@ class TickScheduler internal constructor(
 
     /** Smoothed busy time per task of flat waves by stage, and per job of preparations by kind; 0 before any. */
     private val flatNanosPerTask = DoubleArray(Stage.entries.size)
-    private val preparationNanosPerJob = DoubleArray(Preparation.entries.size)
+    private val preparationNanosPerJob = DoubleArray(PreparationKind.entries.size)
     private var dimension = "unknown"
     private var worldStart = 0L
 
@@ -55,7 +59,7 @@ class TickScheduler internal constructor(
     val detailedDiagnostics: Boolean get() = diagnostics?.detailed == true
 
     /** Independent preparation jobs only: inputs stay stable and jobs must not enqueue into stage grids. */
-    fun prepare(kind: Preparation, jobs: List<Runnable>) {
+    fun prepare(kind: PreparationKind, jobs: List<Runnable>) {
         val recording = profile
         val event = PreparationEvent()
         event.begin()

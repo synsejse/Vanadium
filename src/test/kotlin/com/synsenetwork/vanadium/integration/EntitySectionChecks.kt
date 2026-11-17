@@ -1,6 +1,7 @@
 package com.synsenetwork.vanadium.integration
 
-import com.synsenetwork.vanadium.tick.SpawnPreparation
+import com.synsenetwork.vanadium.spawning.SpawnPreparation
+import java.util.concurrent.TimeUnit
 import net.caffeinemc.mods.lithium.common.entity.PositionedEntityTrackingSection
 import net.caffeinemc.mods.lithium.common.world.ChunkAwareEntityIterable
 import net.minecraft.core.SectionPos
@@ -17,7 +18,6 @@ import net.minecraft.world.level.entity.EntitySectionStorage
 import net.minecraft.world.level.entity.EntityTypeTest
 import net.minecraft.world.level.entity.PersistentEntitySectionManager
 import net.minecraft.world.phys.AABB
-import java.util.concurrent.TimeUnit
 
 /**
  * The live section storage is served by Vanadium's index: queries across chunk and section boundaries on

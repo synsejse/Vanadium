@@ -1,13 +1,13 @@
-package com.synsenetwork.vanadium.commands
+package com.synsenetwork.vanadium.diagnostics
 
 import com.google.gson.JsonParser
-import net.minecraft.network.chat.ClickEvent
-import net.minecraft.network.chat.Component
-import net.minecraft.network.chat.HoverEvent
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import net.minecraft.network.chat.ClickEvent
+import net.minecraft.network.chat.Component
+import net.minecraft.network.chat.HoverEvent
 
 class PerformanceReportTest {
     private fun profile(file: String? = "vanadium/results/profile.json") = PerformanceReport("profile", JsonParser.parseString("""

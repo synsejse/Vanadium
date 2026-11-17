@@ -1,4 +1,4 @@
-package com.synsenetwork.vanadium.tracking;
+package com.synsenetwork.vanadium.navigation;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 

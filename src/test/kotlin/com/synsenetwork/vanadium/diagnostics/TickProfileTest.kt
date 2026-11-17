@@ -1,5 +1,9 @@
-package com.synsenetwork.vanadium.tick
+package com.synsenetwork.vanadium.diagnostics
 
+import com.synsenetwork.vanadium.tick.PreparationKind
+import com.synsenetwork.vanadium.tick.Stage
+import com.synsenetwork.vanadium.tick.TickScheduler
+import com.synsenetwork.vanadium.tick.WorkerPool
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.function.LongConsumer
@@ -9,6 +13,23 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class TickProfileTest {
+    @Test
+    fun timeSharesHandleEmptyCapturesAndOverlappingTimings() {
+        val empty = TickProfile().toJson().getAsJsonObject("split")
+        for (name in listOf("stageWaves", "preparation", "serial")) {
+            assertEquals(0.0, empty.get(name).asDouble, name)
+        }
+
+        val profile = TickProfile()
+        profile.recordTick(100)
+        profile.recordStage(Stage.ENTITY, 80)
+        profile.recordPreparation(PreparationKind.SPAWN_COUNTS, 1, 30)
+        val split = profile.toJson().getAsJsonObject("split")
+        assertEquals(0.8, split.get("stageWaves").asDouble)
+        assertEquals(0.3, split.get("preparation").asDouble)
+        assertEquals(0.0, split.get("serial").asDouble, "overlapping measurements cannot make the remainder negative")
+    }
+
     @Test
     fun percentilesUseNearestRank() {
         val values = LongArray(100) { it + 1L }
@@ -33,7 +54,7 @@ class TickProfileTest {
             scheduler.enqueue(Stage.BLOCK_ENTITY, 4, 0, { calls.incrementAndGet() }, null)
             scheduler.run(Stage.BLOCK_ENTITY)
             assertEquals(3, calls.get())
-            scheduler.prepare(Preparation.SPAWN_COUNTS, List(3) { Runnable { calls.incrementAndGet() } })
+            scheduler.prepare(PreparationKind.SPAWN_COUNTS, List(3) { Runnable { calls.incrementAndGet() } })
             assertEquals(6, calls.get())
             // Entities: one flat wave, no regions.
             scheduler.begin(Stage.ENTITY)
@@ -67,7 +88,7 @@ class TickProfileTest {
             scheduler.begin(Stage.BLOCK_ENTITY)
             scheduler.enqueue(Stage.BLOCK_ENTITY, 0, 0, { calls.incrementAndGet() }, null)
             scheduler.run(Stage.BLOCK_ENTITY)
-            scheduler.prepare(Preparation.SPAWN_COUNTS, List(2) { Runnable { calls.incrementAndGet() } })
+            scheduler.prepare(PreparationKind.SPAWN_COUNTS, List(2) { Runnable { calls.incrementAndGet() } })
             assertEquals(9, calls.get())
             assertEquals(json, profile.toJson())
         } finally {

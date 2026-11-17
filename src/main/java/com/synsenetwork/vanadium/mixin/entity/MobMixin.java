@@ -3,7 +3,7 @@ package com.synsenetwork.vanadium.mixin.entity;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.synsenetwork.vanadium.concurrent.Interactions;
-import com.synsenetwork.vanadium.tracking.NavigationState;
+import com.synsenetwork.vanadium.navigation.NavigationState;
 import java.util.concurrent.atomic.AtomicBoolean;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Mob;

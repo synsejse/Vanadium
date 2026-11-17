@@ -2,7 +2,8 @@ package com.synsenetwork.vanadium.integration
 
 import com.mojang.authlib.GameProfile
 import com.synsenetwork.vanadium.Vanadium
-import com.synsenetwork.vanadium.tick.SpawnPreparation
+import com.synsenetwork.vanadium.spawning.SpawnPreparation
+import java.util.UUID
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ClientInformation
 import net.minecraft.server.level.ServerLevel
@@ -17,7 +18,6 @@ import net.minecraft.world.level.LocalMobCapCalculator
 import net.minecraft.world.level.NaturalSpawner
 import net.minecraft.world.level.PotentialCalculator
 import net.minecraft.world.level.entity.EntityLookup
-import java.util.UUID
 
 internal object SpawnChecks {
     fun run(level: ServerLevel) {

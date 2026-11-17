@@ -1,12 +1,12 @@
-package com.synsenetwork.vanadium.commands
+package com.synsenetwork.vanadium.diagnostics
 
 import com.google.gson.JsonObject
+import java.util.Locale
 import net.minecraft.ChatFormatting
 import net.minecraft.network.chat.ClickEvent
 import net.minecraft.network.chat.Component
 import net.minecraft.network.chat.HoverEvent
 import net.minecraft.network.chat.MutableComponent
-import java.util.Locale
 
 /** Completed capture; chat views are built on demand, never on the tick path. */
 internal class PerformanceReport(
@@ -48,8 +48,9 @@ internal class PerformanceReport(
                 .append(text(" average · ${result.number("ticks").toLong()} ticks", ChatFormatting.GRAY))
             section == "stages" -> {
                 out.append(text("\nAverage ms per server tick · all dimensions", ChatFormatting.GRAY))
-                for (entry in stages()) out.append("\n").append(stage(entry.key, entry.value.asJsonObject))
-                if (stages().isEmpty()) out.append("\nNo queued stage work.")
+                val stages = stages()
+                for (entry in stages) out.append("\n").append(stage(entry.key, entry.value.asJsonObject))
+                if (stages.isEmpty()) out.append("\nNo queued stage work.")
             }
             section == "worlds" -> {
                 out.append(text("\nAverage world time per server tick", ChatFormatting.GRAY))
@@ -84,9 +85,11 @@ internal class PerformanceReport(
         }
         out.append("\n")
         val sections = if (kind == "profile") listOf("summary", "stages", "worlds", "details") else listOf("summary", "details")
-        for (part in sections) if (part != section) {
+        for (part in sections) {
+            if (part == section) continue
+            val command = if (part == "summary") prefix else "$prefix $part"
             out.append(hover(text("[${part.replaceFirstChar(Char::uppercase)}] ", ChatFormatting.AQUA), "Show $part · $prefix ${if (part == "summary") "" else part}")
-                .withStyle { it.withClickEvent(ClickEvent.RunCommand(if (part == "summary") prefix else "$prefix $part")) })
+                .withStyle { it.withClickEvent(ClickEvent.RunCommand(command)) })
         }
         out.append(hover(text(if (file == null) "[Not saved]" else "[JSON path]", if (file == null) ChatFormatting.YELLOW else ChatFormatting.GRAY),
             file?.let { "$it\nClick to copy this server-relative path; the full capture is in this file." } ?: "Could not save the result file; the full JSON is in the server log.")

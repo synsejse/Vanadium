@@ -1,8 +1,6 @@
-package com.synsenetwork.vanadium.tracking
+package com.synsenetwork.vanadium.navigation
 
 import it.unimi.dsi.fastutil.HashCommon
-import net.minecraft.core.BlockPos
-import net.minecraft.world.level.pathfinder.PathType
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -12,6 +10,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import net.minecraft.core.BlockPos
+import net.minecraft.world.level.pathfinder.PathType
 
 class PathTypeSlotsTest {
     private val types = PathType.entries

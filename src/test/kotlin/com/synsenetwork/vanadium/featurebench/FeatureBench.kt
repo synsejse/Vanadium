@@ -1,14 +1,14 @@
 package com.synsenetwork.vanadium.featurebench
 
 import com.synsenetwork.vanadium.Vanadium
+import com.synsenetwork.vanadium.diagnostics.TickProfile
 import com.synsenetwork.vanadium.tick.Stage
-import com.synsenetwork.vanadium.tick.TickProfile
 import com.synsenetwork.vanadium.tick.TickScheduler
 import com.synsenetwork.vanadium.tick.WorkerPool
-import net.fabricmc.api.ModInitializer
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
 import java.nio.file.Files
 import java.nio.file.Path
+import net.fabricmc.api.ModInitializer
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
 
 /** Paired feature benchmarks at server start; packaged only by featureBenchJar. */
 class FeatureBench : ModInitializer {

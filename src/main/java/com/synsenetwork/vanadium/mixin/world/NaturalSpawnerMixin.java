@@ -1,7 +1,7 @@
 package com.synsenetwork.vanadium.mixin.world;
 
 import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
-import com.synsenetwork.vanadium.tick.SpawnPreparation;
+import com.synsenetwork.vanadium.spawning.SpawnPreparation;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.NaturalSpawner;
 import org.spongepowered.asm.mixin.Mixin;

@@ -1,7 +1,10 @@
 package com.synsenetwork.vanadium.featurebench
 
 import com.synsenetwork.vanadium.Vanadium
-import com.synsenetwork.vanadium.tick.Preparation
+import com.synsenetwork.vanadium.tick.PreparationKind
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.locks.ReentrantLock
+import java.util.function.Consumer
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.entity.item.ItemEntity
@@ -10,9 +13,6 @@ import net.minecraft.world.item.Items
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.redstone.CollectingNeighborUpdater
 import net.minecraft.world.level.redstone.CollectingNeighborUpdater.NeighborUpdates
-import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.locks.ReentrantLock
-import java.util.function.Consumer
 
 internal object LockBench {
     fun items(level: ServerLevel, measurements: Measurements) {
@@ -33,7 +33,7 @@ internal object LockBench {
             // Same safe merge implementation, but all pairs contend on one lock in the off arm.
             measurements.compare("item-locks-$pairs-pairs", { on ->
                 items.forEachIndexed { i, item -> lock.set(item, if (on) individual[i] else global) }
-            }) { Vanadium.scheduler.prepare(Preparation.TRACKING_DIFFS, jobs) }
+            }) { Vanadium.scheduler.prepare(PreparationKind.TRACKING_DIFFS, jobs) }
         }
     }
 

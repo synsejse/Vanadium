@@ -2,10 +2,11 @@ package com.synsenetwork.vanadium.featurebench
 
 import com.mojang.authlib.GameProfile
 import com.synsenetwork.vanadium.Vanadium
+import com.synsenetwork.vanadium.navigation.NavigationAccess
+import com.synsenetwork.vanadium.navigation.NavigationIndex
 import com.synsenetwork.vanadium.tick.Stage
-import com.synsenetwork.vanadium.tracking.NavigationAccess
-import com.synsenetwork.vanadium.tracking.NavigationIndex
 import com.synsenetwork.vanadium.tracking.NearbyTrackers
+import java.util.UUID
 import net.minecraft.core.BlockPos
 import net.minecraft.network.protocol.Packet
 import net.minecraft.network.protocol.game.ClientGamePacketListener
@@ -20,7 +21,6 @@ import net.minecraft.world.entity.ai.navigation.PathNavigation
 import net.minecraft.world.entity.animal.pig.Pig
 import net.minecraft.world.level.pathfinder.Node
 import net.minecraft.world.level.pathfinder.Path
-import java.util.UUID
 
 internal object NavigationTrackingBench {
     fun navigation(level: ServerLevel, measurements: Measurements) {

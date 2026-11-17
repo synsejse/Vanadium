@@ -1,4 +1,4 @@
-package com.synsenetwork.vanadium.tick
+package com.synsenetwork.vanadium.diagnostics
 
 import jdk.jfr.Category
 import jdk.jfr.Description

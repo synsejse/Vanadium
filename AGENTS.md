@@ -65,6 +65,9 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - `concurrent/`: entity ownership for the flat entity wave (`Interactions`, `OwnerLocks`), striped
   locks and per-thread random sources.
 - `tracking/`: area maps and nearby-player indexing for entity tracking.
+- `navigation/`: navigation invalidation index, path-type cache, and Java navigation duck interfaces.
+- `spawning/`: spawn counting, lazy count state, and deferrable per-chunk spawning tasks.
+- `diagnostics/`: tick profiles, JFR events, wave watchdog, benchmark capture, reports, and result files.
 - `mixin/server/world/`, `mixin/world/`: stage injection points and vanilla world access changes.
 - Remaining `mixin/` packages: synchronization and concurrent collection replacements.
 - `mixin/SynchronisePlugin.java`: ASM synchronization applied to `SyncAllMixin` targets.
@@ -72,7 +75,7 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - `compat/LithiumCompat.kt`, `compat/Lithium.java` (MixinSquared canceller), `mixin/compat/lithium/`:
   Lithium support (required, compiled against the pinned jar); `lithium:options` in `fabric.mod.json`
   disables the Lithium options whose job Vanadium does itself.
-- `config/`, `commands/`: TOML config, status, live reload, tick benchmark.
+- `config/`, `commands/`: TOML config, live options, and Brigadier command registration.
 - `src/main/resources/vanadium.mixins.json`: required mixin registration.
 - `src/main/resources/vanadium.accesswidener`: access required by mixins.
 - `src/test/kotlin/`: JUnit 5 unit tests (`kotlin.test`), benchmarks, and the live test mods

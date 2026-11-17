@@ -1,5 +1,7 @@
 package com.synsenetwork.vanadium.tick
 
+import com.synsenetwork.vanadium.diagnostics.TickProfile
+import com.synsenetwork.vanadium.diagnostics.WaveDiagnostics
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger

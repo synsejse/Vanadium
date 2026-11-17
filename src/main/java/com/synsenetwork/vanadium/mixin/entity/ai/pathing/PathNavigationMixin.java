@@ -1,6 +1,6 @@
 package com.synsenetwork.vanadium.mixin.entity.ai.pathing;
 
-import com.synsenetwork.vanadium.tracking.NavigationIndex;
+import com.synsenetwork.vanadium.navigation.NavigationIndex;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
 import org.spongepowered.asm.mixin.Final;

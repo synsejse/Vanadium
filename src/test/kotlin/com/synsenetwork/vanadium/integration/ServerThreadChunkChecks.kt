@@ -1,8 +1,11 @@
 package com.synsenetwork.vanadium.integration
 
 import com.synsenetwork.vanadium.chunk.ParallelChunkCache
-import com.synsenetwork.vanadium.tick.SpawnTasks
+import com.synsenetwork.vanadium.spawning.SpawnTasks
 import com.synsenetwork.vanadium.tick.WorkerPool
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import net.minecraft.core.BlockPos
 import net.minecraft.core.registries.Registries
 import net.minecraft.server.level.ServerLevel
@@ -10,9 +13,6 @@ import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.chunk.LevelChunk
 import net.minecraft.world.level.chunk.status.ChunkStatus
 import net.minecraft.world.level.levelgen.structure.BuiltinStructures
-import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 /**
  * Workers must never wait for chunks only the server thread can provide: it is in the same wave. Reproduces
