@@ -66,7 +66,7 @@ internal object EntityCollectionChecks {
             check(level.setChunkForced(CHUNK_X, CHUNK_Z, true)) { "could not force the fixture chunk" }
             level.getChunk(CHUNK_X, CHUNK_Z)
         }
-        checks.await("fixture chunk to tick entities", 100) { level.isPositionEntityTicking(center) }
+        checks.awaitAsync("fixture chunk to tick entities", 100) { level.isPositionEntityTicking(center) }
         checks.await("the chunk tick cache to match the ticking chunks", 20) { ChunkTickCacheChecks.matches(level, CHUNK_X, CHUNK_Z, true) }
         checks.then("spawn probes") {
             spawner = Probe(level) { self ->

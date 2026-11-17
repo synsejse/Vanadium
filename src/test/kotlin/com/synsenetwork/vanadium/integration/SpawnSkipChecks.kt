@@ -62,7 +62,7 @@ internal object SpawnSkipChecks {
             level.gameRules.set(GameRules.SPAWN_MOBS, true, level.server)
         }
         // Visible, and counted: C2ME only counts entities in chunks it simulates, which takes ticket updates.
-        checks.await("spawn skip fixture simulated", 200) {
+        checks.awaitAsync("spawn skip fixture simulated", 200) {
             val filter = SpawnCountChecks.c2meFilter(SpawnPreparation.capture(0, level, chunks, LocalMobCapCalculator(source.chunkMap)))
             entities.all { level.getEntity(it.id) === it && (filter == null || filter.test(it)) }
         }

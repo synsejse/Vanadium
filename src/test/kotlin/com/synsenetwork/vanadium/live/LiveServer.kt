@@ -25,7 +25,8 @@ object LiveServer {
         }
     }
 
-    fun finish(server: MinecraftServer, mode: String) {
+    fun finish(server: MinecraftServer, mode: String, settleTicks: Int = 20) {
+        require(settleTicks > 0)
         check(System.getProperty("vanadium.live.mode") == mode)
         check(server.commands.dispatcher.execute("vanadium status", server.createCommandSourceStack()) == 1) {
             "Vanadium status command was not registered or failed"
@@ -33,7 +34,7 @@ object LiveServer {
         var ticks = 0
         var saved = false
         ServerTickEvents.END_SERVER_TICK.register { current ->
-            if (current === server && ++ticks == 20) {
+            if (current === server && ++ticks == settleTicks) {
                 server.saveEverything(false, true, true)
                 saved = true
                 server.halt(false)

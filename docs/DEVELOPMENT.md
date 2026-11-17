@@ -33,6 +33,11 @@ They are necessary but insufficient to validate a port.
 
 ## Live server integration tests
 
+For routine correctness checks, use `./gradlew build runIntegration`. Benchmarks are separate,
+opt-in measurements, not a prerequisite for testing every change; Gradle lists them in the
+`benchmark` group. Keep the deterministic concurrency, mixin-binding and collection-contract tests:
+the current unit suite takes seconds, and removing them would not shorten long benchmark campaigns.
+
 Read the [Minecraft EULA](https://aka.ms/MinecraftEULA). If accepted, create
 `.vanadium/eula.txt` containing `eula=true`, or copy your existing accepted file.
 Then run:
@@ -51,13 +56,25 @@ Fabric API, Fabric Language Kotlin and Cloth Config are normal Gradle dependenci
 
 `runIntegration` builds a test-only Fabric mod from `src/test/kotlin/`, starts a dedicated
 server through Loom, and runs the live assertions in-process. It also executes the mod's
-status command through the server dispatcher. The fixture then advances
-20 real server ticks, flush-saves, requests normal shutdown, and writes a completion marker
-only after the server stops. The Gradle task checks that marker and has a five-minute timeout.
+status command through the server dispatcher. The fixture advances the ticked regression
+scenarios at uncapped speed, allows two cleanup ticks, flush-saves, requests normal shutdown,
+and writes a completion marker only after the server stops. The Gradle task checks that
+marker and has a five-minute timeout.
 There is no nested Gradle process, RCON client, Python launcher, or process-scanning cleanup.
 Loom finalizes launch paths before task execution, so live runs require configuration caching
 to be off (the repository default). Use `--no-configuration-cache` if you enable it globally;
 normal Gradle compilation/test up-to-date checks remain available.
+
+`-Plive.ticks=500` sets the maximum ticks for the scenario sequence (the default is 500, not
+500 ticks per scenario). Checks stop early when complete; running out of ticks fails with the
+current step's name. `-Plive.sprint=false` restores normal tick pacing for debugging. Sprinting
+uses vanilla's tick sprint: it keeps real ticks, packet handling and stage barriers, and only
+removes the 20 TPS pacing. Async chunk/ticket readiness waits temporarily restore 20 TPS so
+background generation can finish without exhausting a tick budget in milliseconds. These
+waits end when ready, and count toward the same budget. Startup checks and chunk generation
+still take real time; the five-minute process timeout also catches a stalled tick.
+`LIVE_CHECK_DONE` lines report each
+startup check's elapsed milliseconds, and `LIVE_TICKS_DONE` reports the actual tick count and duration.
 
 Each invocation uses a fresh `.vanadium/runs/integration-UUID/` directory with a loopback-only
 port, seed 12345, flat world, four helpers, isolation two, C2ME parallelism four, and a fixed
@@ -65,13 +82,23 @@ port, seed 12345, flat world, four helpers, isolation two, C2ME parallelism four
 and failure evidence stay in that directory. Test classes and the completion helper are
 packaged only in `build/test-mods/integration-checks.jar`, never the release jar.
 
-The live suite covers block update packets, dirty-chunk notifications, loaded chunk
+The live suite covers two-player joins, chunk delivery and acknowledgements, entity tracking,
+movement across a chunk boundary, a client block-break request observed by the other player,
+disconnect cleanup, block update packets, dirty-chunk notifications, loaded chunk
 publication/replacement/unload, both load-lock policies and disabled mode, scheduled ticks,
 passengers, events, navigation invalidation, tracking diffs, spawn-count reduction,
 item conservation and chunk packet encoding/sending. The JFR option records monitor/park
 events at 100µs plus execution/allocation samples into the run's `live.jfr`.
 
-Manual coverage is still needed for real multiplayer, portals/dimensions, exploration and
+`integration/TestPlayer.kt` provides reusable real `ServerPlayer` instances joined through
+`PlayerList.placeNewPlayer` and ticked through `ServerConnectionListener`. Only the transport is
+mocked: packets are recorded, client actions use the real packet handlers, and teleport/chunk/keepalive
+acknowledgements arrive on the next connection tick. Each server tick drives one simulated
+client tick, including the tick-end packet required by movement validation. This does not
+test login authentication, socket transport, wire codecs or rendering. Tests must close each
+player on the server thread.
+
+Manual coverage is still needed for real clients, portals/dimensions, exploration and
 concurrent cold loads, interacting redstone/fluid machines, custom environment-driven spawn
 costs, modpacks and integrated-server reopen. A passing build/live fixture is not a general
 world-safety or performance claim.
