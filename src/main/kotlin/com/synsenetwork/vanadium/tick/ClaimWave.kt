@@ -52,8 +52,10 @@ internal class ClaimWave(
     override val busyNanos: Long get() = busy.get()
 
     private fun participate() {
+        val callerRequests = WorkerPool.callerRequestPump()
         var spent = 0L
         while (true) {
+            callerRequests?.run()
             val seen = remaining.get()
             if (seen == 0) break
             val ran = claimAndRunOne()
@@ -61,8 +63,11 @@ internal class ClaimWave(
                 spent += ran
                 continue
             }
-            // Nothing claimable: only a completion can unblock a region, so wait for one instead of rescanning.
-            while (remaining.get() == seen) Thread.onSpinWait()
+            // A running region may itself need the caller before it can complete.
+            while (remaining.get() == seen) {
+                callerRequests?.run()
+                Thread.onSpinWait()
+            }
         }
         busy.addAndGet(spent)
     }

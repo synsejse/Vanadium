@@ -1,15 +1,22 @@
 package com.synsenetwork.vanadium.integration
 
 import com.synsenetwork.vanadium.chunk.ParallelChunkCache
+import com.synsenetwork.vanadium.tick.ClaimWave
+import com.synsenetwork.vanadium.tick.DataflowWave
+import com.synsenetwork.vanadium.tick.RegionWave
 import com.synsenetwork.vanadium.tick.WorkerPool
+import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.TicketType
 import net.minecraft.world.level.ChunkPos
+import net.minecraft.world.level.block.Blocks
+import net.minecraft.world.level.block.entity.vault.VaultBlockEntity
 import net.minecraft.world.level.chunk.ChunkAccess
 import net.minecraft.world.level.chunk.status.ChunkStatus
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * A wave must not deadlock on a chunk load requested from inside it. Reproduces the reported interleaving: a worker's
@@ -54,7 +61,49 @@ internal object ChunkWaitChecks {
         } finally {
             source.removeTicketWithRadius(TicketType.PLAYER_LOADING, scheduled, 0)
         }
+        regionNeighborLoad(level, source, claiming = true)
+        regionNeighborLoad(level, source, claiming = false)
         println("CHUNK_WAIT_CHECKS_PASSED shared=1 tail=1")
+    }
+
+    /** The reported vault path: setChanged reads past a solid neighbour into a chunk not yet FULL. */
+    private fun regionNeighborLoad(level: ServerLevel, source: ParallelChunkCache, claiming: Boolean) {
+        val origin = ChunkPos(if (claiming) 4200 else 4300, -3001)
+        val chunk = level.getChunk(origin.x(), origin.z())
+        val pos = BlockPos(origin.minBlockX + 14, 100, origin.minBlockZ + 8)
+        chunk.setBlockState(pos.east(), Blocks.STONE.defaultBlockState(), 0)
+        val neighbor = ChunkPos(origin.x() + 1, origin.z())
+        check(!source.isAvailable(neighbor.pack(), ChunkStatus.FULL)) { "vault neighbour is already FULL" }
+        // No registered ticker is needed: exercise the same dirty/notification operation as Vault.Server.tick.
+        val vault = VaultBlockEntity(pos, Blocks.VAULT.defaultBlockState()).apply { setLevel(level) }
+        val completed = AtomicInteger()
+        val work = listOf(Runnable {
+            check(WorkerPool.isWorkerThread()) { "vault check must start on a worker" }
+            vault.setChanged()
+            completed.incrementAndGet()
+        }, Runnable {
+            check(completed.get() == 1) { "conflicting region ran before the vault finished" }
+            completed.incrementAndGet()
+        })
+        val starts = intArrayOf(0, 1, 2)
+        val neighbors = intArrayOf(1, 0)
+        val wave: RegionWave = if (claiming) ClaimWave(work, starts, neighbors)
+            else DataflowWave(work, starts, neighbors, intArrayOf(0, 1))
+        val participants = wave.participants(2)
+        val task = Runnable {
+            if (WorkerPool.isWorkerThread()) {
+                participants[0].run()
+            } else {
+                awaitWorkerRequest()
+                participants[1].run()
+            }
+        }
+        WorkerPool(1).use { pool -> pool.runWave(listOf(task, task)) }
+        check(wave.failure == null) { "vault neighbour load failed: ${wave.failure}" }
+        check(completed.get() == 2) { "region work was lost or repeated" }
+        check(source.getChunkNow(neighbor.x(), neighbor.z()) != null) { "vault neighbour was not published" }
+        check(!WorkerPool.callerHasRequests()) { "region wave left a chunk request queued" }
+        println("REGION_CHUNK_WAIT_PASSED policy=${if (claiming) "claim" else "dataflow"}")
     }
 
     /** One wave of two tasks, one per participant, so [worker] runs on the helper and [caller] on this thread. */

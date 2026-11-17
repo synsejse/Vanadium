@@ -50,12 +50,16 @@ internal class DataflowWave(
     override val busyNanos: Long get() = busy.get()
 
     private fun participate() {
+        val callerRequests = WorkerPool.callerRequestPump()
         var spent = 0L
         while (true) {
+            callerRequests?.run()
             val slot = taken.getAndIncrement()
             if (slot >= count) break
             var entry = slots.get(slot)
             while (entry == 0) {
+                // The predecessor holding this slot back may be waiting for the caller.
+                callerRequests?.run()
                 Thread.onSpinWait()
                 entry = slots.get(slot)
             }
