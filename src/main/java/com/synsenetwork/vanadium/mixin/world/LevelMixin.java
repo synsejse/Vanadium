@@ -3,6 +3,7 @@ package com.synsenetwork.vanadium.mixin.world;
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.synsenetwork.vanadium.Vanadium;
+import com.synsenetwork.vanadium.chunk.BlockEntityNeighbourhood;
 import com.synsenetwork.vanadium.concurrent.Interactions;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.state.BlockState;
@@ -13,6 +14,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.TickingBlockEntity;
@@ -58,6 +60,10 @@ public abstract class LevelMixin {
     @Unique
     private final ConcurrentLinkedQueue<TickingBlockEntity> vanadium$pendingTickers = new ConcurrentLinkedQueue<>();
 
+    /** Server levels only, created at their first block-entity phase; see {@link BlockEntityNeighbourhood}. */
+    @Unique
+    private BlockEntityNeighbourhood vanadium$neighbourhood;
+
     @Inject(method = "addBlockEntityTicker", at = @At("HEAD"), cancellable = true)
     private void queueBlockEntityTicker(TickingBlockEntity ticker, CallbackInfo ci) {
         if ((Object) this instanceof ServerLevel) {
@@ -75,6 +81,10 @@ public abstract class LevelMixin {
             while ((ticker = vanadium$pendingTickers.poll()) != null) {
                 blockEntityTickers.add(ticker);
             }
+            if (vanadium$neighbourhood == null) {
+                vanadium$neighbourhood = new BlockEntityNeighbourhood(((ServerLevel) (Object) this).getChunkSource());
+            }
+            vanadium$neighbourhood.reset();
             Vanadium.scheduler.begin(Stage.BLOCK_ENTITY);
         }
     }
@@ -105,6 +115,12 @@ public abstract class LevelMixin {
         }
         int chunkX = blockEntity.getBlockPos().getX() >> 4;
         int chunkZ = blockEntity.getBlockPos().getZ() >> 4;
+        if (vanadium$neighbourhood != null && !vanadium$neighbourhood.ready(ChunkPos.pack(chunkX, chunkZ))) {
+            // A neighbouring chunk is still loading: a read past this chunk's edge would load it on the server
+            // thread, so tick here, as vanilla does, rather than make a worker wait for it mid-wave.
+            ticker.tick();
+            return;
+        }
         Vanadium.scheduler.enqueue(Stage.BLOCK_ENTITY, chunkX, chunkZ, ticker::tick,
                 Vanadium.scheduler.getDetailedDiagnostics()
                         ? BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(blockEntity.getType()).toString() : null);
