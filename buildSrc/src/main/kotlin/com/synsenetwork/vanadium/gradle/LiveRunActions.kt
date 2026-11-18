@@ -3,19 +3,19 @@ package com.synsenetwork.vanadium.gradle
 import org.gradle.api.Action
 import org.gradle.api.Task
 import org.gradle.api.configuration.BuildFeatures
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.JavaExec
 import java.io.File
 import java.net.ServerSocket
-import java.nio.file.FileSystems
 
+/** Writes a fresh live-run directory. [settings] is read only when the run starts (see [LiveLaunch]). */
 class PrepareLiveRun(
     private val run: File,
     private val configurationCache: Boolean,
     private val eula: File,
     private val runtimeMods: List<File>,
     private val fixture: File,
-    private val mode: String,
-    private val settings: LiveSettings = LiveSettings(),
+    private val settings: Provider<LiveSettings>,
 ) : Action<Task> {
     override fun execute(task: Task) {
         check(!configurationCache) { "Live runs require --no-configuration-cache for fresh launch directories" }
@@ -23,6 +23,7 @@ class PrepareLiveRun(
             "Accept the Minecraft EULA in .vanadium/eula.txt before running live tests"
         }
         check(!run.exists()) { "Refusing to reuse a live-test world: $run" }
+        val settings = settings.get()
         run.resolve("mods").mkdirs()
         run.resolve("config").mkdirs()
         runtimeMods.forEach { it.copyTo(run.resolve("mods/${it.name}")) }
@@ -37,7 +38,7 @@ class PrepareLiveRun(
             "level-type" to "minecraft:flat",
             "generator-settings" to """{"layers":[{"height":1,"block":"minecraft:bedrock"},{"height":2,"block":"minecraft:dirt"},""" +
                 """{"height":1,"block":"minecraft:grass_block"}],"biome":"minecraft:plains","structure_overrides":[]}""",
-            "max-tick-time" to if (mode == "featureBench") "-1" else "60000",
+            "max-tick-time" to "60000",
             "view-distance" to "4",
             "simulation-distance" to "4",
             "max-players" to "1",
@@ -62,41 +63,12 @@ data class LiveSettings(
     val c2meParallelism: Int? = 4,
 ) : java.io.Serializable
 
-/**
- * Checks a finished live run: the pass marker, the JFR recording when requested, every file in [outputs] (run-relative
- * path, `*` matching within its directory, to its minimum line count) and an error-free server log.
- */
-class VerifyLiveRun(
-    private val mode: String,
-    private val jfr: Boolean,
-    private val outputs: Map<String, Long> = emptyMap(),
-) : Action<Task> {
+/** Checks a finished live run against what its [LiveLaunch] expects, resolved when the run ends. */
+class VerifyLiveRun(private val launch: Provider<LiveLaunch>) : Action<Task> {
     override fun execute(task: Task) {
-        verify((task as JavaExec).workingDir)
-        task.logger.lifecycle("$mode passed; evidence retained in ${task.workingDir}")
-    }
-
-    fun verify(run: File) {
-        val marker = run.resolve("vanadium-live-passed.txt")
-        check(marker.isFile && marker.readText().trim() == mode) {
-            "Live checks/tick/save/shutdown did not complete; inspect $run"
-        }
-        check(!jfr || run.resolve("live.jfr").let { it.isFile && it.length() > 0 }) { "Missing JFR recording in $run" }
-        for ((path, minimumLines) in outputs) {
-            val file = File(path).let { relative ->
-                val directory = run.resolve(relative.parent ?: ".")
-                val matcher = FileSystems.getDefault().getPathMatcher("glob:${relative.name}")
-                directory.listFiles().orEmpty().filter { it.isFile && matcher.matches(it.toPath().fileName) }.maxByOrNull { it.name }
-            }
-            checkNotNull(file) { "Missing $path in $run" }
-            val lines = file.useLines { it.count() }
-            check(lines >= minimumLines) { "$file has $lines lines, expected at least $minimumLines" }
-        }
-        val log = run.resolve("logs/latest.log")
-        check(log.isFile) { "Missing server log in $run" }
-        check(log.useLines { lines -> lines.none { "/ERROR]" in it || " ERROR]" in it || "Exception in server tick loop" in it } }) {
-            "Server logged errors; inspect $log"
-        }
+        val launch = launch.get()
+        launch.verify((task as JavaExec).workingDir)
+        task.logger.lifecycle("${launch.mode} passed; evidence retained in ${task.workingDir}")
     }
 }
 

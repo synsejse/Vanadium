@@ -1,11 +1,10 @@
+import com.synsenetwork.vanadium.gradle.BuildFeaturesAccess
+import com.synsenetwork.vanadium.gradle.CheckModDependencies
 import com.synsenetwork.vanadium.gradle.InstallRuntimeMods
 import com.synsenetwork.vanadium.gradle.LiveFixture
-import com.synsenetwork.vanadium.gradle.LiveSettings
-import com.synsenetwork.vanadium.gradle.MixedBenchSettings
-import com.synsenetwork.vanadium.gradle.BuildFeaturesAccess
-import com.synsenetwork.vanadium.gradle.ColdExplosionSettings
-import com.synsenetwork.vanadium.gradle.PrepareRuntimeMod
+import com.synsenetwork.vanadium.gradle.LiveLaunch
 import com.synsenetwork.vanadium.gradle.PrepareLiveRun
+import com.synsenetwork.vanadium.gradle.PrepareRuntimeMod
 import com.synsenetwork.vanadium.gradle.VerifyLiveRun
 import net.fabricmc.loom.api.LoomGradleExtensionAPI
 import java.time.Duration
@@ -13,6 +12,7 @@ import java.util.UUID
 
 val sourceSets = extensions.getByType<SourceSetContainer>()
 val loom = extensions.getByType<LoomGradleExtensionAPI>()
+val javaToolchain = extensions.getByType<JavaPluginExtension>().toolchain
 
 tasks.named<Test>("test") {
     useJUnitPlatform()
@@ -24,41 +24,42 @@ tasks.named<Test>("test") {
     systemProperty("vanadium.expectedMinecraft", project.property("minecraft_version").toString())
 }
 
+// The manifest's dependency minima are hand-written; keep them on the pins the build compiles and tests against.
+val checkModDependencies = tasks.register<CheckModDependencies>("checkModDependencies") {
+    group = "verification"
+    description = "Checks that fabric.mod.json dependency minima match the pinned versions"
+    manifest.set(layout.projectDirectory.file("src/main/resources/fabric.mod.json"))
+    fun pin(name: String) = providers.gradleProperty(name).map { ">=$it" }
+    expected.put("fabricloader", pin("loader_version"))
+    expected.put("fabric-language-kotlin", pin("fabric_kotlin_version"))
+    // The Fabric API version's `+26.3` is build metadata, which version ranges ignore.
+    expected.put("fabric-api", providers.gradleProperty("fabric_version").map { ">=${it.substringBefore('+')}" })
+    expected.put("minecraft", providers.gradleProperty("minecraft_version"))
+    expected.put("java", javaToolchain.languageVersion.map { ">=${it.asInt()}" })
+    expected.put("cloth-config2", pin("cloth_config_version"))
+    expected.put("c2me", pin("c2me_version"))
+    expected.put("lithium", pin("lithium_version"))
+    marker.set(layout.buildDirectory.file("tmp/checkModDependencies/checked.txt"))
+}
+tasks.named("check") { dependsOn(checkModDependencies) }
+
 val testOutput = sourceSets.named("test").map { it.output }
-val mixedBench = MixedBenchSettings { providers.gradleProperty(it).orNull }
-val coldExplosion = ColdExplosionSettings { providers.gradleProperty(it).orNull }
-val liveRuns = LiveFixture.entries.associateWith {
-    layout.projectDirectory.dir(".vanadium/runs/${it.runName}-${UUID.randomUUID()}")
+// Loom finalises run directories during configuration, so each is a fresh path chosen now. Everything else a
+// fixture launches with is resolved once, and only when its own run reads it.
+class LiveRun(val directory: Directory, val launch: Provider<LiveLaunch>)
+val liveRuns = LiveFixture.entries.associateWith { fixture ->
+    val launch = lazy { LiveLaunch.resolve(fixture) { providers.gradleProperty(it).orNull } }
+    LiveRun(layout.projectDirectory.dir(".vanadium/runs/${fixture.runName}-${UUID.randomUUID()}"), providers.provider { launch.value })
 }
 
 loom.runs {
-    liveRuns.forEach { (fixture, directory) ->
+    liveRuns.forEach { (fixture, run) ->
         create(fixture.runName) {
             server()
-            runDirectory.set(directory)
+            runDirectory.set(run.directory)
             generateRunConfig.set(false)
-            systemProperties.put("vanadium.live.mode", fixture.runName)
-            systemProperties.put("vanadium.live.jfr", providers.gradleProperty("live.jfr").getOrElse("false"))
-            if (fixture == LiveFixture.INTEGRATION) {
-                systemProperties.put("vanadium.live.ticks", providers.gradleProperty("live.ticks").getOrElse("500"))
-                systemProperties.put("vanadium.live.sprint", providers.gradleProperty("live.sprint").getOrElse("true"))
-            }
-            when (fixture) {
-                LiveFixture.MIXED_BENCH -> {
-                    systemProperties.putAll(mixedBench.systemProperties)
-                    jvmArguments.addAll(mixedBench.jvmArgs)
-                }
-                LiveFixture.COLD_EXPLOSION -> {
-                    systemProperties.putAll(coldExplosion.systemProperties)
-                    jvmArguments.addAll(coldExplosion.jvmArgs)
-                }
-                else -> jvmArguments.addAll("-Xms2g", "-Xmx2g", "-XX:+UseG1GC")
-            }
-            if (fixture == LiveFixture.FEATURE_BENCH) {
-                listOf("workers" to "4", "rounds" to "12", "scale" to "1", "filter" to "", "jfr" to "true").forEach { (key, default) ->
-                    systemProperties.put("vanadium.bench.$key", providers.gradleProperty("bench.$key").getOrElse(default))
-                }
-            }
+            systemProperties.putAll(run.launch.map { it.systemProperties })
+            jvmArguments.addAll(run.launch.map { it.jvmArgs })
         }
     }
 }
@@ -122,21 +123,17 @@ listOf("runClient", "runServer").forEach { name ->
 }
 
 val configurationCache = objects.newInstance(BuildFeaturesAccess::class.java).features.configurationCache.requested.getOrElse(false)
-liveRuns.forEach { (fixture, directory) ->
-    tasks.named<JavaExec>("run${fixture.runName.replaceFirstChar(Char::uppercase)}") {
-        group = if (fixture == LiveFixture.INTEGRATION) "verification" else "benchmark"
-        if (fixture == LiveFixture.MIXED_BENCH) description = "Manual realistic whole-server benchmark (one mode per run; see docs/PROFILING.md)"
-        if (fixture == LiveFixture.COLD_EXPLOSION) description = "Manual first-explosion (cold first use) benchmark (one arm per run; see docs/PROFILING.md)"
+liveRuns.forEach { (fixture, run) ->
+    tasks.named<JavaExec>(fixture.runTask) {
+        group = fixture.group
+        fixture.description?.let { description = it }
         dependsOn(runtimeMods, fixture.jarTask)
-        val mixed = fixture == LiveFixture.MIXED_BENCH
-        val cold = fixture == LiveFixture.COLD_EXPLOSION
-        timeout.set(Duration.ofMinutes(if (mixed) maxOf(fixture.timeoutMinutes, mixedBench.timeoutMinutes) else fixture.timeoutMinutes))
+        timeout.set(run.launch.map { Duration.ofMinutes(it.timeoutMinutes) })
         args("nogui")
-        doFirst(PrepareLiveRun(directory.asFile, configurationCache, layout.projectDirectory.file(".vanadium/eula.txt").asFile,
-            runtimeMods.map { it.get().destination.get().asFile }, layout.buildDirectory.file("test-mods/${fixture.jarName}").get().asFile, fixture.runName,
-            when { mixed -> mixedBench.liveSettings; cold -> coldExplosion.liveSettings; else -> LiveSettings() }))
-        doLast(VerifyLiveRun(fixture.runName, providers.gradleProperty("live.jfr").getOrElse("false").toBoolean(),
-            when { mixed -> mixedBench.expectedOutputs(); cold -> coldExplosion.expectedOutputs(); else -> emptyMap() }))
+        doFirst(PrepareLiveRun(run.directory.asFile, configurationCache, layout.projectDirectory.file(".vanadium/eula.txt").asFile,
+            runtimeMods.map { it.get().destination.get().asFile }, layout.buildDirectory.file("test-mods/${fixture.jarName}").get().asFile,
+            run.launch.map { it.settings }))
+        doLast(VerifyLiveRun(run.launch))
     }
 }
 
