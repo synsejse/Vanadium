@@ -91,8 +91,9 @@ class ParallelChunkCache(
         if (status == ChunkStatus.FULL) loadedChunks[pos] else null
 
     /**
-     * Whether a worker can get [status] at packed [pos] without the server thread. Never blocks; like C2ME's
-     * off-thread lookup it may schedule generation for a holder that is not there yet.
+     * Whether a worker can get [status] at packed [pos] without the server thread: a published full chunk, or a
+     * holder that has already reached [status]. Never blocks. Without a holder it returns false at once; with one,
+     * [completed] may start work toward [status] on that holder as a side effect (no holder is ever created).
      */
     fun isAvailable(pos: Long, status: ChunkStatus): Boolean {
         if (loadedChunks.containsKey(pos)) return true
@@ -100,7 +101,11 @@ class ParallelChunkCache(
         return completed(holder, status) != null
     }
 
-    /** C2ME's off-thread lookup: the chunk only if [holder] has already reached [status]. */
+    /**
+     * C2ME's off-thread lookup: the chunk only if [holder] has already reached [status], else null. Never waits, but
+     * `scheduleChunkGenerationTask` can start work on [holder] for an incomplete status: vanilla schedules [status]
+     * when the holder's ticket level allows it, and C2ME's holder triggers its deferred load.
+     */
     private fun completed(holder: ChunkHolder, status: ChunkStatus): ChunkAccess? {
         val chunk = holder.scheduleChunkGenerationTask(status, chunkMap).getNow(GenerationChunkHolder.UNLOADED_CHUNK).orElse(null)
         return if (chunk is ImposterProtoChunk) chunk.wrapped else chunk
@@ -126,10 +131,10 @@ class ParallelChunkCache(
             Thread.currentThread().name, chunkX, chunkZ, status, Throwable("waiting caller"))
     }
 
-    /** A full chunk without the shared four-entry vanilla cache, which is unsafe across threads. */
     /** Packed positions of the published full chunks, for diagnostics and live checks. */
     fun loadedChunkPositions(): LongArray = loadedChunks.keySetLong()
 
+    /** A full chunk without the shared four-entry vanilla cache, which is unsafe across threads. */
     override fun getChunkNow(chunkX: Int, chunkZ: Int): LevelChunk? =
         loadedChunks[ChunkPos.pack(chunkX, chunkZ)]
 
