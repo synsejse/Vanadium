@@ -40,7 +40,6 @@
     "c2me": ">=0.4.2-alpha.0.116",
     "lithium": ">=0.26.3"
   },
-  "suggests": {},
   "breaks": {
     "async": "*",
     "dimthread": "*",

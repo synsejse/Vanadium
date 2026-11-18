@@ -82,8 +82,6 @@
     "compat.lithium.PoiTakeAtMixin",
     "compat.lithium.SectionedEntityMovementTrackerMixin"
   ],
-  "client": [],
-  "server": [],
   "injectors": {
     "defaultRequire": 1
   },
