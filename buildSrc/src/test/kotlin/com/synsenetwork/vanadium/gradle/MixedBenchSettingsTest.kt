@@ -1,17 +1,12 @@
 package com.synsenetwork.vanadium.gradle
 
-import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
-import org.gradle.testfixtures.ProjectBuilder
-import org.junit.jupiter.api.io.TempDir
 
 class MixedBenchSettingsTest {
-    @TempDir lateinit var directory: Path
-
     private fun settings(vararg properties: Pair<String, String>) = MixedBenchSettings(mapOf(*properties)::get)
 
     @Test
@@ -96,30 +91,6 @@ class MixedBenchSettingsTest {
     }
 
     @Test
-    fun verifierRequiresEveryExpectedOutput() {
-        val run = directory.resolve("run").toFile().apply { resolve("logs").mkdirs(); resolve("mixed-bench").mkdirs() }
-        run.resolve("logs/latest.log").writeText("[Server thread/INFO]: done\n")
-        run.resolve("vanadium-live-passed.txt").writeText("mixedBench")
-        val outputs = mapOf("mixed-bench/windows.csv" to 3L, "results/mixed-bench-*.json" to 1L, "gc.log" to 1L)
-        val verifier = VerifyLiveRun("mixedBench", false, outputs)
-        assertFailsWith<IllegalStateException> { verifier.verify(run) }
-        run.resolve("mixed-bench/windows.csv").writeText("header\n0\n")
-        run.resolve("results").mkdirs()
-        run.resolve("results/mixed-bench-2026.json").writeText("{}\n")
-        run.resolve("gc.log").writeText("[0.001s] gc\n")
-        // One window row short.
-        assertFailsWith<IllegalStateException> { verifier.verify(run) }
-        run.resolve("mixed-bench/windows.csv").appendText("1\n")
-        verifier.verify(run)
-        run.resolve("gc.log").delete()
-        assertFailsWith<IllegalStateException> { verifier.verify(run) }
-        run.resolve("gc.log").writeText("[0.001s] gc\n")
-        // An empty recording is not a recording.
-        run.resolve("live.jfr").createNewFile()
-        assertFailsWith<IllegalStateException> { VerifyLiveRun("mixedBench", true, outputs).verify(run) }
-    }
-
-    @Test
     fun rejectsInvalidValuesBeforeLaunch() {
         assertFailsWith<IllegalArgumentException> { settings("mixed.mode" to "off") }
         assertFailsWith<IllegalArgumentException> { settings("mixed.window" to "0") }
@@ -131,39 +102,5 @@ class MixedBenchSettingsTest {
         assertFailsWith<IllegalArgumentException> { settings("mixed.jfrLead" to "-1") }
         // No lead would start JFR inside the first window's first gap.
         assertFailsWith<IllegalArgumentException> { settings("mixed.jfrLead" to "0") }
-    }
-
-    @Test
-    fun liveRunWritesFixtureSettingsOverTheIsolatedDefaultsAndRefusesReuse() {
-        val eula = directory.resolve("eula.txt").toFile().apply { writeText("eula=true\n") }
-        val fixture = directory.resolve("fixture.jar").toFile().apply { writeText("jar") }
-        val run = directory.resolve("run").toFile()
-        val task = ProjectBuilder.builder().withProjectDir(directory.toFile()).build().tasks.register("live").get()
-        val prepare = PrepareLiveRun(run, false, eula, emptyList(), fixture, "mixedBench", settings("mixed.mode" to "serial").liveSettings)
-        prepare.execute(task)
-        val properties = run.resolve("server.properties").readLines()
-        assertTrue("level-type=minecraft:normal" in properties)
-        assertTrue("max-tick-time=300000" in properties)
-        assertTrue("server-ip=127.0.0.1" in properties)
-        assertEquals(1, properties.count { it.startsWith("level-type=") })
-        assertEquals("enabled = false\nworkers = 0\nisolation = 2\n", run.resolve("config/vanadium.toml").readText())
-        assertFalse(run.resolve("config/c2me.toml").exists())
-        assertTrue(run.resolve("mods/fixture.jar").isFile)
-        assertFailsWith<IllegalStateException> { prepare.execute(task) }
-    }
-
-    @Test
-    fun otherFixturesKeepTheirPreviousLaunchFiles() {
-        val eula = directory.resolve("eula.txt").toFile().apply { writeText("eula=true\n") }
-        val fixture = directory.resolve("fixture.jar").toFile().apply { writeText("jar") }
-        val run = directory.resolve("run").toFile()
-        val task = ProjectBuilder.builder().withProjectDir(directory.toFile()).build().tasks.register("live").get()
-        PrepareLiveRun(run, false, eula, emptyList(), fixture, "integration").execute(task)
-        val properties = run.resolve("server.properties").readLines()
-        assertTrue("level-type=minecraft:flat" in properties)
-        assertTrue("view-distance=4" in properties)
-        assertTrue("max-tick-time=60000" in properties)
-        assertEquals("workers = 4\nisolation = 2\n", run.resolve("config/vanadium.toml").readText())
-        assertEquals("version = 3\nglobalExecutorParallelism = 4\n", run.resolve("config/c2me.toml").readText())
     }
 }

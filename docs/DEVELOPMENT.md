@@ -18,7 +18,10 @@ git diff --check
 ```
 
 `build` compiles Kotlin/Java, validates the access widener, runs JUnit 5 tests, and produces
-release/source jars in `build/libs/`. Test reports are in `build/reports/tests/test/`.
+release/source jars in `build/libs/`. Its `checkModDependencies` step fails when a hand-written
+`depends` minimum in `fabric.mod.json` differs from the version pinned in `gradle.properties` (or the
+Java toolchain): the minima are the pins on purpose, since only the pins are built and tested, so a pin
+change updates the manifest in the same commit. Test reports are in `build/reports/tests/test/`.
 Kotlin warnings and all Java lint warnings fail compilation. Keep unavoidable
 Mixin generic casts and fastutil accessor overrides documented with local suppressions.
 Build and verification configuration is separated:
@@ -26,6 +29,9 @@ Build and verification configuration is separated:
 - `build.gradle.kts`: mod dependencies, toolchains, resources and release packaging.
 - `buildSrc/src/main/kotlin/vanadium.verification.gradle.kts`: unit tests, live fixtures and benchmarks.
 - `buildSrc/src/main/kotlin/com/synsenetwork/vanadium/gradle/`: typed download/launch actions and fixture definitions.
+  `LiveLaunch` resolves each fixture's launch values and expected outputs from its `-P` properties in one place,
+  and only when that fixture's run executes: a malformed `mixed.*`, `cold.*` or `bench.*` value fails that run
+  before launch and never `build` or another fixture.
 
 Production packages follow responsibilities: `tick/` owns wave scheduling and dispatch;
 `navigation/` owns path invalidation and path-type caching; `spawning/` owns counting and
@@ -37,7 +43,8 @@ Package moves change class names in stack traces; the `vanadium.*` JFR event nam
 JSON fields and command paths remain stable.
 
 Run `./gradlew -p buildSrc check` for the build-logic tests; they validate verified downloads
-and rejection of corrupt artifacts without accessing the network.
+and rejection of corrupt artifacts without accessing the network, fixture property parsing, launch
+values and output verification.
 
 Unit tests inspect vanilla bindings without booting Minecraft or applying mixins.
 They are necessary but insufficient to validate a port.
@@ -139,7 +146,11 @@ on/off workloads with warmup and alternating order, writing CSV and optional per
 files under `feature-bench/` in that server directory, then ticks/saves/shuts down normally.
 Defaults are four helpers, isolation two, 12 paired rounds, scale 1 and JFR enabled.
 `bench.workers`, `bench.rounds`, `bench.scale`, `bench.filter` and `bench.jfr` are Gradle
-properties. Reduced scale/rounds only check the harness; they are not performance evidence.
+properties; `bench.rounds` (0–1,000,000) and `bench.jfr` (`true`/`false`) are validated before launch.
+After the run, the task checks `environment.txt`, a `samples.csv` with at least one selected case's
+rows (header plus two per round) and, with JFR, non-empty `*-off.jfr`/`*-on.jfr` recordings; a filter
+that matches no case therefore fails the run. Reduced scale/rounds only check the harness; they are not
+performance evidence.
 For independent JVM samples, invoke the task again; each run gets a new world and JVM.
 
 `runMixedBench` is a manual whole-server benchmark: real players over the mocked transport

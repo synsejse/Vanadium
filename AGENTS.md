@@ -15,7 +15,8 @@ Do not upgrade Minecraft, mappings, Loom, Gradle, Kotlin, or runtime mods as inc
   `nix-shell --run './gradlew runClient'` launches the interactive client.
 - Always use `./gradlew`, not a system Gradle. Kotlin and Java compile with a Java 25 toolchain.
 - `./gradlew genSources`: generate Minecraft sources for reviewing injection targets.
-- `./gradlew build`: compile, validate the access widener, test, and produce distributable jars.
+- `./gradlew build`: compile, validate the access widener, test, check `fabric.mod.json` dependency minima
+  against the pins (`checkModDependencies`: a pin change updates the manifest too), and produce distributable jars.
 - `./gradlew -p buildSrc check`: validate build logic and checksum/download task tests.
 - `./gradlew test --tests 'com.synsenetwork.vanadium.tick.*'`: focused scheduler tests.
 - `./gradlew test --rerun-tasks`: actually rerun tests when checking concurrency behavior.
@@ -33,7 +34,8 @@ Do not upgrade Minecraft, mappings, Loom, Gradle, Kotlin, or runtime mods as inc
   Use `-Plive.sprint=false` for normal pacing. Includes real server players with mocked transport.
   Live runs require configuration caching off (the repository default); use `--no-configuration-cache` if overriding it.
 - `./gradlew runFeatureBench`: paired on/off fixture benchmarks in a fresh server JVM;
-  `-Pbench.filter=...`, `-Pbench.rounds=...`, `-Pbench.scale=...` configure cases.
+  `-Pbench.filter=...`, `-Pbench.rounds=...`, `-Pbench.scale=...` configure cases; the task verifies the samples
+  and recordings it expects. Fixture `-P` values (`buildSrc` `LiveLaunch`) are parsed only by their own run.
 - `./gradlew runIntegration -Plive.jfr=true`: include a JFR capture with 100µs monitor thresholds.
 - `./gradlew runMixedBench -Pmixed.mode=enabled|serial`: manual realistic whole-server benchmark (players,
   mobs, natural spawning, furnaces/hoppers/redstone) in fixed-tick windows; one mode per fresh run.
