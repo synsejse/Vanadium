@@ -389,11 +389,17 @@ The results below apply to this fixture.
   blast's excess. The load itself took 39–61 ms on the server thread. Helper-class and first-run costs
   remained. A production launch and the startup cost of a real preload were not measured.
 
-Every full window held about 20 completion TPS, with worst 20-tick rolling TPS of 17.8–19.4. That is
-headroom at this load on this machine, not a TPS guarantee. Cap 2 with the 250 µs spin ran in two
-JVMs at `3481b4a`. The combination below is provisional until it is verified on the final build.
-Compare it against the same command without `mixed.jvmArgs`. Run one live server at a time,
-alternate arms in fresh JVMs, and use at least four runs per arm (see
+On the combined branch at `e6f7af7`, three fresh pairs (two at simulation distance 6 and one at 8)
+used the same setup with two 1,000-tick windows per JVM. Cap 2 with 250 µs spin used 32–35% less
+process CPU per tick and lowered p99 by 1.4–5.3 ms. Across 6,000 ticks per setting, defaults had
+four ticks over 50 ms and tuning had three. Neither had a tick over 100 ms. All runs averaged
+about 20 completion TPS, but tuning lengthened the worst completion gap by 9.6–11.5 ms in each
+pair and lowered the worst rolling TPS. The longest tuned gap was 107.5 ms, including about
+19 ms at a G1 safepoint before the tick began. Prefer this combination when CPU headroom matters
+and verify completion gaps under your own workload.
+
+Compare the command below against the same command without `mixed.jvmArgs`. Run one live server
+at a time, alternate arms in fresh JVMs, and use at least four runs per arm (see
 [spawn contention arms](PROFILING.md#spawn-contention-arms)).
 
 ```sh
