@@ -126,7 +126,8 @@ liveRuns.forEach { (fixture, directory) ->
         doFirst(PrepareLiveRun(directory.asFile, configurationCache, layout.projectDirectory.file(".vanadium/eula.txt").asFile,
             runtimeMods.map { it.get().destination.get().asFile }, layout.buildDirectory.file("test-mods/${fixture.jarName}").get().asFile, fixture.runName,
             if (mixed) mixedBench.liveSettings else LiveSettings()))
-        doLast(VerifyLiveRun(fixture.runName, providers.gradleProperty("live.jfr").getOrElse("false").toBoolean()))
+        doLast(VerifyLiveRun(fixture.runName, providers.gradleProperty("live.jfr").getOrElse("false").toBoolean(),
+            if (mixed) mixedBench.expectedOutputs() else emptyMap()))
     }
 }
 

@@ -5,12 +5,14 @@ import com.google.gson.JsonObject
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.diagnostics.PerformanceResults
 import com.synsenetwork.vanadium.live.LiveServer
-import java.io.PrintWriter
+import java.io.BufferedWriter
+import java.io.Writer
 import java.lang.management.ManagementFactory
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 import jdk.jfr.Recording
+import jdk.jfr.RecordingState
 import net.fabricmc.api.ModInitializer
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents
@@ -40,6 +42,9 @@ import net.minecraft.world.level.gamerules.GameRules
  * Every tick from the end of setup to the last measured tick is kept in `ticks.csv` (ID, `tickServer` duration
  * and completion on the JVM-uptime clock of `-Xlog` decorations), buffered and written at each boundary;
  * `boundaries.csv` marks setup, readiness, the JFR start and every window edge on the same clock.
+ *
+ * Output errors throw. If the server stops before the last window (a crash, including this fixture's, or a shutdown
+ * request), [Run.abort] writes the pending ticks and stops JFR into `live.jfr`, best effort, and never marks a pass.
  */
 class MixedBench : ModInitializer {
     override fun onInitialize() {
@@ -83,9 +88,9 @@ class MixedBench : ModInitializer {
         private val walkers = ArrayList<Walker>()
         private val counters = WindowCounters(server)
         private val rows = JsonArray()
-        private lateinit var csv: PrintWriter
-        private lateinit var ticksCsv: PrintWriter
-        private lateinit var boundariesCsv: PrintWriter
+        private lateinit var csv: BufferedWriter
+        private lateinit var ticksCsv: BufferedWriter
+        private lateinit var boundariesCsv: BufferedWriter
         private val tickLog = TickLog()
         /** Completion of the tick before the current window (its `t0`). */
         private var windowStart = 0L
@@ -99,9 +104,14 @@ class MixedBench : ModInitializer {
         private var lastChunks = -1
         private var measureStart = 0L
         private var lastHealth = LongArray(3)
+        /** Every output is written and the result published; [abort] has nothing to keep. */
+        private var finished = false
+        private var aborted = false
 
         fun start() {
             check(mode in listOf("enabled", "serial")) { "unknown mixed.mode $mode" }
+            check(jfrLead > 0) { "mixed.jfrLead must be positive, not $jfrLead" }
+            ServerLifecycleEvents.SERVER_STOPPING.register { current -> if (current === server) abort() }
             check(Vanadium.config.enabled == (mode == "enabled")) {
                 "mixed.mode=$mode but vanadium.toml has enabled=${Vanadium.config.enabled}"
             }
@@ -134,11 +144,11 @@ class MixedBench : ModInitializer {
                 }
             }
             println("MIXED_BENCH_SETUP bases=$baseCount players=$players spawnArm=$spawnArm elapsedMs=${(System.nanoTime() - setupStart) / 1_000_000}")
-            csv = PrintWriter(Files.newBufferedWriter(output.resolve("windows.csv")))
-            ticksCsv = PrintWriter(Files.newBufferedWriter(output.resolve("ticks.csv")))
-            ticksCsv.println("phase,window,tick_id,tick_ns,end_uptime_ns")
-            boundariesCsv = PrintWriter(Files.newBufferedWriter(output.resolve("boundaries.csv")))
-            boundariesCsv.println("boundary,window,tick_id,tick_end_uptime_ns,mark_uptime_ns,work_ns,epoch_us")
+            csv = Files.newBufferedWriter(output.resolve("windows.csv"))
+            ticksCsv = Files.newBufferedWriter(output.resolve("ticks.csv"))
+            ticksCsv.line("phase,window,tick_id,tick_ns,end_uptime_ns")
+            boundariesCsv = Files.newBufferedWriter(output.resolve("boundaries.csv"))
+            boundariesCsv.line("boundary,window,tick_id,tick_end_uptime_ns,mark_uptime_ns,work_before_row_ns,epoch_us")
             val now = clock.now()
             boundary("setup_end", -1, now, now)
             println("MIXED_BENCH_CLOCK uptimeNanos=$now calibrationUncertaintyNanos=${clock.uncertainty}")
@@ -191,7 +201,7 @@ class MixedBench : ModInitializer {
             val index = if (phase == Phase.MEASURE) window else -1
             for (i in 0 until tickLog.size) {
                 ticksCsv.append(name).append(',').append(index.toString()).append(',').append(tickLog.ids[i].toString()).append(',')
-                    .append(tickLog.durations[i].toString()).append(',').println(tickLog.ends[i])
+                    .append(tickLog.durations[i].toString()).append(',').append(tickLog.ends[i].toString()).append('\n')
             }
             ticksCsv.flush()
             tickLog.clear()
@@ -199,12 +209,14 @@ class MixedBench : ModInitializer {
 
         /**
          * One row of `boundaries.csv`: the last completed tick and its completion [end], when this boundary's
-         * server-thread work began ([mark]) and how long it took (snapshots, file writes, starting JFR).
+         * server-thread work began ([mark]) and the time from then until this row (the work done before calling this:
+         * tick and window files, counter snapshots that end a window, starting JFR). Writing this row and its JFR event,
+         * and whatever the caller does afterwards (the next window's counter snapshot, [finish]), are not included.
          */
         private fun boundary(name: String, window: Int, end: Long, mark: Long) {
             val work = clock.now() - mark
             val wall = Instant.now()
-            boundariesCsv.println("$name,$window,${server.tickCount},$end,$mark,$work,${wall.epochSecond * 1_000_000 + wall.nano / 1000}")
+            boundariesCsv.line("$name,$window,${server.tickCount},$end,$mark,$work,${wall.epochSecond * 1_000_000 + wall.nano / 1000}")
             boundariesCsv.flush()
             MixedBenchBoundaryEvent().let {
                 if (it.isEnabled) {
@@ -223,17 +235,20 @@ class MixedBench : ModInitializer {
 
         private fun startRecording(end: Long) {
             val mark = clock.now()
-            recording = LiveServer.recording().also { it.start() }
+            recording = LiveServer.recording().also {
+                // Also written by the JDK's own exit hook if the JVM exits (System.exit, SIGTERM) before it is stopped.
+                it.setDestination(Path.of("live.jfr"))
+                it.setDumpOnExit(true)
+                it.start()
+            }
             jfrStartTick = server.tickCount
             boundary("jfr_start", -1, end, mark)
         }
 
         /** Players loaded and entity-ticking, and the loaded-chunk count unchanged for five seconds. */
         private fun ready(end: Long) {
-            if (phaseTicks > READY_LIMIT) {
-                flushTicks()
-                error("chunks around the players did not settle within $READY_LIMIT ticks")
-            }
+            // abort() keeps the readiness ticks.
+            check(phaseTicks <= READY_LIMIT) { "chunks around the players did not settle within $READY_LIMIT ticks" }
             val chunks = server.allLevels.sumOf { it.chunkSource.loadedChunksCount }
             stableTicks = if (chunks == lastChunks) stableTicks + 1 else 0
             lastChunks = chunks
@@ -276,8 +291,8 @@ class MixedBench : ModInitializer {
             ) + timing.columns())
             flushTicks()
             lastHealth = health
-            if (window == 0) csv.println((listOf("mode", "window") + row.keys).joinToString(","))
-            csv.println((listOf(mode, "$window") + row.values.map { format(it) }).joinToString(","))
+            if (window == 0) csv.line((listOf("mode", "window") + row.keys).joinToString(","))
+            csv.line((listOf(mode, "$window") + row.values.map { format(it) }).joinToString(","))
             csv.flush()
             rows.add(WindowCounters.json(row).apply { addProperty("window", window) })
             println("MIXED_BENCH_WINDOW mode=$mode window=$window " + row.entries.joinToString(" ") { (k, v) -> "$k=${format(v)}" })
@@ -295,11 +310,7 @@ class MixedBench : ModInitializer {
         private fun finish() {
             next(Phase.DONE)
             if (sprint) server.tickRateManager().stopSprinting()
-            recording?.let {
-                it.stop()
-                it.dump(Path.of("live.jfr"))
-                it.close()
-            }
+            stopRecording()
             csv.close()
             ticksCsv.close()
             boundariesCsv.close()
@@ -343,10 +354,49 @@ class MixedBench : ModInitializer {
                 addProperty("jvmArgs", ManagementFactory.getRuntimeMXBean().inputArguments.joinToString(" "))
                 add("windowResults", rows)
             }
-            PerformanceResults.publish(server, "mixed-bench", body)
+            checkNotNull(PerformanceResults.publish(server, "mixed-bench", body)) { "the mixed-bench result could not be saved" }
+            finished = true
             walkers.forEach { it.client.close() }
             println("MIXED_BENCH_PASSED mode=$mode windows=$windows")
             LiveServer.finish(server, "mixedBench")
+        }
+
+        /** Stopping writes the recording to its `live.jfr` destination. At most once, whichever path gets here first. */
+        private fun stopRecording() {
+            val recording = recording ?: return
+            this.recording = null
+            if (recording.state == RecordingState.RUNNING) recording.stop()
+            if (recording.state != RecordingState.CLOSED) recording.close()
+        }
+
+        /**
+         * The server is stopping before [finish] completed: on a crash (this fixture's or anything else's, after vanilla
+         * wrote the crash report) or a shutdown request such as SIGTERM. Keeps the buffered ticks since the last boundary
+         * and the JFR recording, closes the files and does not publish or mark a pass. Best effort and at most once: each
+         * step's failure is logged and never thrown, so the original error stays the one reported.
+         *
+         * Not reached when the server thread never returns (a stall the watchdog ends with `System.exit`, after its crash
+         * report) or the JVM is halted or killed: the pending ticks are then lost, and the recording survives only where
+         * the JDK's exit hook gets to write it (`System.exit` and SIGTERM, not `halt` or SIGKILL).
+         */
+        private fun abort() {
+            if (finished || aborted) return
+            aborted = true
+            println("MIXED_BENCH_ABORTED mode=$mode phase=${phaseName()} window=$window pendingTicks=${tickLog.size}")
+            attempt("pending ticks") { if (::ticksCsv.isInitialized) flushTicks() }
+            attempt("JFR recording") { stopRecording() }
+            attempt("windows.csv") { if (::csv.isInitialized) csv.close() }
+            attempt("ticks.csv") { if (::ticksCsv.isInitialized) ticksCsv.close() }
+            attempt("boundaries.csv") { if (::boundariesCsv.isInitialized) boundariesCsv.close() }
+            next(Phase.DONE)
+        }
+
+        private inline fun attempt(what: String, action: () -> Unit) {
+            try {
+                action()
+            } catch (e: Throwable) {
+                Vanadium.LOGGER.warn("Mixed benchmark could not keep its {} while stopping", what, e)
+            }
         }
 
         private fun next(phase: Phase) {
@@ -369,5 +419,8 @@ class MixedBench : ModInitializer {
     private companion object {
         /** Five minutes at 20 TPS for chunk generation around every player to finish. */
         const val READY_LIMIT = 6000
+
+        /** Writer errors throw, unlike `PrintWriter`'s. */
+        fun Writer.line(text: String): Writer = append(text).append('\n')
     }
 }

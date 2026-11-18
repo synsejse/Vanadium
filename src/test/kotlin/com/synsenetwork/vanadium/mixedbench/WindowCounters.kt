@@ -49,6 +49,9 @@ internal class WindowCounters(private val server: MinecraftServer) {
             allocated[ids[i]] = maxOf(0, allocations[i])
             names[ids[i]] = info.threadName
         }
+        // gc_count/gc_ms sum every collector bean, whatever it counts: G1's young/concurrent/old collections, but ZGC's
+        // cycle beans and the pause beans inside those cycles, overlapping. Not pause time, and not comparable across
+        // collectors: compare pauses with gc.log (mixed.gcLog) or JFR GC events.
         var gcCount = 0L
         var gcMillis = 0L
         for (gc in ManagementFactory.getGarbageCollectorMXBeans()) {

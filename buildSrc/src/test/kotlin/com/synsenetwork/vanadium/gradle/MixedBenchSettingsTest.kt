@@ -58,7 +58,7 @@ class MixedBenchSettingsTest {
     fun collectorIsChosenOnceAndGcLoggingIsOptIn() {
         assertEquals(200, settings().jfrLeadTicks)
         assertEquals("200", settings().systemProperties["vanadium.mixed.jfrLead"])
-        assertEquals("0", settings("mixed.jfrLead" to "0").systemProperties["vanadium.mixed.jfrLead"])
+        assertEquals("1", settings("mixed.jfrLead" to "1").systemProperties["vanadium.mixed.jfrLead"])
         assertTrue(settings().jvmArgs.none { it.startsWith("-Xlog") })
         val zgc = settings("mixed.gc" to "zgc", "mixed.gcLog" to "true", "mixed.jvmArgs" to "-XX:+AlwaysPreTouch")
         assertEquals(listOf("-Xms4g", "-Xmx4g", "-XX:+UseZGC", MixedBenchSettings.GC_LOG, "-XX:+AlwaysPreTouch"), zgc.jvmArgs)
@@ -74,6 +74,52 @@ class MixedBenchSettingsTest {
     }
 
     @Test
+    fun requestedGcLogCannotBeRedirectedOrDisabled() {
+        for (flag in listOf("-Xloggc:gc.log", "-Xlog:gc:file=gc.log", "-Xlog:all=off:file=./gc.log", "-Xlog:disable")) {
+            assertFailsWith<IllegalArgumentException>(flag) { settings("mixed.gcLog" to "true", "mixed.jvmArgs" to flag) }
+            // Without mixed.gcLog the flags are the user's own logging.
+            assertEquals(listOf(flag), settings("mixed.jvmArgs" to flag).extraJvmArgs)
+        }
+        assertEquals(listOf("-Xlog:jit+compilation=debug:file=jit.log"),
+            settings("mixed.gcLog" to "true", "mixed.jvmArgs" to "-Xlog:jit+compilation=debug:file=jit.log").extraJvmArgs)
+    }
+
+    @Test
+    fun expectedOutputsCoverEveryTickWindowAndRequestedLog() {
+        val outputs = settings("mixed.warmup" to "0", "mixed.window" to "20", "mixed.windows" to "3").expectedOutputs()
+        assertEquals(4L, outputs["mixed-bench/windows.csv"])
+        assertEquals(61L, outputs["mixed-bench/ticks.csv"])
+        assertEquals(7L, outputs["mixed-bench/boundaries.csv"])
+        assertTrue("vanadium/results/mixed-bench-*.json" in outputs)
+        assertFalse("gc.log" in outputs)
+        assertEquals(1L, settings("mixed.gcLog" to "true").expectedOutputs()["gc.log"])
+    }
+
+    @Test
+    fun verifierRequiresEveryExpectedOutput() {
+        val run = directory.resolve("run").toFile().apply { resolve("logs").mkdirs(); resolve("mixed-bench").mkdirs() }
+        run.resolve("logs/latest.log").writeText("[Server thread/INFO]: done\n")
+        run.resolve("vanadium-live-passed.txt").writeText("mixedBench")
+        val outputs = mapOf("mixed-bench/windows.csv" to 3L, "results/mixed-bench-*.json" to 1L, "gc.log" to 1L)
+        val verifier = VerifyLiveRun("mixedBench", false, outputs)
+        assertFailsWith<IllegalStateException> { verifier.verify(run) }
+        run.resolve("mixed-bench/windows.csv").writeText("header\n0\n")
+        run.resolve("results").mkdirs()
+        run.resolve("results/mixed-bench-2026.json").writeText("{}\n")
+        run.resolve("gc.log").writeText("[0.001s] gc\n")
+        // One window row short.
+        assertFailsWith<IllegalStateException> { verifier.verify(run) }
+        run.resolve("mixed-bench/windows.csv").appendText("1\n")
+        verifier.verify(run)
+        run.resolve("gc.log").delete()
+        assertFailsWith<IllegalStateException> { verifier.verify(run) }
+        run.resolve("gc.log").writeText("[0.001s] gc\n")
+        // An empty recording is not a recording.
+        run.resolve("live.jfr").createNewFile()
+        assertFailsWith<IllegalStateException> { VerifyLiveRun("mixedBench", true, outputs).verify(run) }
+    }
+
+    @Test
     fun rejectsInvalidValuesBeforeLaunch() {
         assertFailsWith<IllegalArgumentException> { settings("mixed.mode" to "off") }
         assertFailsWith<IllegalArgumentException> { settings("mixed.window" to "0") }
@@ -83,6 +129,8 @@ class MixedBenchSettingsTest {
         assertFailsWith<IllegalArgumentException> { settings("mixed.gc" to "shenandoah") }
         assertFailsWith<IllegalArgumentException> { settings("mixed.gcLog" to "1") }
         assertFailsWith<IllegalArgumentException> { settings("mixed.jfrLead" to "-1") }
+        // No lead would start JFR inside the first window's first gap.
+        assertFailsWith<IllegalArgumentException> { settings("mixed.jfrLead" to "0") }
     }
 
     @Test

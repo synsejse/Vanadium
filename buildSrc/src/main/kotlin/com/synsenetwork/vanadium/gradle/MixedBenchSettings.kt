@@ -37,16 +37,36 @@ class MixedBenchSettings(private val property: (String) -> String?) {
     }
     /** GC and safepoint unified logging into the run directory's `gc.log`, decorated with JVM uptime in nanoseconds. */
     val gcLog = bool("mixed.gcLog", false)
-    /** Ticks of JFR (`-Plive.jfr=true`) before the first window, so starting the recording is not measured. */
-    val jfrLeadTicks = int("mixed.jfrLead", 200, 0..1_000_000)
+    /**
+     * Ticks of JFR (`-Plive.jfr=true`) before the first window, so starting the recording is not measured. At least
+     * one: with no lead, starting JFR would fall inside the first window's first completion gap.
+     */
+    val jfrLeadTicks = int("mixed.jfrLead", 200, 1..1_000_000)
     val extraJvmArgs: List<String> = property("mixed.jvmArgs")?.trim()?.split(Regex("\\s+"))?.filter { it.isNotEmpty() }.orEmpty().also { args ->
         args.firstOrNull { COLLECTOR_FLAG.matches(it) }?.let {
             throw IllegalArgumentException("mixed.jvmArgs must not select a collector ('$it'); use mixed.gc=${GCS.keys.joinToString("|")}")
+        }
+        // The requested gc.log must be the one mixed.gcLog configures: no other writer of it, and logging not disabled.
+        if (gcLog) args.firstOrNull { it.startsWith("-Xloggc") || it.startsWith("-Xlog:") && ("gc.log" in it || "disable" in it) }?.let {
+            throw IllegalArgumentException("mixed.jvmArgs must not reconfigure or disable gc.log with mixed.gcLog=true ('$it')")
         }
     }
 
     /** Setup and readiness take minutes; measured ticks are allowed half speed (10 TPS) before the run is killed. */
     val timeoutMinutes: Long get() = 15L + (warmupTicks.toLong() + windowTicks.toLong() * windows) / 600
+
+    /**
+     * Run-relative files a passing run must leave, with their minimum line counts (a `*` matches within one directory
+     * level). Line counts are lower bounds: readiness adds ticks, and `jfr_start` a boundary.
+     */
+    fun expectedOutputs(): Map<String, Long> = linkedMapOf(
+        "mixed-bench/windows.csv" to windows + 1L,
+        "mixed-bench/ticks.csv" to 1L + warmupTicks + windowTicks.toLong() * windows,
+        "mixed-bench/boundaries.csv" to 4L + windows,
+        "mixed-bench/threads.csv" to 2L,
+        "mixed-bench/entities.csv" to 2L,
+        "vanadium/results/mixed-bench-*.json" to 1L,
+    ).apply { if (gcLog) put("gc.log", 1L) }
 
     val jvmArgs: List<String> get() = listOf("-Xms$heap", "-Xmx$heap", GCS.getValue(gc)) + (if (gcLog) listOf(GC_LOG) else emptyList()) + extraJvmArgs
 

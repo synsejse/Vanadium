@@ -84,16 +84,16 @@ overloaded); with `mixed.sprint=true` it runs uncapped (throughput).
 | `mixed.viewDistance` / `mixed.simulationDistance` | 8 / 6 | server view and simulation distance |
 | `mixed.heap` / `mixed.jvmArgs` | `4g` / none | `-Xms`/`-Xmx` and extra JVM flags (space-separated; collector flags are rejected, use `mixed.gc`) |
 | `mixed.gc` | `g1` | `g1` (`-XX:+UseG1GC`) or `zgc` (`-XX:+UseZGC`, generational) |
-| `mixed.gcLog` | `false` | GC and safepoint logging into the run's `gc.log` (see below) |
+| `mixed.gcLog` | `false` | GC and safepoint logging into the run's `gc.log` (see below); `-Xloggc` and `-Xlog` flags in `mixed.jvmArgs` that name `gc.log` or `disable` are then rejected |
 | `live.jfr` | `false` | record into the run's `live.jfr` (100µs monitor/park thresholds) from `mixed.jfrLead` ticks before the first window to the last |
-| `mixed.jfrLead` | 200 | ticks of recording before the first window; with a shorter warmup the recording starts at the end of setup |
+| `mixed.jfrLead` | 200 | ticks of recording before the first window, at least 1; with a warmup shorter than the lead (including `mixed.warmup=0`) the recording starts at the end of setup, before readiness |
 
 Outputs in the run directory:
 
 - `mixed-bench/windows.csv`: per window, ticks, wall time, TPS, vanilla tick time (mean, p50, p95,
   p99, max: the `tickServer` duration MSPT tools show), process CPU and Java-thread CPU by role
   (server thread, Vanadium workers, C2ME, other), CPU per tick, busy cores, allocation, GC count and
-  time, entity counts by category and loaded chunks at the window's end, and workload health:
+  time (below), entity counts by category and loaded chunks at the window's end, and workload health:
   redstone lamp toggles, player position corrections and walker stalls in the window (all expected
   near 0 except toggles, about 6 per base per 100 ticks), and items smelted so far.
 - `mixed-bench/threads.csv`: CPU and allocation per thread over all windows.
@@ -104,12 +104,23 @@ Outputs in the run directory:
   `end_uptime_ns` (completion, below). Buffered as primitives and written at each boundary.
 - `mixed-bench/boundaries.csv`: `setup_end`, `jfr_start`, `ready_end`, `measure_start` and each
   `window_end`, with the last completed tick, its completion, when the boundary's server-thread work
-  began (`mark_uptime_ns`), how long it took (`work_ns`: snapshots, file writes, starting JFR) and
-  wall-clock `epoch_us`.
+  began (`mark_uptime_ns`), the time from then until its row (`work_before_row_ns`: tick and window
+  files, the counter snapshot ending a window, starting JFR) and wall-clock `epoch_us`. That is not
+  all of the boundary's work: writing the row and its JFR event, the next window's counter snapshot
+  and, after the last window, `threads.csv`, `entities.csv` and the result come after it.
 - `gc.log` (with `mixed.gcLog=true`): `-Xlog:gc*,safepoint:file=gc.log:time,uptime,uptimenanos,level,tags:filecount=0`.
 - `vanadium/results/mixed-bench-*.json`: the same windows with settings, JVM arguments, collectors,
   versions and the Vanadium configuration (also logged as a `VANADIUM_RESULT` line). `MIXED_BENCH_WINDOW`
   lines in the log repeat each row.
+
+A run passes only when every one of these files exists with at least its expected rows (one per
+window, header plus every warmup and measured tick, every boundary), plus `gc.log` when requested and
+a non-empty `live.jfr` with `live.jfr=true`. Output write errors fail the run.
+
+`gc_count`/`gc_ms` sum every `GarbageCollectorMXBean`. Under G1 these are young, concurrent-cycle and
+full collections; under ZGC the cycle beans and the pause beans of those same cycles are added
+together, so the columns overlap and are neither pause counts nor pause time. Compare GC pauses
+between collectors (or runs) with `gc.log` or JFR's GC pause events, not these columns.
 
 Tick timing (columns appended to `windows.csv` after the health columns):
 
@@ -123,7 +134,7 @@ Tick timing (columns appended to `windows.csv` after the health columns):
 - Window boundary `t0`: the completion of the tick before the window (the last warmup tick, the
   readiness tick when `mixed.warmup=0`, or the previous window's last tick). Windows tile the timeline:
   each tick belongs to exactly one phase or window. Boundary work runs on the server thread after
-  `t0`, so it is inside the next window's first gap (and in its `work_ns`), not excluded.
+  `t0`, so it is inside the next window's first gap (partly in its `work_before_row_ns`), not excluded.
 - `completion_span_ms`/`completion_tps`: last completion minus `t0`, and ticks over that span.
   `wall_ms`/`tps` keep their earlier definition (counter snapshots at the boundaries).
 - `max_gap_ms`/`max_gap_tick`: the longest interval between consecutive completions (the first starts at
@@ -137,13 +148,23 @@ Tick timing (columns appended to `windows.csv` after the health columns):
 
 For attribution, `live.jfr` also contains `vanadium.MixedBenchTick` (tick ID, phase, window, duration and
 completion uptime) and `vanadium.MixedBenchBoundary` instant events, next to `vanadium.ServerTick`.
-Starting the recording happens `mixed.jfrLead` ticks ahead, not inside a window; `jfrRecordedLeadTicks`
-in the JSON is the lead it actually got. Startup and first-use effects (class loading, mixin transforms
+Starting the recording happens `mixed.jfrLead` ticks ahead (at least one, so it is never in the first
+window's first gap), at the end of a readiness or warmup tick, or at the end of setup when the warmup is
+shorter than the lead; `jfrRecordedLeadTicks` in the JSON is the lead it actually got. Startup and first-use effects (class loading, mixin transforms
 such as the first explosion) are not preloaded or excluded: the first window may contain them, and
 the per-tick data shows where.
 
 A stalled tick or setup stops the run after five minutes (`max-tick-time`) with vanilla's crash
 report, which includes every thread's stack and held monitors.
+
+When the server stops before the last window (a crash, including the fixture's own, or a shutdown
+request such as SIGTERM, which Gradle's task timeout sends), the fixture logs `MIXED_BENCH_ABORTED`,
+appends the ticks buffered since the last boundary to `ticks.csv`, stops JFR into `live.jfr` and
+closes its files, best effort; the crash report keeps the original error and the run does not pass.
+There is no periodic flushing: a server thread that never returns (the watchdog's stall exit) or a
+halted or killed JVM loses the ticks since the last boundary. The recording is then written only by
+the JDK's exit hook (`System.exit`, SIGTERM; the watchdog allows it 10 seconds), never on `halt` or
+SIGKILL.
 
 To compare modes, alternate fresh runs with identical properties, for example
 `enabled, serial, serial, enabled` repeated, and compare per-window distributions (tick p50/p95,
