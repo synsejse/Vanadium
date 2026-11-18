@@ -51,7 +51,7 @@ import net.minecraft.world.level.chunk.storage.SectionStorage
 internal object PoiChecks {
     private const val WAIT_SECONDS = 5L
     /** The graph's highest level (levelCount - 1): where a section ends after its village centre goes; 7 if never near one. */
-    private const val NOT_A_VILLAGE = 6
+    const val NOT_A_VILLAGE = 6
     private val ARMORER = PoiTypes.ARMORER
     private val armorer: Holder<PoiType> get() = BuiltInRegistries.POINT_OF_INTEREST_TYPE.getOrThrow(ARMORER)
     private val isArmorer = Predicate<Holder<PoiType>> { it.`is`(ARMORER) }
@@ -71,11 +71,13 @@ internal object PoiChecks {
         takeAt?.let { checkLithiumTakeAtHonoursTicket(level, it, site(5)) }
         checkOneTicketRace(level, takeAt, site(6))
         checkAcquirePoiOnlyAfterClaim(level, site(7))
-        val c2me = C2meUnload.find(level.poiManager)
-        println("POI_UNLOAD_PATHS c2me=${c2me != null} allowPOIUnloading=${c2me?.enabled}")
-        checkStaleCandidatesNotClaimed(level, takeAt, c2me?.takeIf { it.enabled }, site(8))
+        // Required, not skipped: default pinned runs must exercise C2ME's POI unloading (PoiUnloadChecks, ticked).
+        val c2me = C2meUnload.require(level.poiManager)
+        println("POI_UNLOAD_PATHS c2me=true allowPOIUnloading=${c2me.enabled} hook=true")
+        checkStaleCandidatesNotClaimed(level, takeAt, c2me, site(8))
         checkReloadKeepsTicketsAndCentre(level, c2me, site(9))
-        c2me?.takeIf { it.enabled }?.let { checkUnloadKeepsColumnsInUse(level, it, site(10)) }
+        checkUnloadKeepsColumnsInUse(level, c2me, site(10))
+        checkCreateOnce(level, site(11))
         println("POI_CHECKS_PASSED")
     }
 
@@ -309,7 +311,7 @@ internal object PoiChecks {
      * commit (take's filter, takeAt's type test), for both claim routes. The stale record must keep its ticket and the
      * claim must fail; a record the refresh kept is the same live record, and stays claimable.
      */
-    private fun checkStaleCandidatesNotClaimed(level: ServerLevel, takeAt: PointOfInterestStorageExtended?, c2me: C2meUnload?, base: BlockPos) {
+    private fun checkStaleCandidatesNotClaimed(level: ServerLevel, takeAt: PointOfInterestStorageExtended?, c2me: C2meUnload, base: BlockPos) {
         val poi = level.poiManager
         val invalidations = linkedMapOf<String, (PoiRecord, PoiRecord) -> Unit>(
             "removal" to { stale, _ -> poi.remove(stale.pos) },
@@ -319,7 +321,7 @@ internal object PoiChecks {
                 // Refresh rebuilds an invalid section from its blocks: only the kept position still has a POI.
                 section.refresh(Consumer { out: BiConsumer<BlockPos, Holder<PoiType>> -> out.accept(kept.pos, armorer) })
             })
-        c2me?.let { invalidations["unload"] = { stale, _ -> it.unload(ChunkPos.containing(stale.pos)) } }
+        invalidations["unload"] = { stale, _ -> c2me.unload(ChunkPos.containing(stale.pos)) }
         val routes = linkedMapOf<String, (BlockPos, () -> Unit) -> Optional<BlockPos>>(
             "take" to { pos, invalidate -> poi.take(isArmorer, { _, p -> if (p == pos) invalidate(); p == pos }, pos, 1) })
         takeAt?.let { lithium ->
@@ -361,7 +363,7 @@ internal object PoiChecks {
      * Saving and reloading a column keeps its claimed tickets and its village centre: the column is flushed and its
      * sections dropped as C2ME's unload does (by hand, since that unload keeps occupied columns), then read back.
      */
-    private fun checkReloadKeepsTicketsAndCentre(level: ServerLevel, c2me: C2meUnload?, pos: BlockPos) {
+    private fun checkReloadKeepsTicketsAndCentre(level: ServerLevel, c2me: C2meUnload, pos: BlockPos) {
         val poi = level.poiManager
         val chunk = ChunkPos.containing(pos)
         val sectionPos = SectionPos.asLong(pos)
@@ -370,11 +372,9 @@ internal object PoiChecks {
             check(poi.take(isArmorer, { _, p -> p == pos }, pos, 1) == Optional.of(pos)) { "free job site not claimed" }
             check(poi.sectionsToVillage(SectionPos.of(pos)) == 0) { "claimed job site is not a village centre" }
             val before = section(poi, sectionPos)
-            if (c2me != null) {
-                check(c2me.unloadVetoed(chunk)) { "C2ME may unload a column holding a village centre" }
-                c2me.unload(chunk)
-                check(section(poi, sectionPos) === before) { "C2ME unloaded a column holding a village centre" }
-            }
+            check(c2me.unloadVetoed(chunk)) { "C2ME may unload a column holding a village centre" }
+            c2me.unload(chunk)
+            check(section(poi, sectionPos) === before) { "C2ME unloaded a column holding a village centre" }
             evictLikeC2me(poi, chunk)
             check(stored(poi, sectionPos) == null) { "evicted column is still loaded" }
             check(poi.getType(pos).orElse(null)?.`is`(ARMORER) == true) { "reloaded column lost its job site" }
@@ -453,9 +453,68 @@ internal object PoiChecks {
         }
     }
 
+    /**
+     * Creating an empty section holds its column's unpack stripe (SectionStorageMixin), so two first adds to one
+     * empty section cannot each put a section and lose the other's record. Deterministic: a helper holds the stripe,
+     * a second adder must block on it, then the helper creates the section and adds its record before letting go;
+     * the second add must land in that section. Shows the lock is taken and both records survive this forced order,
+     * not that every natural interleaving is covered.
+     */
+    private fun checkCreateOnce(level: ServerLevel, pos: BlockPos) {
+        val poi = level.poiManager
+        val other = pos.offset(2, 0, 0)
+        val sectionPos = SectionPos.asLong(pos)
+        val chunk = ChunkPos.containing(pos)
+        try {
+            poi.getType(pos) // Loads the column: a never-saved one is all empty slots.
+            check(section(poi, sectionPos, allowEmpty = true) == null) { "createOnce fixture section is not loaded empty" }
+            val locks = SectionStorage::class.java.declaredFields.firstOrNull { it.name.endsWith("unpackLocks") }
+                ?.apply { isAccessible = true }?.get(poi) as Array<*>?
+                ?: throw AssertionError("SectionStorageMixin's unpack stripes are not merged into SectionStorage")
+            val stripe = locks[it.unimi.dsi.fastutil.HashCommon.mix(chunk.pack()).toInt() and (locks.size - 1)]!!
+            val held = CountDownLatch(1)
+            val go = CountDownLatch(1)
+            val failure = AtomicReference<Throwable>()
+            val first = daemon("poi-create-first") {
+                try {
+                    synchronized(stripe) {
+                        held.countDown()
+                        check(go.await(WAIT_SECONDS, TimeUnit.SECONDS)) { "second adder never blocked" }
+                        addArmorer(level, pos) // Reentrant: creates the section under the held stripe.
+                    }
+                } catch (t: Throwable) {
+                    failure.compareAndSet(null, t)
+                }
+            }
+            check(held.await(WAIT_SECONDS, TimeUnit.SECONDS)) { "stripe holder did not start" }
+            val second = daemon("poi-create-second") {
+                try {
+                    addArmorer(level, other)
+                } catch (t: Throwable) {
+                    failure.compareAndSet(null, t)
+                }
+            }
+            try {
+                awaitBlockedOn(second, stripe, "the column's unpack stripe (getOrCreate)")
+            } finally {
+                go.countDown()
+            }
+            first.join(TimeUnit.SECONDS.toMillis(WAIT_SECONDS))
+            second.join(TimeUnit.SECONDS.toMillis(WAIT_SECONDS))
+            check(!first.isAlive && !second.isAlive) { "createOnce threads did not finish" }
+            failure.get()?.let { throw AssertionError("createOnce adder failed", it) }
+            val created = section(poi, sectionPos) ?: throw AssertionError("no section was created")
+            val records = synchronized(created) { listOf(pos, other).map { (created as com.synsenetwork.vanadium.concurrent.PoiSectionAccess).`vanadium$recordAt`(it) } }
+            check(records.all { it != null }) { "a first add to an empty section was lost: $records" }
+        } finally {
+            for (p in listOf(pos, other)) if (poi.getType(p).isPresent) poi.remove(p)
+        }
+        println("POI_CREATE_ONCE_PASSED")
+    }
+
     /** C2ME's POI unload entry points, merged into section storage; reflective, since C2ME is not on the compile path. */
-    private class C2meUnload(private val poi: PoiManager, private val should: java.lang.reflect.Method, private val unload: java.lang.reflect.Method,
-                             val enabled: Boolean) {
+    internal class C2meUnload(private val poi: PoiManager, private val should: java.lang.reflect.Method, private val unload: java.lang.reflect.Method,
+                              val enabled: Boolean) {
         /** The merged answer, C2ME's own check and Vanadium's vetoes together: false when the column must stay. */
         fun unloadVetoed(chunk: ChunkPos): Boolean = !(should.invoke(poi, chunk) as Boolean)
 
@@ -464,11 +523,26 @@ internal object PoiChecks {
         }
 
         companion object {
-            fun find(poi: PoiManager): C2meUnload? {
-                val should = PoiManager::class.java.declaredMethods.firstOrNull { it.name == "c2me\$shouldUnloadPoi" } ?: return null
-                val unload = SectionStorage::class.java.declaredMethods.single { it.name == "c2me\$unloadPoi" }
+            private const val PREREQUISITES = "POI unload checks need the pinned C2ME (c2me_version in gradle.properties, " +
+                "installed into the run's mods/ by prepareRuntimeMods) with its default chunkSystem.allowPOIUnloading = true"
+
+            /**
+             * Fails, rather than skipping, when the run lacks what default pinned runs have: C2ME's merged methods,
+             * POI unloading on, and Vanadium's veto merged (SynchronisePlugin fails the transformation when the method
+             * exists without a call to it, so present here means bound).
+             */
+            fun require(poi: PoiManager): C2meUnload {
+                val should = PoiManager::class.java.declaredMethods.firstOrNull { it.name == "c2me\$shouldUnloadPoi" }
+                    ?: throw AssertionError("$PREREQUISITES: PoiManager has no c2me\$shouldUnloadPoi (C2ME or its chunk-system rewrite is missing)")
+                val unload = SectionStorage::class.java.declaredMethods.firstOrNull { it.name == "c2me\$unloadPoi" }
+                    ?: throw AssertionError("$PREREQUISITES: SectionStorage has no c2me\$unloadPoi")
+                check(PoiManager::class.java.declaredMethods.any { it.name.endsWith("keepResident") }) {
+                    "Vanadium's PoiUnloadMixin handler (vanadium\$keepResident) is not merged into PoiManager"
+                }
                 val config = Class.forName("com.ishland.c2me.rewrites.chunksystem.common.Config", true, PoiManager::class.java.classLoader)
-                return C2meUnload(poi, should, unload, config.getField("allowPOIUnloading").getBoolean(null))
+                val enabled = config.getField("allowPOIUnloading").getBoolean(null)
+                check(enabled) { "$PREREQUISITES: chunkSystem.allowPOIUnloading is off in this run's config/c2me.toml" }
+                return C2meUnload(poi, should, unload, enabled)
             }
         }
     }
@@ -490,23 +564,23 @@ internal object PoiChecks {
         .get(poi) as net.minecraft.world.level.LevelHeightAccessor
 
     /** The record installed at [pos], loading its column if needed; null if none. */
-    private fun currentRecord(poi: PoiManager, pos: BlockPos): PoiRecord? {
+    internal fun currentRecord(poi: PoiManager, pos: BlockPos): PoiRecord? {
         poi.getType(pos)
         val section = section(poi, SectionPos.asLong(pos), allowEmpty = true) ?: return null
         return synchronized(section) { (section as com.synsenetwork.vanadium.concurrent.PoiSectionAccess).`vanadium$recordAt`(pos) }
     }
 
     /** The storage slot without loading: null when the column is not loaded. */
-    private fun stored(poi: PoiManager, sectionPos: Long): Optional<*>? =
+    internal fun stored(poi: PoiManager, sectionPos: Long): Optional<*>? =
         SectionStorage::class.java.getDeclaredMethod("get", Long::class.javaPrimitiveType).apply { isAccessible = true }
             .invoke(poi, sectionPos) as Optional<*>?
 
-    private fun addArmorer(level: ServerLevel, pos: BlockPos): PoiRecord {
+    internal fun addArmorer(level: ServerLevel, pos: BlockPos): PoiRecord {
         check(level.poiManager.getType(pos).isEmpty) { "test POI position $pos is occupied" }
         return level.poiManager.add(pos, armorer) ?: throw AssertionError("POI not added at $pos")
     }
 
-    private fun section(poi: PoiManager, sectionPos: Long, allowEmpty: Boolean = false): PoiSection? {
+    internal fun section(poi: PoiManager, sectionPos: Long, allowEmpty: Boolean = false): PoiSection? {
         val get = SectionStorage::class.java.getDeclaredMethod("get", Long::class.javaPrimitiveType).apply { isAccessible = true }
         val section = get.invoke(poi, sectionPos) as Optional<*>? ?: throw AssertionError("section $sectionPos not loaded")
         if (section.isEmpty) {
@@ -548,17 +622,17 @@ internal object PoiChecks {
         failure.get()?.let { throw AssertionError("probe failed while another thread held the $name", it) }
     }
 
-    private fun awaitBlockedOn(thread: Thread, monitor: Any) {
+    private fun awaitBlockedOn(thread: Thread, monitor: Any, what: String = "the graph") {
         val threads = ManagementFactory.getThreadMXBean()
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS)
         while (System.nanoTime() < deadline) {
             val info = threads.getThreadInfo(thread.threadId())
             if (info != null && info.threadState == Thread.State.BLOCKED &&
                 info.lockInfo?.identityHashCode == System.identityHashCode(monitor)) return
-            check(thread.isAlive) { "${thread.name} finished without waiting for the graph" }
+            check(thread.isAlive) { "${thread.name} finished without waiting for $what" }
             Thread.onSpinWait()
         }
-        throw AssertionError("${thread.name} never waited for the graph: ${thread.stackTrace.joinToString("\n  at ")}")
+        throw AssertionError("${thread.name} never waited for $what: ${thread.stackTrace.joinToString("\n  at ")}")
     }
 
     private fun daemon(name: String, body: () -> Unit): Thread =

@@ -61,6 +61,8 @@ class ServerIntegrationChecks : ModInitializer {
             println("INTEGRATION_CHECKS_PASSED")
             // Checks that need real ticks; the run finishes only after they pass.
             val ticked = TickedChecks(server, "ticked_checks")
+            // First: its downgrades should not meet the entity fixtures' waves.
+            PoiUnloadChecks.schedule(level, ticked)
             EntityCollectionChecks.schedule(level, ticked)
             CrowdChecks.schedule(level, ticked)
             SpawnSkipChecks.schedule(level, ticked)
