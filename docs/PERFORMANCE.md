@@ -357,6 +357,58 @@ Measured 2026-11-12 on the branch that added `idleWorkers` (merged in
 [#16](https://github.com/synsejse/Vanadium/pull/16)), `isolation = 2`, the harness of
 `/vanadium profile` in a fresh server per run; environment as below.
 
+## Mixed-bench tuning at 20 TPS
+
+Candidate settings from [`runMixedBench`](PROFILING.md#mixed-whole-server-benchmark) on the dual Xeon
+VM. None of them changes a default. Every arm was a fresh seed-12345 world and JVM at normal 20 TPS
+pacing: 8 players, 4 bases, view/simulation distance 8/6, `workers = 24`, C2ME parallelism 10,
+`isolation = 2`, fixed 4 GiB G1 heap, 1,600 warmup ticks, two 600-tick windows, JFR off. Arms were
+run as a screen and then repeated in reverse order. Entity counts, mostly items, varied between runs.
+The results below apply to this fixture.
+
+- **Spawn cap 2** (`-Dvanadium.spawnParticipants=2`, experimental): in two auto/cap-2 pairs, cap 2 used
+  25–32% less process CPU and 35–38% less worker CPU. Its p99 was 43–51 ms against 57–60 ms. It had
+  15 of 2,400 ticks over 50 ms against 61, and none over 100 ms against two. A JFR pair attributed
+  auto's spawning cost to waits on the shared spawn-state monitor. Caps 1, 4 and 8 and serial spawning
+  were screened once each. Serial spawning used the least CPU, cap 1 runs spawning on the server
+  thread, including synchronous structure-start lookups, and cap 4 had the largest tick (192 ms). Cap 2 is the first candidate to
+  try on similar machines. `auto` stays the default until other hardware and workloads (sustained
+  exploration, chunk misses) are measured.
+- **250 µs slack spin** (`-Dvanadium.workerSlackSpinMicros=250`, default 500, both arms with cap 2):
+  the spin reduced worker CPU by 18–23% and process CPU by 11–16% in both pairs. The tail results were
+  mixed. P99 moved +4.7 ms in one pair and −4.6 ms in the other. In one simulation-distance-8 pair, CPU
+  dropped 18% and p99 improved, while the worst tick rose from 80 to 99 ms.
+- **G1 with ergonomic defaults.** ZGC cut collector pauses to about 1 ms per run. Whole-tick p99 still
+  rose in both pairs, its count of ticks over 50 ms was 0 vs 2 in the screen and 5 vs 4 in the repeat,
+  and it used 1–5% more process CPU. 8 MiB G1 regions (one sample) logged fewer pauses with the same
+  slow ticks. Several remaining slow ticks and gaps overlapped G1 safepoints, but others had no logged
+  collector or safepoint cause.
+- **No preload by default.** In a development launch, `runColdExplosion` placed a once-per-JVM first
+  `ServerExplosion` cost of 23.9 ms (22.6–52.7 ms, median of four pairs) on an entity-wave worker
+  while the server thread waited. A class-only `Class.forName` control removed about half of the first
+  blast's excess. The load itself took 39–61 ms on the server thread. Helper-class and first-run costs
+  remained. A production launch and the startup cost of a real preload were not measured.
+
+Every full window held about 20 completion TPS, with worst 20-tick rolling TPS of 17.8–19.4. That is
+headroom at this load on this machine, not a TPS guarantee. Cap 2 with the 250 µs spin ran in two
+JVMs at `3481b4a`. The combination below is provisional until it is verified on the final build.
+Compare it against the same command without `mixed.jvmArgs`. Run one live server at a time,
+alternate arms in fresh JVMs, and use at least four runs per arm (see
+[spawn contention arms](PROFILING.md#spawn-contention-arms)).
+
+```sh
+./gradlew runMixedBench --no-configuration-cache -Pmixed.mode=enabled -Pmixed.sprint=false \
+  -Pmixed.players=8 -Pmixed.bases=4 -Pmixed.workers=24 -Pmixed.c2me=10 -Pmixed.isolation=2 \
+  -Pmixed.heap=4g -Pmixed.gc=g1 -Pmixed.gcLog=true -Pmixed.viewDistance=8 -Pmixed.simulationDistance=6 \
+  -Pmixed.warmup=1600 -Pmixed.window=600 -Pmixed.windows=2 -Plive.jfr=false \
+  '-Pmixed.jvmArgs=-Dvanadium.spawnParticipants=2 -Dvanadium.workerSlackSpinMicros=250'
+```
+
+Measured 2026-11-18 at commits `3481b4a` (spawning, workers, collectors) and `b6fc479` (cold
+explosion). OpenJDK 25.0.4.1, Fabric Loader 0.20.1, Fabric API 0.165.2+26.3, C2ME
+0.4.2-alpha.0.116, Lithium 0.26.3. Host frequency and contention were not observed. The machine is
+described below.
+
 ## Environment and limits
 
 Dual Xeon E5-2699 v3 (2.3 GHz, about 3.3 GHz with one busy core and 2.7 GHz with all busy) host
