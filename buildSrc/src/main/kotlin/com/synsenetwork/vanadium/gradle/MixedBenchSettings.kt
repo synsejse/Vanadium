@@ -19,8 +19,8 @@ class MixedBenchSettings(private val property: (String) -> String?) {
     val workers = int("mixed.workers", 0, 0..1_024)
     val isolation = int("mixed.isolation", 2, 1..16)
     /**
-     * false writes `parallelSpawning = false` (vanilla serial spawn count and attempts; thunder inline before each
-     * attempt) for a serial-spawning arm of an enabled run. Only meaningful with `mixed.mode=enabled`.
+     * false writes `parallelSpawning = false` (vanilla serial spawn count, and vanilla's per-chunk thunder, checks
+     * and attempt inline in its order) for a serial-spawning arm of an enabled run. Only meaningful with `mixed.mode=enabled`.
      */
     val parallelSpawning = bool("mixed.parallelSpawning", true).also {
         require(it || mode == "enabled") { "mixed.parallelSpawning=false needs mixed.mode=enabled (serial mode disables it already)" }

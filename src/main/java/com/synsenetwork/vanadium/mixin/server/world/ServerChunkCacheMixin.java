@@ -5,7 +5,6 @@ import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.synsenetwork.vanadium.Vanadium;
-import com.synsenetwork.vanadium.spawning.SerialSpawnThunder;
 import com.synsenetwork.vanadium.spawning.SpawnCounts;
 import com.synsenetwork.vanadium.spawning.SpawnTasks;
 import com.synsenetwork.vanadium.tick.ChunkTickAccess;
@@ -81,7 +80,6 @@ public abstract class ServerChunkCacheMixin implements ChunkTickAccess {
     private void beginChunkTicks(ProfilerFiller profiler, CallbackInfo ci) {
         Vanadium.scheduler.begin(Stage.SPAWNING);
         vanadium$spawns().clear();
-        vanadium$serialThunder().clear();
     }
 
     /**
@@ -92,7 +90,6 @@ public abstract class ServerChunkCacheMixin implements ChunkTickAccess {
     @WrapOperation(method = "tickChunks(Lnet/minecraft/util/profiling/ProfilerFiller;)V", at = @At(value = "INVOKE",
             target = "Lnet/minecraft/server/level/ChunkMap;forEachBlockTickingChunk(Ljava/util/function/Consumer;)V"))
     private void tickChunksInWave(ChunkMap map, Consumer<LevelChunk> consumer, Operation<Void> original) {
-        vanadium$serialThunder().flush(Vanadium.scheduler);
         Vanadium.scheduler.run(Stage.SPAWNING);
         vanadium$spawns().runDeferred();
         Vanadium.scheduler.begin(Stage.CHUNK);
@@ -113,16 +110,6 @@ public abstract class ServerChunkCacheMixin implements ChunkTickAccess {
     private SpawnTasks vanadium$spawnTasks;
 
     @Unique
-    private SerialSpawnThunder<LevelChunk> vanadium$serialThunder;
-
-    /** Thunder held for the serial-spawning fallback; see {@link SerialSpawnThunder}. */
-    @Unique
-    private SerialSpawnThunder<LevelChunk> vanadium$serialThunder() {
-        if (vanadium$serialThunder == null) vanadium$serialThunder = new SerialSpawnThunder<>(level::tickThunder);
-        return vanadium$serialThunder;
-    }
-
-    @Unique
     private SpawnTasks vanadium$spawns() {
         if (vanadium$spawnTasks == null) vanadium$spawnTasks = new SpawnTasks((ServerChunkCache) (Object) this);
         return vanadium$spawnTasks;
@@ -139,8 +126,6 @@ public abstract class ServerChunkCacheMixin implements ChunkTickAccess {
     private void dispatchSpawning(ServerLevel level, LevelChunk chunk, NaturalSpawner.SpawnState info,
                                 List<MobCategory> categories) {
         if (!Vanadium.config.enabled || !Vanadium.config.parallelSpawning) {
-            // This chunk's held thunder runs inline first, as in vanilla; no wave per chunk.
-            vanadium$serialThunder().beforeSpawn(Vanadium.scheduler, chunk);
             NaturalSpawner.spawnForChunk(level, chunk, info, categories);
             return;
         }
@@ -152,13 +137,10 @@ public abstract class ServerChunkCacheMixin implements ChunkTickAccess {
     @Redirect(method = "tickSpawningChunk", at = @At(value = "INVOKE",
             target = "Lnet/minecraft/server/level/ServerLevel;tickThunder(Lnet/minecraft/world/level/chunk/LevelChunk;)V"))
     private void dispatchThunder(ServerLevel level, LevelChunk chunk) {
-        if (!Vanadium.config.enabled || !Vanadium.config.parallelChunkTicks) {
+        // Serial spawning keeps vanilla's order: each visited chunk's thunder runs here, inline, before its
+        // eligibility checks and spawn attempt, whether or not an attempt follows.
+        if (!Vanadium.config.enabled || !Vanadium.config.parallelChunkTicks || !Vanadium.config.parallelSpawning) {
             level.tickThunder(chunk);
-            return;
-        }
-        if (!Vanadium.config.parallelSpawning) {
-            // Serial spawning: runs before this chunk's spawn attempt, or in the wave if none follows.
-            vanadium$serialThunder().hold(Vanadium.scheduler, chunk, chunk.getPos().x(), chunk.getPos().z());
             return;
         }
         Vanadium.scheduler.enqueue(Stage.SPAWNING, chunk.getPos().x(), chunk.getPos().z(),

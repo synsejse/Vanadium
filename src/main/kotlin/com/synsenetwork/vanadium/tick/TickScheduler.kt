@@ -20,9 +20,10 @@ import kotlin.math.sqrt
  * wave whose longest task is known also gets no more threads than finish the rest of its work while that task
  * runs ([flatParticipants]).
  *
- * Natural spawn attempts ([Stage.SPAWNING]) may also be capped by an experimental [spawnParticipants] ceiling
- * (`-Dvanadium.spawnParticipants`, default `auto`: no cap). The cap applies to the waves' actual and recorded
- * participants; the learned estimates, region plan, spawn-count preparation and every other stage are unchanged.
+ * Natural spawning waves ([Stage.SPAWNING]) may also be bounded by an experimental [spawnParticipants] ceiling
+ * (`-Dvanadium.spawnParticipants`, default `auto`: no bound). The bound lowers the participants the wave is offered
+ * and records, never raises them, and does not guarantee that many threads find work; the learned estimates,
+ * region plan, spawn-count preparation and every other stage are unchanged.
  *
  * @param participantCostNanos what involving one more thread costs a wave; 0 always uses every worker
  */

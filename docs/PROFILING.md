@@ -122,15 +122,26 @@ and the JVM arguments, and `MIXED_BENCH_SETUP` logs `spawnArm`.
 | `spawnArm` | Flags | Spawn count | Spawn attempts |
 | --- | --- | --- | --- |
 | `participants-auto` | none (current default) | parallel `SPAWN_COUNTS` | scheduler estimate (25 in the 4338adb profile) |
-| `participants-8` / `-4` / `-2` | `-Pmixed.jvmArgs=-Dvanadium.spawnParticipants=8` (4, 2) | parallel | at most 8 (4, 2) threads, server thread included |
-| `participants-1` | `-Pmixed.jvmArgs=-Dvanadium.spawnParticipants=1` | parallel | inline on the server thread, region plan order |
-| `serial-spawning` | `-Pmixed.parallelSpawning=false` | vanilla serial `createState` | inline in vanilla's shuffled order, thunder inline before each |
+| `participants-8` / `-4` / `-2` | `-Pmixed.jvmArgs=-Dvanadium.spawnParticipants=8` (4, 2) | parallel | waves offered at most 8 (4, 2) threads, server thread included |
+| `participants-1` | `-Pmixed.jvmArgs=-Dvanadium.spawnParticipants=1` | parallel | spawning wave inline on the server thread, region plan order, thunder in its region |
+| `serial-spawning` | `-Pmixed.parallelSpawning=false` | vanilla serial `createState` | vanilla's `tickSpawningChunk` inline in its shuffled order: each chunk's thunder, then its checks and attempt |
 
-`participants-1` isolates the attempts: counting stays parallel, and only spawn-attempt waves
-change. `serial-spawning` is the genuine serial path and also changes the count: it runs on the
-server thread, so its time moves from the `SPAWN_COUNTS` preparation into the `SPAWNING`
-preparation phase of tick profiles (the parallel count merges in source order to match it; timing and
-the attempt order differ). Compare it with `participants-1` to separate the count's share. Neither arm defers
+The cap is an upper bound on the threads a spawning wave is offered, not a guaranteed occupancy:
+the wave gets the smaller of the scheduler's estimate and the cap (that is what `WaveEvent` and tick
+profiles record), a one-region wave runs inline whatever the cap, and offered workers that find no
+claimable region stay idle. With parallel spawning the spawning wave also carries the thunder of
+ticking chunks, so the cap bounds that thunder too.
+
+`participants-1` keeps the parallel count and bounds only the spawning wave. `serial-spawning` is the
+genuine serial path, and it differs from `participants-1` in more than the count. The count runs
+vanilla's `createState` on the server thread, so its time moves from the `SPAWN_COUNTS` preparation
+into the `SPAWNING` preparation phase of tick profiles (the parallel count merges in source order to
+match it). Execution differs too: attempts run inside vanilla's chunk loop in its shuffled order
+rather than as wave regions in plan order, each chunk's thunder runs inline just before that chunk's
+checks and attempt rather than in its region, and there is no deferral path at all, while
+`participants-1` still goes through the wave's deferral wrapper (on the inline caller it never
+defers). A difference between the two arms therefore cannot be attributed solely to counting; the
+`SPAWN_COUNTS` and `SPAWNING` preparation phases show the count's own time. Neither arm defers
 spawning (no `ServerThreadRequired`): the server thread may block on structure-start chunks.
 Combine extra JVM flags in one `mixed.jvmArgs` value.
 
@@ -147,8 +158,8 @@ then the reverse order, at least four runs per arm):
 ```
 
 Evidence per arm: `windows.csv` tick p50/p95/p99 and CPU per tick; entity counts by category
-(fewer threads must not change mob totals beyond run-to-run spread, since spawn selection is
+(fewer threads must not change mob totals beyond run-to-run spread, since the spawn rules are
 unchanged); with `-Plive.jfr=true` on one run per arm, `WaveEvent` spawning durations and
-recorded participants (which must equal the arm's cap), `PreparationEvent` `SPAWN_COUNTS`, and
+recorded participants (never above the arm's cap; lower when the estimate is), `PreparationEvent` `SPAWN_COUNTS`, and
 monitor-enter time on the spawn state. Keep `participants-auto` as the default until the
 arms show a winner across runs.
