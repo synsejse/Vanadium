@@ -5,6 +5,8 @@ import com.google.gson.JsonObject
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.diagnostics.PerformanceResults
 import com.synsenetwork.vanadium.live.LiveServer
+import com.synsenetwork.vanadium.live.TickLog
+import com.synsenetwork.vanadium.live.UptimeClock
 import java.io.BufferedWriter
 import java.io.Writer
 import java.lang.management.ManagementFactory

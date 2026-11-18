@@ -1,5 +1,7 @@
 package com.synsenetwork.vanadium.mixedbench
 
+import com.synsenetwork.vanadium.live.TickLog
+import com.synsenetwork.vanadium.live.UptimeClock
 import java.lang.management.ManagementFactory
 import kotlin.test.Test
 import kotlin.test.assertEquals

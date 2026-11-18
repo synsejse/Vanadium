@@ -152,7 +152,7 @@ Starting the recording happens `mixed.jfrLead` ticks ahead (at least one, so it 
 window's first gap), at the end of a readiness or warmup tick, or at the end of setup when the warmup is
 shorter than the lead; `jfrRecordedLeadTicks` in the JSON is the lead it actually got. Startup and first-use effects (class loading, mixin transforms
 such as the first explosion) are not preloaded or excluded: the first window may contain them, and
-the per-tick data shows where.
+the per-tick data shows where. [Cold first-use explosion](#cold-first-use-explosion) isolates the first explosion.
 
 A stalled tick or setup stops the run after five minutes (`max-tick-time`) with vanilla's crash
 report, which includes every thread's stack and held monitors.
@@ -229,3 +229,111 @@ unchanged); with `-Plive.jfr=true` on one run per arm, `WaveEvent` spawning dura
 recorded participants (never above the arm's cap; lower when the estimate is), `PreparationEvent` `SPAWN_COUNTS`, and
 monitor-enter time on the spawn state. Keep `participants-auto` as the default until the
 arms show a winner across runs.
+
+## Cold first-use explosion
+
+The 4338adb profile's worst enabled tick (275.8 ms) was the JVM's first `ServerExplosion`: one worker
+ran the class's Mixin/ASM transform and the explosion as the last task of the flat entity wave while
+the server thread waited. `./gradlew runColdExplosion` reproduces only that: the first ordinary
+creeper explosion in a fresh JVM against warmed ones on the same path. It is manual only (accepted
+`.vanadium/eula.txt`, about a minute of ticks, never part of `build` or `runIntegration`); run one
+live server at a time. It changes nothing in Vanadium and preloads nothing.
+
+The path is a creeper's own fuse, ticked in the flat entity wave (TNT ticks serially before the wave
+and cannot reach that route). The fixture world is the isolated flat world, force-loaded around one
+creative observer player (mocked transport) on a pillar. Twelve identical arenas sit on a ring 32
+blocks from the observer, each with a no-AI creeper and a no-AI pig five blocks outward that the blast
+damages. A fenced pen of `cold.filler` AI cows inside the ring makes the entity wave big enough to
+offer workers. Natural spawning, patrols, traders, weather and time are off, the time is noon,
+difficulty normal and `mob_griefing` off (explosions keep blocks, as in the mixed bench). Setup hurts a
+temporary pig with explosion and generic damage, so entity damage is warm in every arm.
+
+Ticks after readiness (observer loaded, every arena entity-ticking, loaded chunks unchanged for
+five seconds) follow a fixed schedule, identical in every arm:
+
+| Tick | `sham` | `warmup` | `load` |
+| ---: | --- | --- | --- |
+| 100 | nothing | ignite arena 0's creeper | `Class.forName(ServerExplosion)` (load and initialise, no explosion) on the server thread |
+| 130 | discard arena 0's creeper | arena 0 explodes (warmup blast) | discard arena 0's creeper |
+| 300 + (k − 1) × spacing | ignite arena k (k = 1..`cold.blasts`) | same | same |
+| ignition + 30 | arena k explodes | same | same |
+
+Blast 1 is the JVM's first explosion in `sham` and `load`, and its second in `warmup`. Blasts 2..N are
+warm in every arm and give each run its own warm baseline.
+
+A test-only mixin on `ServerLevel.explode` (`ExplosionObserver`, in the fixture jar) times every server
+explosion on its own thread. `ServerLevel` is transformed at startup, so the observer adds nothing to
+`ServerExplosion`'s first load. It is primed at setup. The timed span covers constructing
+`ServerExplosion` (its first load and transform), `explode()` and the explosion packets. The run fails
+on any explosion that is not an arena creeper's, on a creeper exploding other than once (or other
+than 30–32 ticks after ignition), or when the JVM's first explosion is not the one the arm promises.
+
+| Property | Default | Meaning |
+|---|---|---|
+| `cold.arm` | `sham` | `sham`, `warmup` or `load` (above) |
+| `cold.blasts` | 8 | measured blasts, 2–11 |
+| `cold.spacing` | 100 | ticks between measured ignitions, at least 60 |
+| `cold.filler` | 200 | AI cows in the pen, 0–400 (0 leaves a tiny entity wave, likely on the server thread alone) |
+| `cold.mode` | `enabled` | `serial` sets `enabled = false` (structural mixins stay, not a no-mod control) |
+| `cold.workers` | 0 | `vanadium.toml` workers (0 = automatic); isolation 2, C2ME default, 2 GiB G1 heap |
+| `cold.classLog` | `false` | `-Xlog:class+load=info:file=class-load.log:uptimenanos` in the run directory |
+| `live.jfr` | `false` | `live.jfr` from readiness to the end, with `jdk.ClassLoad`/`jdk.ClassDefine` and the fixture's `vanadium.ColdExplosion` events |
+
+Outputs in `.vanadium/runs/coldExplosion-UUID/`:
+
+- `cold-explosion/blasts.csv`: one row per blast (`blast` 0 is the warmup blast, then arenas 1..N):
+  `first_in_jvm`, ignition and blast tick IDs, `fuse_ticks`, the exploding `thread` and `route`
+  (`entity_wave_worker`, `entity_wave_caller` or `outside_entity_wave`), `explode_ms` and its
+  start/end on the JVM-uptime clock, `baseline_p50_ms` (median `tickServer` time of the 20 ticks up to
+  ignition), `prime_tick_ms` (the tick after ignition: the fuse's first sound and game event),
+  `blast_tick_ms` (vanilla `tickServer` duration of the blast tick), `blast_excess_ms` (blast tick minus
+  baseline), `blast_gap_ms` (completion gap), `next1_ms`..`next5_ms`, and with `cold.classLog`
+  `classes_in_explode`/`classes_in_gap` (classes loaded during the explosion and during the tick's gap).
+- `cold-explosion/ticks.csv`: every tick from setup to the end (`tick_id`, `tick_ns`, `end_uptime_ns`,
+  as in the mixed bench's `ticks.csv`). Written at the end only: a failed run keeps none.
+- `cold-explosion/blast-classes.csv` (with `cold.classLog`): every class loaded in each blast tick's gap,
+  its uptime and whether it fell inside the explosion.
+- `vanadium/results/cold-explosion-*.json` (and its `VANADIUM_RESULT` line): settings, `armTick`,
+  `armActionMs` (the load-only control's `forName` time), `serverExplosionLoadUptimeNs`/`Tick` (from the
+  class log: where `ServerExplosion` was actually first loaded), worker count, JVM arguments, every blast,
+  and `summary` (first measured against the median warm blast, explosion and tick time, and the first
+  blast's route). `COLD_EXPLOSION_BLAST` and `COLD_EXPLOSION_SUMMARY` log lines repeat them.
+
+Commands (alternate arms in fresh JVMs, for example `sham, warmup, warmup, sham` repeated; whole-server
+timings vary a lot between launches, so at least four runs per arm):
+
+```sh
+./gradlew runColdExplosion --no-configuration-cache -Pcold.arm=sham
+./gradlew runColdExplosion --no-configuration-cache -Pcold.arm=warmup
+./gradlew runColdExplosion --no-configuration-cache -Pcold.arm=load                         # control, at least two runs
+./gradlew runColdExplosion --no-configuration-cache -Pcold.arm=sham -Pcold.classLog=true    # attribution, separate runs
+./gradlew runColdExplosion --no-configuration-cache -Pcold.arm=sham -Plive.jfr=true         # attribution, separate runs
+./gradlew runColdExplosion --no-configuration-cache -Pcold.arm=sham -Pcold.mode=serial      # same blasts off the entity wave
+```
+
+Reading the arms (report each run's values, medians and ranges, not single runs):
+
+- Reproduced: in `sham` runs, blast 1's `explode_ms` and `blast_excess_ms` exceed that run's warm blasts
+  (2..N) by more than the warm blasts vary across runs, and `warmup` runs' blast 1 falls within the warm
+  range. The paired difference of blast 1 (`sham` minus `warmup`, by alternation pair) is the first-use
+  cost under these settings. Compare `route` too: the 4338adb straggler was `entity_wave_worker`; a
+  blast on the caller blocks the server thread directly instead of through the wave's completion.
+- Attribution: if `load` runs' blast 1 is within the warm range, loading and transforming `ServerExplosion`
+  (`armActionMs`) accounts for the cost. What remains above warm in `load` is other first use: the
+  classes in `blast-classes.csv` (packets, damage calculators, Lithium helpers) and first execution.
+  `serverExplosionLoadTick` must be the blast tick in `sham` and the arm tick in `load`; a load before
+  the arm means something else loaded the class and the run does not test a cold explosion.
+- The stall's extent: `next*_ms` against the baseline say whether it is one tick or more.
+
+Limitations:
+
+- Development launch: Loom's run tasks start the server with `fabric.development` and a log4j
+  configuration that writes DEBUG to `logs/debug.log`, including Mixin's per-mixin `Mixing ...` lines
+  written during the transform. A release server (production Fabric launch, its own logging) may
+  transform faster; this fixture measures the development launch only, as the mixed bench did.
+- `cold.classLog` and JFR add their own cost to every class load (JFR noticeably more): use them for
+  attribution in separate runs and take timings from runs without them.
+- Host effects (frequency, scheduling, the dual-socket VM) are outside the instrumentation, and the
+  mocked transport records packets without encoding them, so packet serialization is not included.
+- One explosion type (an uncharged creeper with `mob_griefing` off, so no block destruction or drops)
+  and one fixture world; cow movement is random, the explosion schedule is not.

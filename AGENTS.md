@@ -38,6 +38,8 @@ Do not upgrade Minecraft, mappings, Loom, Gradle, Kotlin, or runtime mods as inc
 - `./gradlew runMixedBench -Pmixed.mode=enabled|serial`: manual realistic whole-server benchmark (players,
   mobs, natural spawning, furnaces/hoppers/redstone) in fixed-tick windows; one mode per fresh run.
   `mixed.*` properties and outputs are in `docs/PROFILING.md`. Never run two live servers at once.
+- `./gradlew runColdExplosion -Pcold.arm=sham|warmup|load`: manual first-explosion (cold first use) fixture:
+  creeper blasts on a fixed schedule in a fresh JVM, one arm per run; see `docs/PROFILING.md`.
 - `nix flake check`: checks Nix development files; does **not** build Minecraft.
 
 MixinTargetsTest checks vanilla member bindings without initializing Minecraft; live tests
@@ -86,7 +88,8 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - `src/main/resources/vanadium.mixins.json`: required mixin registration.
 - `src/main/resources/vanadium.accesswidener`: access required by mixins.
 - `src/test/kotlin/`: JUnit 5 unit tests (`kotlin.test`), benchmarks, and the live test mods
-  (`integration/`, `featurebench/`, `mixedbench/`, shared `live/`); `src/test/java/` holds only the feature-bench test mixin.
+  (`integration/`, `featurebench/`, `mixedbench/`, `coldexplosion/`, shared `live/`); `src/test/java/` holds only the
+  fixtures' test mixins (feature bench, cold-explosion observer).
 
 ## Concurrency rules
 
