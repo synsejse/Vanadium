@@ -622,8 +622,6 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
     /** The wave's current groups, for checks. */
     internal val waveGroups: List<Runnable> get() = wave
 
-    internal val serialItems: List<E> get() = serialTasks.map { it.item }
-
     private companion object {
         val UNSET = Any()
         const val INITIAL_CAPACITY = 256
