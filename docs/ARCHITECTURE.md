@@ -118,10 +118,11 @@ within 2 ms of the end of this one) workers spin 2 ms through every gap. With sl
 - `lean` parks workers when the tick ends, and the server thread sleeps until the next tick.
 
 In every mode the next tick's start wakes the workers the previous tick used, so they are
-spinning by its first wave. A tick that ran nothing in parallel (an idle or `/tick freeze`
-server) keeps nobody spinning, and a server paused when empty (`pause-when-empty-seconds`)
-fires no tick events at all. Tick events are the only input: tests and benchmarks without them
-spin 2 ms. The caller's own two wake-ups per fan-out, the tick-start wake and the 200 µs
+spinning by its first wave. A tick that ran nothing in parallel (an idle server) keeps nobody
+spinning, and a server paused when empty (`pause-when-empty-seconds`) fires no tick events at
+all. A `/tick freeze` server still runs its entity wave (each frozen entity only checked) and
+tracking, so with many entities it counts as parallel. Tick events are the only input: tests and
+benchmarks without them spin 2 ms. The caller's own two wake-ups per fan-out, the tick-start wake and the 200 µs
 caller spin floor are fixed; tests and `benchWorkerPool` pass other values to the constructors.
 `vanadium.workerSlackSpinMicros` (500 µs) sets the spin between waves with slack, for
 measurements; it and `vanadium.callerPressureSpinMicros` accept 0 to 1,000,000 µs, and any other

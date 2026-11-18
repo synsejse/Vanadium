@@ -72,8 +72,9 @@ host's power states, so check your own machine with `/vanadium profile` at 20 TP
   `workers` × 100%). It halved tick times when idle threads were slow and was within noise of
   `lean` otherwise.
 
-After a tick without parallel work (an empty or `/tick freeze` world) nothing spins in any mode,
-and a server paused when empty (`pause-when-empty-seconds`) never spins.
+After a tick without parallel work (an empty world) nothing spins in any mode, and a server paused
+when empty (`pause-when-empty-seconds`) never spins. A `/tick freeze` world still tracks its
+entities and checks each one in parallel waves, so with many entities `hot` keeps spinning.
 
 `/vanadium set idleWorkers hot` switches live for a comparison; `/vanadium reload` restores the
 file's value. The option is the only control: the former JVM overrides `-Dvanadium.idleWorkers`,

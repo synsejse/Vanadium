@@ -13,9 +13,9 @@ import net.minecraft.world.level.block.Blocks
 /**
  * `idleWorkers` against the real server at 20 TPS: `/vanadium set` switches between all three modes, and from the
  * next tick the pool parks its workers between ticks (`lean`, `balanced`) or keeps them spinning (`hot`), and arms
- * the server thread's spin for the next tick (`balanced`, `hot`) or not (`lean`). A frozen server runs nothing in
- * parallel, so even `hot` parks everything and leaves the server thread unarmed. Worker threads are observed only
- * by their state: spinning is runnable, parked is waiting.
+ * the server thread's spin for the next tick (`balanced`, `hot`) or not (`lean`). A frozen server keeps ticking;
+ * with serial entities and tracking it runs nothing in parallel, so even `hot` parks everything and leaves the
+ * server thread unarmed. Worker threads are observed only by their state: spinning is runnable, parked is waiting.
  */
 internal object IdleWorkerChecks {
     private const val CHUNK_X = 40
@@ -76,19 +76,32 @@ internal object IdleWorkerChecks {
                 }
             }
         }
+        val entities = Vanadium.config.parallelEntities
+        val tracking = Vanadium.config.parallelTracking
         var frozenTicks = -1
-        checks.awaitAsync("idle workers: a frozen hot server keeps nobody spinning", 100) {
-            // Frozen here, in a paced step: ending a sprint restores the frozen state it started with.
-            if (frozenTicks < 0) {
-                server.tickRateManager().setFrozen(true)
+        checks.awaitAsync("idle workers: a frozen hot server keeps ticking", 100) {
+            // Frozen here, in a paced step: ending a sprint restores the frozen state it began with. Frozen entities
+            // are still dispatched (each only checks it is frozen) and tracking still runs, so with many entities a
+            // frozen tick may run parallel waves and keep hot workers spinning.
+            if (frozenTicks < 0) server.tickRateManager().setFrozen(true)
+            check(server.tickRateManager().isFrozen) { "the server unfroze" }
+            ++frozenTicks >= 3
+        }
+        checks.awaitAsync("idle workers: a frozen hot server without parallel work keeps nobody spinning", 100) {
+            check(server.tickRateManager().isFrozen) { "the server unfroze" }
+            if (Vanadium.config.parallelEntities || Vanadium.config.parallelTracking) {
+                Vanadium.config.parallelEntities = false
+                Vanadium.config.parallelTracking = false
                 frozenTicks = 0
                 return@awaitAsync false
             }
-            // Frozen ticks run no entity waves; three in a row with nothing armed and every worker parked.
+            // Three ticks in a row with nothing armed and every worker parked.
             if (ServerSpin.armedWindowNanos == 0L && allParkWithin(workers)) ++frozenTicks >= 3 else { frozenTicks = 0; false }
         }
         checks.then("idle workers: unfreeze and restore") {
             server.tickRateManager().setFrozen(false)
+            Vanadium.config.parallelEntities = entities
+            Vanadium.config.parallelTracking = tracking
             mobs.forEach { it.discard() }
             mobs.clear()
             set(IdleWorkers.parse(original)!!)
