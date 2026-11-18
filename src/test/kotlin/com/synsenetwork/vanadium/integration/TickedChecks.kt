@@ -1,5 +1,6 @@
 package com.synsenetwork.vanadium.integration
 
+import java.util.Locale
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents
 import net.minecraft.server.MinecraftServer
 
@@ -7,19 +8,28 @@ import net.minecraft.server.MinecraftServer
  * Checks that need real server ticks. Each step runs at the end of a tick until it returns true;
  * a step that throws, or a sequence that outlasts [maxTicks], fails the live run. Sprinting removes
  * the normal 50 ms tick pacing, not the tick callbacks, chunk-system work or completion barriers.
+ *
+ * Each step's ticks and wall time are logged when it finishes (`LIVE_STEP_DONE`), and each [phase]'s totals when its
+ * last step does (`LIVE_PHASE_DONE`): a step's time runs from the end of the tick that finished the previous step.
  */
 internal class TickedChecks(private val server: MinecraftServer, private val name: String) {
-    private class Step(val label: String, val paced: Boolean, val run: () -> Boolean)
+    private class Step(val phase: String, val label: String, val paced: Boolean, val run: () -> Boolean)
     private val steps = ArrayList<Step>()
+    private var phase = name
     private val maxTicks = System.getProperty("vanadium.live.ticks", "500").toInt().also {
         require(it in 1..100_000) { "live.ticks must be between 1 and 100000" }
+    }
+
+    /** Steps added from now on belong to [name] in the timing log (a fixture's schedule, typically). */
+    fun phase(name: String) {
+        phase = name
     }
 
     /** A step that is done after one tick. */
     fun then(label: String, action: () -> Unit) = until(label) { action(); true }
 
     fun until(label: String, step: () -> Boolean) {
-        steps.add(Step(label, false, step))
+        steps.add(Step(phase, label, false, step))
     }
 
     /** Waits up to [ticks] ticks for [condition]. */
@@ -34,7 +44,7 @@ internal class TickedChecks(private val server: MinecraftServer, private val nam
 
     private fun await(label: String, ticks: Int, paced: Boolean, condition: () -> Boolean) {
         var waited = 0
-        steps.add(Step(label, paced) {
+        steps.add(Step(phase, label, paced) {
             check(++waited <= ticks) { "$name: timed out waiting for $label" }
             condition()
         })
@@ -45,6 +55,12 @@ internal class TickedChecks(private val server: MinecraftServer, private val nam
         var ticks = 0
         var done = false
         val start = System.nanoTime()
+        var stepStart = start
+        var stepTicks = 0
+        var phaseStart = start
+        var phaseTicks = 0
+        var pacedTicks = 0
+        var phaseSteps = 0
         val sprint = System.getProperty("vanadium.live.sprint", "true").toBooleanStrict()
         fun paceNextStep() {
             if (!sprint) return
@@ -63,12 +79,28 @@ internal class TickedChecks(private val server: MinecraftServer, private val nam
             if (index < steps.size) {
                 // One step per tick: each observes the tick that follows the previous one.
                 val step = steps[index]
+                stepTicks++
                 val finished = try {
                     step.run()
                 } catch (e: Throwable) {
                     throw IllegalStateException("$name failed at '${step.label}' (server tick ${server.tickCount})", e)
                 }
                 if (finished) {
+                    val now = System.nanoTime()
+                    println("LIVE_STEP_DONE phase=${step.phase} ticks=$stepTicks paced=${step.paced} elapsedMs=${millis(now - stepStart)} step='${step.label}'")
+                    phaseTicks += stepTicks
+                    if (step.paced) pacedTicks += stepTicks
+                    phaseSteps++
+                    if (steps.getOrNull(index + 1)?.phase != step.phase) {
+                        println("LIVE_PHASE_DONE ${step.phase} steps=$phaseSteps ticks=$phaseTicks pacedTicks=$pacedTicks " +
+                            "elapsedMs=${millis(now - phaseStart)}")
+                        phaseStart = now
+                        phaseTicks = 0
+                        pacedTicks = 0
+                        phaseSteps = 0
+                    }
+                    stepStart = now
+                    stepTicks = 0
                     index++
                     paceNextStep()
                 }
@@ -80,4 +112,6 @@ internal class TickedChecks(private val server: MinecraftServer, private val nam
             onDone()
         }
     }
+
+    private fun millis(nanos: Long) = "%.1f".format(Locale.ROOT, nanos / 1e6)
 }

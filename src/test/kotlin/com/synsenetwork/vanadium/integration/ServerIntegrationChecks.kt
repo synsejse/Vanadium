@@ -36,6 +36,9 @@ class ServerIntegrationChecks : ModInitializer {
     override fun onInitialize() {
         com.synsenetwork.vanadium.live.LiveServer.start()
         ServerLifecycleEvents.SERVER_STARTED.register { server ->
+            // JVM start to a started server: Fabric, Minecraft and C2ME startup plus spawn preparation.
+            println("LIVE_SERVER_STARTED uptimeMs=${java.lang.management.ManagementFactory.getRuntimeMXBean().uptime}")
+            val checksStart = System.nanoTime()
             runCheck("ConfigChecks.run") { ConfigChecks.run(server) }
             runCheck("checkBlocks") { checkBlocks(server) }
             runCheck("checkDirty") { checkDirty(server) }
@@ -59,14 +62,21 @@ class ServerIntegrationChecks : ModInitializer {
             // Last: its forced chunk changes tickets.
             runCheck("EntityHotPathChecks.run") { EntityHotPathChecks.run(level) }
             println("INTEGRATION_CHECKS_PASSED")
+            println("LIVE_CHECKS_DONE elapsedMs=${(System.nanoTime() - checksStart) / 1_000_000}")
             // Checks that need real ticks; the run finishes only after they pass.
             val ticked = TickedChecks(server, "ticked_checks")
             // First: its downgrades should not meet the entity fixtures' waves.
+            ticked.phase("PoiUnloadChecks")
             PoiUnloadChecks.schedule(level, ticked)
+            ticked.phase("EntityCollectionChecks")
             EntityCollectionChecks.schedule(level, ticked)
+            ticked.phase("CrowdChecks")
             CrowdChecks.schedule(level, ticked)
+            ticked.phase("SpawnSkipChecks")
             SpawnSkipChecks.schedule(level, ticked)
+            ticked.phase("PlayerChecks")
             PlayerChecks.schedule(level, ticked)
+            ticked.phase("ReportChecks")
             ticked.then("start command reports") { ReportChecks.start(server) }
             ticked.then("command reports complete and retain their interactions") { ReportChecks.finish(server) }
             ticked.start { com.synsenetwork.vanadium.live.LiveServer.finish(server, "integration", settleTicks = 2) }
