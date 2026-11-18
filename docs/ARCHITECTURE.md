@@ -401,6 +401,19 @@ retaining C2ME filtering and vanilla's environment-aware costs. Workers count in
 slices; the caller reduces counts, player caps and charges in input order. Overrides clear
 in `finally`. Spawn attempts remain a separate stage.
 
+With `parallelSpawning = false` and parallel chunk ticks, attempts run inline on the server thread
+in vanilla's shuffled order, and each chunk's thunder runs inline just before its attempt
+(`SerialSpawnThunder`), as vanilla does; thunder of chunks without an attempt (no spawnable
+category, or the chunk cannot spawn) still runs in the spawning wave before the block-ticking pass.
+Earlier builds ran a one-task scheduler wave per spawning chunk to order the two.
+
+`-Dvanadium.spawnParticipants=N` (experimental, default `auto`) caps spawn-attempt waves at N
+threads including the server thread, for measuring the shared spawn-state monitor against fewer
+threads. The cap applies to the waves' actual and recorded participants (JFR `WaveEvent`, tick
+profiles); `1` runs the regions inline on the server thread in plan order, where blocking chunk
+lookups need no deferral. Learned estimates, the region plan, the spawn count (`SPAWN_COUNTS`) and
+every other stage are unchanged. `0` and malformed values fail server start.
+
 The slices of Lithium's section iteration are ranges of the entity section index's column slots: every
 column keeps a slot in a dense array (a removed column's slot takes the last one), so the caller cuts
 the level into ranges without reading a column, and each worker walks its own columns. A scan records

@@ -79,6 +79,7 @@ overloaded); with `mixed.sprint=true` it runs uncapped (throughput).
 | `mixed.warmup` / `mixed.window` / `mixed.windows` | 1600 / 1200 / 5 | ticks before measuring, ticks per window, window count |
 | `mixed.sprint` | `false` | uncapped ticking during warmup and windows |
 | `mixed.workers` / `mixed.isolation` | 0 / 2 | `vanadium.toml` values (0 = automatic worker count) |
+| `mixed.parallelSpawning` | `true` | `false` writes `parallelSpawning = false` (serial spawning arm; needs `mixed.mode=enabled`) |
 | `mixed.c2me` | C2ME default | `globalExecutorParallelism` |
 | `mixed.viewDistance` / `mixed.simulationDistance` | 8 / 6 | server view and simulation distance |
 | `mixed.heap` / `mixed.jvmArgs` | `4g` / none | `-Xms`/`-Xmx` and extra JVM flags (space-separated) |
@@ -108,3 +109,46 @@ runs, so use several runs per mode. Mob AI, spawning and villager behaviour are 
 entity counts differ slightly between runs; check them and the health columns before comparing.
 Record the hardware, flags and properties with any published result. Short smoke settings (for example
 `-Pmixed.warmup=200 -Pmixed.window=200 -Pmixed.windows=2`) only check the harness.
+
+### Spawn contention arms
+
+The 4338adb profile found spawn attempts bound by vanilla's shared spawn-state monitor
+(`NaturalSpawner$SpawnState.canSpawnForCategoryLocal`, synchronized by `SyncAllMixin`) at 25
+participants. These arms measure how spawning time and whole-tick time move with fewer threads.
+Every arm is a fresh `runMixedBench` with otherwise identical properties; the result JSON
+records `spawnArm`, `parallelSpawning`, `spawnParticipants` (also `environment.spawnParticipants`)
+and the JVM arguments, and `MIXED_BENCH_SETUP` logs `spawnArm`.
+
+| `spawnArm` | Flags | Spawn count | Spawn attempts |
+| --- | --- | --- | --- |
+| `participants-auto` | none (current default) | parallel `SPAWN_COUNTS` | scheduler estimate (25 in the 4338adb profile) |
+| `participants-8` / `-4` / `-2` | `-Pmixed.jvmArgs=-Dvanadium.spawnParticipants=8` (4, 2) | parallel | at most 8 (4, 2) threads, server thread included |
+| `participants-1` | `-Pmixed.jvmArgs=-Dvanadium.spawnParticipants=1` | parallel | inline on the server thread, region plan order |
+| `serial-spawning` | `-Pmixed.parallelSpawning=false` | vanilla serial `createState` | inline in vanilla's shuffled order, thunder inline before each |
+
+`participants-1` isolates the attempts: counting stays parallel, and only spawn-attempt waves
+change. `serial-spawning` is the genuine serial path and also changes the count: it runs on the
+server thread, so its time moves from the `SPAWN_COUNTS` preparation into the `SPAWNING`
+preparation phase of tick profiles (the parallel count merges in source order to match it; timing and
+the attempt order differ). Compare it with `participants-1` to separate the count's share. Neither arm defers
+spawning (no `ServerThreadRequired`): the server thread may block on structure-start chunks.
+Combine extra JVM flags in one `mixed.jvmArgs` value.
+
+Commands (one live server at a time; alternate arms, for example auto, 4, 1, serial-spawning,
+then the reverse order, at least four runs per arm):
+
+```sh
+./gradlew runMixedBench --no-configuration-cache                                   # participants-auto
+./gradlew runMixedBench --no-configuration-cache -Pmixed.jvmArgs=-Dvanadium.spawnParticipants=8
+./gradlew runMixedBench --no-configuration-cache -Pmixed.jvmArgs=-Dvanadium.spawnParticipants=4
+./gradlew runMixedBench --no-configuration-cache -Pmixed.jvmArgs=-Dvanadium.spawnParticipants=2
+./gradlew runMixedBench --no-configuration-cache -Pmixed.jvmArgs=-Dvanadium.spawnParticipants=1
+./gradlew runMixedBench --no-configuration-cache -Pmixed.parallelSpawning=false    # serial-spawning
+```
+
+Evidence per arm: `windows.csv` tick p50/p95/p99 and CPU per tick; entity counts by category
+(fewer threads must not change mob totals beyond run-to-run spread, since spawn selection is
+unchanged); with `-Plive.jfr=true` on one run per arm, `WaveEvent` spawning durations and
+recorded participants (which must equal the arm's cap), `PreparationEvent` `SPAWN_COUNTS`, and
+monitor-enter time on the spawn state. Keep `participants-auto` as the default until the
+arms show a winner across runs.

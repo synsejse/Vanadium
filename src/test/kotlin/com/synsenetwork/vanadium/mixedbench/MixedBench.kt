@@ -57,7 +57,18 @@ class MixedBench : ModInitializer {
         private val windowTicks = Integer.getInteger("vanadium.mixed.window", 1200)
         private val windows = Integer.getInteger("vanadium.mixed.windows", 5)
         private val sprint = System.getProperty("vanadium.mixed.sprint", "false").toBooleanStrict()
+        private val parallelSpawning = System.getProperty("vanadium.mixed.parallelSpawning", "true").toBooleanStrict()
         private val jfr = java.lang.Boolean.getBoolean("vanadium.live.jfr")
+
+        /**
+         * The resolved spawning arm: `off` (Vanadium disabled), `serial-spawning` (`parallelSpawning = false`), or
+         * `participants-<auto|N>` (`-Dvanadium.spawnParticipants`). See docs/PROFILING.md.
+         */
+        private val spawnArm: String get() = when {
+            !Vanadium.config.enabled -> "off"
+            !Vanadium.config.parallelSpawning -> "serial-spawning"
+            else -> "participants-${Vanadium.scheduler.spawnParticipants.label}"
+        }
         private val level = server.overworld()
         private val output: Path = Files.createDirectories(Path.of("mixed-bench"))
         private val bases = ArrayList<MixedBase>()
@@ -78,6 +89,9 @@ class MixedBench : ModInitializer {
             check(mode in listOf("enabled", "serial")) { "unknown mixed.mode $mode" }
             check(Vanadium.config.enabled == (mode == "enabled")) {
                 "mixed.mode=$mode but vanadium.toml has enabled=${Vanadium.config.enabled}"
+            }
+            check(Vanadium.config.parallelSpawning == parallelSpawning) {
+                "mixed.parallelSpawning=$parallelSpawning but vanadium.toml has parallelSpawning=${Vanadium.config.parallelSpawning}"
             }
             // Repeatable conditions: no weather changes, no block damage from mobs, the same dusk start.
             listOf("gamerule advance_weather false", "weather clear", "gamerule mob_griefing false", "time set 12000").forEach(::command)
@@ -104,7 +118,7 @@ class MixedBench : ModInitializer {
                     effect(MobEffects.REGENERATION, 1)
                 }
             }
-            println("MIXED_BENCH_SETUP bases=$baseCount players=$players elapsedMs=${(System.nanoTime() - setupStart) / 1_000_000}")
+            println("MIXED_BENCH_SETUP bases=$baseCount players=$players spawnArm=$spawnArm elapsedMs=${(System.nanoTime() - setupStart) / 1_000_000}")
             csv = PrintWriter(Files.newBufferedWriter(output.resolve("windows.csv")))
             ServerTickEvents.END_SERVER_TICK.register { current -> if (current === server) onTickEnd() }
         }
@@ -204,6 +218,9 @@ class MixedBench : ModInitializer {
             }
             val body = JsonObject().apply {
                 addProperty("mode", mode)
+                addProperty("spawnArm", spawnArm)
+                addProperty("parallelSpawning", Vanadium.config.parallelSpawning)
+                addProperty("spawnParticipants", Vanadium.scheduler.spawnParticipants.label)
                 addProperty("players", players)
                 addProperty("bases", baseCount)
                 addProperty("warmupTicks", warmupTicks)

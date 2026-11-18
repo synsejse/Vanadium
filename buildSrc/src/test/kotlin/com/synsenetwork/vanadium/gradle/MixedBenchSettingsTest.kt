@@ -42,6 +42,19 @@ class MixedBenchSettingsTest {
     }
 
     @Test
+    fun serialSpawningArmWritesOnlyItsKey() {
+        val auto = settings("mixed.workers" to "24")
+        assertEquals("true", auto.systemProperties["vanadium.mixed.parallelSpawning"])
+        assertFalse("parallelSpawning" in auto.liveSettings.vanadium, "default runs keep their earlier vanadium.toml")
+        val serialSpawning = settings("mixed.workers" to "24", "mixed.parallelSpawning" to "false")
+        assertEquals("false", serialSpawning.systemProperties["vanadium.mixed.parallelSpawning"])
+        assertEquals(auto.liveSettings.vanadium + ("parallelSpawning" to "false"), serialSpawning.liveSettings.vanadium)
+        assertEquals("true", serialSpawning.liveSettings.vanadium["enabled"])
+        assertFailsWith<IllegalArgumentException> { settings("mixed.mode" to "serial", "mixed.parallelSpawning" to "false") }
+        assertFailsWith<IllegalArgumentException> { settings("mixed.parallelSpawning" to "no") }
+    }
+
+    @Test
     fun rejectsInvalidValuesBeforeLaunch() {
         assertFailsWith<IllegalArgumentException> { settings("mixed.mode" to "off") }
         assertFailsWith<IllegalArgumentException> { settings("mixed.window" to "0") }

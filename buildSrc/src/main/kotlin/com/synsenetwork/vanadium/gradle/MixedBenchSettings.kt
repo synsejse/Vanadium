@@ -18,6 +18,13 @@ class MixedBenchSettings(private val property: (String) -> String?) {
     val sprint = bool("mixed.sprint", false)
     val workers = int("mixed.workers", 0, 0..1_024)
     val isolation = int("mixed.isolation", 2, 1..16)
+    /**
+     * false writes `parallelSpawning = false` (vanilla serial spawn count and attempts; thunder inline before each
+     * attempt) for a serial-spawning arm of an enabled run. Only meaningful with `mixed.mode=enabled`.
+     */
+    val parallelSpawning = bool("mixed.parallelSpawning", true).also {
+        require(it || mode == "enabled") { "mixed.parallelSpawning=false needs mixed.mode=enabled (serial mode disables it already)" }
+    }
     val c2meParallelism: Int? = property("mixed.c2me")?.let { parse("mixed.c2me", it, 1..1_024) }
     val viewDistance = int("mixed.viewDistance", 8, 3..32)
     val simulationDistance = int("mixed.simulationDistance", 6, 3..32)
@@ -39,6 +46,7 @@ class MixedBenchSettings(private val property: (String) -> String?) {
         "vanadium.mixed.window" to "$windowTicks",
         "vanadium.mixed.windows" to "$windows",
         "vanadium.mixed.sprint" to "$sprint",
+        "vanadium.mixed.parallelSpawning" to "$parallelSpawning",
     )
 
     val liveSettings: LiveSettings get() = LiveSettings(
@@ -53,7 +61,9 @@ class MixedBenchSettings(private val property: (String) -> String?) {
             // The simulated clients follow terrain height; vanilla's floating check is not part of the workload.
             "allow-flight" to "true",
         ),
-        vanadium = linkedMapOf("enabled" to "${mode == "enabled"}", "workers" to "$workers", "isolation" to "$isolation"),
+        // The key is written only when set, so default runs keep the configuration earlier results were measured with.
+        vanadium = linkedMapOf("enabled" to "${mode == "enabled"}", "workers" to "$workers", "isolation" to "$isolation")
+            .apply { if (!parallelSpawning) put("parallelSpawning", "false") },
         c2meParallelism = c2meParallelism,
     )
 
