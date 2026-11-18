@@ -97,6 +97,9 @@ waits end when ready, and count toward the same budget. Startup checks and chunk
 still take real time; the five-minute process timeout also catches a stalled tick.
 `LIVE_CHECK_DONE` lines report each
 startup check's elapsed milliseconds, and `LIVE_TICKS_DONE` reports the actual tick count and duration.
+`LIVE_STEP_DONE` and `LIVE_PHASE_DONE` lines give the ticks (paced ones separately) and wall time of each
+ticked step and of each fixture's steps together; `LIVE_SERVER_STARTED`, `LIVE_CHECKS_DONE`, `LIVE_SAVE_DONE`
+and `LIVE_STOP_DONE` time JVM startup, all startup checks, the final save and the shutdown.
 
 Each invocation uses a fresh `.vanadium/runs/integration-UUID/` directory with a loopback-only
 port, seed 12345, flat world, four helpers, isolation two, C2ME parallelism four, and a fixed
@@ -147,9 +150,10 @@ files under `feature-bench/` in that server directory, then ticks/saves/shuts do
 Defaults are four helpers, isolation two, 12 paired rounds, scale 1 and JFR enabled.
 `bench.workers`, `bench.rounds`, `bench.scale`, `bench.filter` and `bench.jfr` are Gradle
 properties; `bench.rounds` (0–1,000,000) and `bench.jfr` (`true`/`false`) are validated before launch.
-After the run, the task checks `environment.txt`, a `samples.csv` with at least one selected case's
-rows (header plus two per round) and, with JFR, non-empty `*-off.jfr`/`*-on.jfr` recordings; a filter
-that matches no case therefore fails the run. Reduced scale/rounds only check the harness; they are not
+`bench.filter` is a regular expression over whole case names; empty runs every case, and one that matches
+no case fails the run itself, listing the case names. After the run, the task checks `environment.txt`, a
+`samples.csv` with at least one selected case's rows (header plus two per round) and, with JFR, non-empty
+`*-off.jfr`/`*-on.jfr` recordings. Reduced scale/rounds only check the harness; they are not
 performance evidence.
 For independent JVM samples, invoke the task again; each run gets a new world and JVM.
 
