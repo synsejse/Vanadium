@@ -2,19 +2,31 @@ package com.synsenetwork.vanadium.integration
 
 import com.synsenetwork.vanadium.concurrent.PoiDistanceAccess
 import com.synsenetwork.vanadium.concurrent.PoiTicketAccess
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 import it.unimi.dsi.fastutil.longs.LongSet
 import java.lang.management.ManagementFactory
 import java.lang.reflect.Modifier
 import java.util.Optional
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import java.util.function.BiPredicate
 import java.util.function.Predicate
+import net.caffeinemc.mods.lithium.common.world.interests.PointOfInterestStorageExtended
 import net.minecraft.core.BlockPos
+import net.minecraft.core.GlobalPos
 import net.minecraft.core.Holder
 import net.minecraft.core.SectionPos
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.world.entity.EntitySpawnReason
+import net.minecraft.world.entity.EntityTypes
+import net.minecraft.world.entity.PathfinderMob
+import net.minecraft.world.entity.ai.Brain
+import net.minecraft.world.entity.ai.behavior.AcquirePoi
+import net.minecraft.world.entity.ai.behavior.declarative.MemoryAccessor
+import net.minecraft.world.entity.ai.memory.MemoryModuleType
 import net.minecraft.world.entity.ai.village.poi.PoiManager
 import net.minecraft.world.entity.ai.village.poi.PoiRecord
 import net.minecraft.world.entity.ai.village.poi.PoiSection
@@ -25,9 +37,10 @@ import net.minecraft.world.level.chunk.storage.SectionStorage
 
 /**
  * POI locking (docs/ARCHITECTURE.md, "POI locking"): records are lock-free leaves, the distance graph's monitor is
- * terminal, and the village-centre level is published from a read made under that monitor. Lock edges are
- * probed by holding the monitor a regression would need on a helper thread and waiting a bounded time for the
- * probe; the holder then lets go, so a regression fails the check instead of hanging the server.
+ * terminal, the village-centre level is published from a read made under that monitor, and claims honour the
+ * ticket they actually took. Lock edges are probed by holding the monitor a regression would need on a helper
+ * thread and waiting a bounded time for the probe; the holder then lets go, so a regression fails the check
+ * instead of hanging the server.
  */
 internal object PoiChecks {
     private const val WAIT_SECONDS = 5L
@@ -45,6 +58,13 @@ internal object PoiChecks {
         checkGraphTakesNoSectionMonitor(level, site(1))
         checkLevelPublishedUnderGraphMonitor(level, site(2))
         checkLoadedAndEmptySections(level, site(3))
+        // Lithium's ai.poi option adds takeAt (ai.poi.tasks makes AcquirePoi call it); users can turn either off.
+        val takeAt = level.poiManager as? PointOfInterestStorageExtended
+        println("POI_CLAIM_PATHS takeAt=${takeAt != null}")
+        checkTakeHonoursTicket(level, site(4))
+        takeAt?.let { checkLithiumTakeAtHonoursTicket(level, it, site(5)) }
+        checkOneTicketRace(level, takeAt, site(6))
+        checkAcquirePoiOnlyAfterClaim(level, site(7))
         println("POI_CHECKS_PASSED")
     }
 
@@ -159,6 +179,115 @@ internal object PoiChecks {
             val dirty = SectionStorage::class.java.getDeclaredField("dirtyChunks").apply { isAccessible = true }.get(poi) as LongSet
             check(dirty.contains(ChunkPos.containing(pos).pack())) { "ticket change did not mark its column for saving" }
         } finally {
+            poi.remove(pos)
+        }
+    }
+
+    /** Vanilla's take skips a candidate whose last ticket was claimed after the occupancy filter, and searches on. */
+    private fun checkTakeHonoursTicket(level: ServerLevel, pos: BlockPos) {
+        val poi = level.poiManager
+        val first = addArmorer(level, pos)
+        val second = addArmorer(level, pos.offset(2, 0, 0))
+        try {
+            val stolen = AtomicReference<BlockPos>()
+            // The filter runs between the occupancy test and the claim: another claimant takes the ticket there.
+            val taken = poi.take(isArmorer, { _, p ->
+                if (stolen.compareAndSet(null, p)) {
+                    val record = if (p == first.pos) first else second
+                    check((record as PoiTicketAccess).`vanadium$acquireTicket`()) { "steal failed" }
+                }
+                true
+            }, pos, 8)
+            val other = if (stolen.get() == first.pos) second.pos else first.pos
+            check(taken == Optional.of(other)) { "take returned ${taken.orElse(null)} after losing ${stolen.get()}, not $other" }
+            check(first.pack().freeTickets() == 0 && second.pack().freeTickets() == 0) { "tickets not both taken" }
+            check(poi.take(isArmorer, { _, _ -> true }, pos, 8).isEmpty) { "take returned a POI without a free ticket" }
+        } finally {
+            poi.remove(pos)
+            poi.remove(pos.offset(2, 0, 0))
+        }
+    }
+
+    /** Lithium's exact-position claim (AcquirePoi's take) returns empty when the record had no free ticket. */
+    private fun checkLithiumTakeAtHonoursTicket(level: ServerLevel, takeAt: PointOfInterestStorageExtended, pos: BlockPos) {
+        val poi = level.poiManager
+        val record = addArmorer(level, pos)
+        try {
+            check(takeAt.`lithium$takeAt`(isArmorer, { _, _ -> true }, pos) == Optional.of(pos)) { "free POI not taken at its position" }
+            check(record.pack().freeTickets() == 0) { "takeAt did not take the ticket" }
+            check(takeAt.`lithium$takeAt`(isArmorer, { _, _ -> true }, pos).isEmpty) { "takeAt returned a POI without a free ticket" }
+            check(record.pack().freeTickets() == 0) { "failed takeAt changed the tickets" }
+        } finally {
+            poi.remove(pos)
+        }
+    }
+
+    /** Claimants racing for one live record's ticket through both claims (take alone without takeAt): one wins each round. */
+    private fun checkOneTicketRace(level: ServerLevel, takeAt: PointOfInterestStorageExtended?, pos: BlockPos) {
+        val poi = level.poiManager
+        val record = addArmorer(level, pos)
+        val threads = 8
+        try {
+            repeat(50) { round ->
+                val start = CountDownLatch(1)
+                val done = CountDownLatch(threads)
+                val wins = AtomicInteger()
+                val failure = AtomicReference<Throwable>()
+                repeat(threads) { t ->
+                    daemon("poi-race-$t") {
+                        try {
+                            check(start.await(WAIT_SECONDS, TimeUnit.SECONDS)) { "race gate timed out" }
+                            val taken = if (takeAt == null || t % 2 == 0) poi.take(isArmorer, { _, p -> p == pos }, pos, 1)
+                            else takeAt.`lithium$takeAt`(isArmorer, { _, _ -> true }, pos)
+                            if (taken.isPresent) wins.incrementAndGet()
+                        } catch (e: Throwable) {
+                            failure.set(e)
+                        } finally {
+                            done.countDown()
+                        }
+                    }
+                }
+                start.countDown()
+                check(done.await(WAIT_SECONDS, TimeUnit.SECONDS)) { "race round $round did not finish" }
+                failure.get()?.let { throw AssertionError("race round $round failed", it) }
+                check(wins.get() == 1) { "round $round: ${wins.get()} claimants won one ticket" }
+                check(record.pack().freeTickets() == 0) { "round $round left ${record.pack().freeTickets()} tickets" }
+                check(poi.release(pos)) { "round $round ticket not released" }
+            }
+        } finally {
+            poi.remove(pos)
+        }
+    }
+
+    /**
+     * AcquirePoi's claim step, through whichever claim it calls (take, or takeAt under Lithium's ai.poi.tasks): with
+     * the ticket gone it leaves memory and retry cache alone; with a free ticket it claims, remembers the site and
+     * resets the cache.
+     */
+    private fun checkAcquirePoiOnlyAfterClaim(level: ServerLevel, pos: BlockPos) {
+        val poi = level.poiManager
+        val record = addArmorer(level, pos)
+        val villager = EntityTypes.VILLAGER.create(level, EntitySpawnReason.COMMAND)!!
+        val memory = MemoryModuleType.POTENTIAL_JOB_SITE
+        val accessor = MemoryAccessor::class.java.getConstructor(Brain::class.java, MemoryModuleType::class.java,
+            com.mojang.datafixers.kinds.App::class.java).newInstance(villager.brain, memory, null)
+        val claim = AcquirePoi::class.java.getDeclaredMethod("lambda\$create\$7", PoiManager::class.java, Predicate::class.java,
+            BlockPos::class.java, MemoryAccessor::class.java, ServerLevel::class.java, Optional::class.java,
+            PathfinderMob::class.java, it.unimi.dsi.fastutil.longs.Long2ObjectMap::class.java, Holder::class.java)
+            .apply { isAccessible = true }
+        try {
+            val retries = Long2ObjectOpenHashMap<Any>().apply { put(1L, Any()) }
+            check((record as PoiTicketAccess).`vanadium$acquireTicket`()) { "free ticket was not acquired" }
+            claim.invoke(null, poi, isArmorer, pos, accessor, level, Optional.empty<Byte>(), villager, retries, armorer)
+            check(villager.brain.getMemory(memory).isEmpty) { "villager remembers a job site it holds no ticket for" }
+            check(retries.size == 1) { "a failed claim reset the retry cache" }
+            check(poi.release(pos)) { "ticket not released" }
+            claim.invoke(null, poi, isArmorer, pos, accessor, level, Optional.empty<Byte>(), villager, retries, armorer)
+            check(villager.brain.getMemory(memory) == Optional.of(GlobalPos.of(level.dimension(), pos))) { "claimed job site not remembered" }
+            check(retries.isEmpty()) { "a successful claim kept the retry cache" }
+            check(record.pack().freeTickets() == 0) { "remembered job site has a free ticket" }
+        } finally {
+            villager.discard()
             poi.remove(pos)
         }
     }

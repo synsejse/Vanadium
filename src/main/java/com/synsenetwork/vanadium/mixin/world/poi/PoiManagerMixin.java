@@ -4,9 +4,19 @@ import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.synsenetwork.vanadium.concurrent.PoiDistanceAccess;
+import com.synsenetwork.vanadium.concurrent.PoiTicketAccess;
+import java.util.Optional;
+import java.util.function.BiPredicate;
+import java.util.function.Predicate;
+import java.util.stream.Stream;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
 import net.minecraft.core.SectionPos;
 import net.minecraft.world.entity.ai.village.poi.PoiManager;
+import net.minecraft.world.entity.ai.village.poi.PoiRecord;
+import net.minecraft.world.entity.ai.village.poi.PoiType;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 
@@ -15,6 +25,10 @@ public abstract class PoiManagerMixin {
     @Shadow
     @SuppressWarnings("unused")
     private PoiManager.DistanceTracker distanceTracker;
+
+    @Shadow
+    public abstract Stream<PoiRecord> getInRange(Predicate<Holder<PoiType>> predicate, BlockPos center, int radius,
+            PoiManager.Occupancy occupancy);
 
     /**
      * Mobs ask this every tick (village movement goals). Vanilla runs the tracker's pending updates
@@ -43,5 +57,23 @@ public abstract class PoiManagerMixin {
         synchronized (tracker) {
             original.call(tracker, sectionPos, ((PoiDistanceAccess) (Object) tracker).vanadium$levelFromSource(sectionPos), onlyDecreased);
         }
+    }
+
+    /**
+     * @author Vanadium
+     * @reason Vanilla returns its first candidate whether or not the ticket was still free: two claimants of one
+     * record could both be given its last ticket. A candidate whose last ticket another thread took after the
+     * occupancy filter is skipped and the search goes on, as if that claim had come first; otherwise the order,
+     * filters and result are vanilla's. Callers: breeding's bed search ({@code VillagerMakeLove}, any reachable
+     * bed in range) and the job-site claim ({@code AcquirePoiMixin}, one exact position) when Lithium's
+     * {@code ai.poi.tasks} does not redirect it to {@code takeAt}.
+     */
+    @Overwrite
+    public Optional<BlockPos> take(Predicate<Holder<PoiType>> predicate, BiPredicate<Holder<PoiType>, BlockPos> filter,
+            BlockPos center, int radius) {
+        return this.getInRange(predicate, center, radius, PoiManager.Occupancy.HAS_SPACE)
+                .filter(poi -> filter.test(poi.getPoiType(), poi.getPos()) && ((PoiTicketAccess) poi).vanadium$acquireTicket())
+                .findFirst()
+                .map(PoiRecord::getPos);
     }
 }

@@ -17,6 +17,7 @@
     "entity.ai.brain.sensor.NearestItemSensorMixin",
     "entity.ai.brain.sensor.NearestLivingEntitySensorMixin",
     "entity.ai.brain.sensor.PlayerSensorMixin",
+    "entity.ai.brain.task.AcquirePoiMixin",
     "entity.ai.brain.task.AnimalMakeLoveMixin",
     "entity.ai.brain.task.ShowTradesToPlayerMixin",
     "entity.ai.brain.task.VillagerMakeLoveMixin",
@@ -77,6 +78,7 @@
     "compat.lithium.GameEventDispatcherStorageMixin",
     "compat.lithium.ListeningLong2ObjectOpenHashMapAccessor",
     "compat.lithium.LithiumDataMixin",
+    "compat.lithium.PoiTakeAtMixin",
     "compat.lithium.SectionedEntityMovementTrackerMixin"
   ],
   "client": [],

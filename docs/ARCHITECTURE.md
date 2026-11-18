@@ -365,6 +365,17 @@ section could publish in the opposite order to their reads and leave a stale vil
 one). `PoiManagerMixin` re-reads the level inside the monitor: the last update for a section follows
 every change made before it, and the graph converges on the current POI state.
 
+Claims honour the ticket they took. Vanilla returns a claim's position whether or not its ticket was
+still free, so two villagers picking the last ticket of one record could both keep it. `take` (breeding
+beds, and job sites when Lithium's `ai.poi.tasks` is off) skips a candidate whose last ticket another
+thread took after the occupancy filter and searches on, as if that claim had come first (`PoiManagerMixin`);
+Lithium's exact-position `takeAt` claims by compare-and-set and returns empty without a ticket (`PoiTakeAtMixin`,
+one optional hook that `SynchronisePlugin` requires wherever `takeAt` exists). `AcquirePoi` stores the job-site memory, sends its event,
+clears its retry cache and updates debug info only after a claim of its target (`AcquirePoiMixin`); a lost
+claim changes nothing, and the next scheduled attempt searches again. For one live record, each ticket
+therefore goes to one claimant, and only a claimant that took one remembers the POI. Records detached by
+unloading are not covered (see the limits below).
+
 Saving reads ticket counts after the dirty mark: a ticket changes before its column is marked dirty
 (concurrent set), and a write removes the mark before packing, so it either includes the change or the
 column stays marked for a later write.
@@ -375,7 +386,8 @@ Limits, unchanged by this ordering:
   thread, which can run chunk-system work mid-wave. It does not notify the graph, so levels near the
   column stay as they were until a nearby update (as with C2ME on vanilla), and a ticket claimed on a
   record of that column during the unload is lost when the column reloads (logged as "No data for
-  position").
+  position"). The claim guarantee above is for one live record; a claim overlapping this unload, and
+  the graph's levels after it, are open issues tracked separately.
 - A claim of a record that a concurrent block change removes is ordered as claim, then removal: the
   ticket goes with the record, and vanilla's job-site validation drops the memory.
 - Lithium's queries run callers' predicates under a section monitor. Vanilla's and Lithium's predicates
