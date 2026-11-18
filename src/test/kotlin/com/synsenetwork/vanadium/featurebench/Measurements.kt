@@ -1,53 +1,70 @@
 package com.synsenetwork.vanadium.featurebench
 
 import com.sun.management.ThreadMXBean
+import com.synsenetwork.vanadium.live.line
 import jdk.jfr.Configuration
 import jdk.jfr.Recording
-import java.io.PrintWriter
+import java.io.Writer
 import java.lang.management.ManagementFactory
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
 
-/** Paired steady-state measurements; JFR runs separately from the timing samples. */
-internal class Measurements : AutoCloseable {
+/**
+ * Paired steady-state measurements; JFR runs separately from the timing samples. Write errors throw, and
+ * [requireSelection] fails a run whose `bench.filter` selected no case (an empty filter selects every case).
+ * The defaults are the fixture's `vanadium.bench.*` properties; tests pass their own.
+ */
+internal class Measurements(
+    private val output: Path = Path.of("feature-bench"),
+    private val filter: String = System.getProperty("vanadium.bench.filter", ""),
+    private val rounds: Int = Integer.getInteger("vanadium.bench.rounds", 12),
+    private val scale: Double = System.getProperty("vanadium.bench.scale", "1").toDouble(),
+    private val jfr: Boolean = System.getProperty("vanadium.bench.jfr", "true").toBoolean(),
+    /** Where samples go; null writes `samples.csv` in [output]. */
+    sampleWriter: Writer? = null,
+) : AutoCloseable {
     private val threads = ManagementFactory.getThreadMXBean() as ThreadMXBean
-    private val output: Path = Files.createDirectories(Path.of("feature-bench"))
-    private val samples = PrintWriter(Files.newBufferedWriter(output.resolve("samples.csv")))
-    private val fork = Integer.getInteger("vanadium.bench.fork", 0)
-    private val scale = System.getProperty("vanadium.bench.scale", "1").toDouble()
-    private val rounds = Integer.getInteger("vanadium.bench.rounds", 12)
+    private val pattern = if (filter.isEmpty()) null else try {
+        Regex(filter)
+    } catch (e: IllegalArgumentException) {
+        throw IllegalArgumentException("bench.filter '$filter' is not a valid regular expression", e)
+    }
+    private val samples = sampleWriter ?: Files.newBufferedWriter(Files.createDirectories(output).resolve("samples.csv"))
+    private val cases = ArrayList<String>()
+    private var selected = 0
 
     init {
-        samples.println("case,enabled,round,operations,wall_ns,caller_cpu_ns,worker_cpu_ns,allocated_bytes")
+        samples.line("case,enabled,round,operations,wall_ns,caller_cpu_ns,worker_cpu_ns,allocated_bytes")
         threads.isThreadCpuTimeEnabled = true
         threads.isThreadAllocatedMemoryEnabled = true
     }
 
     fun compare(name: String, select: (Boolean) -> Unit, operation: () -> Unit) {
-        val filter = System.getProperty("vanadium.bench.filter", "")
-        if (filter.isNotEmpty() && !name.matches(Regex(filter))) return
+        cases.add(name)
+        if (pattern != null && !name.matches(pattern)) return
+        selected++
         println("FEATURE_BENCH_START $name")
         for (on in listOf(false, true)) {
             select(on)
             runFor(operation, 2.0)
         }
-        // Alternating AB/BA pairs, with the first order reversed in odd-numbered JVM forks.
+        // Alternating AB/BA pairs: off first in even rounds, on first in odd ones.
         for (round in 0 until rounds) {
             for (arm in 0 until 2) {
-                val on = (round + arm + fork) and 1 != 0
+                val on = (round + arm) and 1 != 0
                 select(on)
                 val before = snapshot()
                 val start = System.nanoTime()
                 val operations = runFor(operation, 0.25)
                 val elapsed = System.nanoTime() - start
                 val after = snapshot()
-                samples.printf("%s,%s,%d,%d,%d,%d,%d,%d%n", name, on, round, operations, elapsed,
-                    after.callerCpu - before.callerCpu, after.workerCpu - before.workerCpu, after.allocated - before.allocated)
+                samples.line("$name,$on,$round,$operations,$elapsed,${after.callerCpu - before.callerCpu}," +
+                    "${after.workerCpu - before.workerCpu},${after.allocated - before.allocated}")
                 samples.flush()
             }
         }
-        if (System.getProperty("vanadium.bench.jfr", "true").toBoolean()) {
+        if (jfr) {
             for (on in listOf(false, true)) {
                 select(on)
                 Recording(Configuration.getConfiguration("profile")).use { recording ->
@@ -85,6 +102,11 @@ internal class Measurements : AutoCloseable {
         val workerCpu = ids.filter { it != caller }.sumOf { maxOf(0, threads.getThreadCpuTime(it)) }
         val allocated = ids.sumOf { maxOf(0, threads.getThreadAllocatedBytes(it)) }
         return Snapshot(threads.getThreadCpuTime(caller), workerCpu, allocated)
+    }
+
+    /** After every case: a filter that matched none of them is a mistake, not an empty benchmark. */
+    fun requireSelection() {
+        check(selected > 0) { "bench.filter '$filter' matched no feature benchmark case; cases: ${cases.joinToString(", ")}" }
     }
 
     override fun close() = samples.close()

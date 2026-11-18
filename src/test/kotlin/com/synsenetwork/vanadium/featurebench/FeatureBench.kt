@@ -43,6 +43,7 @@ class FeatureBench : ModInitializer {
                         SpawnPacketBench.packets(level, measurements)
                         profile(measurements, 0)
                         profile(measurements, 2000)
+                        measurements.requireSelection()
                         println("FEATURE_BENCH_PASSED")
                         com.synsenetwork.vanadium.live.LiveServer.finish(server, "featureBench")
                     }
