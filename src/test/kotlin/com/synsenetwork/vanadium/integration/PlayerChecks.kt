@@ -4,13 +4,11 @@ import com.synsenetwork.vanadium.live.TestPlayer
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.network.protocol.game.ClientboundAddEntityPacket
-import net.minecraft.network.protocol.game.ClientboundBlockUpdatePacket
 import net.minecraft.network.protocol.game.ClientboundEntityPositionSyncPacket
 import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket
 import net.minecraft.network.protocol.game.ClientboundMoveEntityPacket
 import net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket
 import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket
-import net.minecraft.network.protocol.game.ClientboundSectionBlocksUpdatePacket
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket
 import net.minecraft.server.level.ServerLevel
@@ -122,15 +120,7 @@ internal object PlayerChecks {
         }
         checks.await("the block break reaches the world and the other player", 20) {
             level.getBlockState(edit).isAir && second.packets.any { packet ->
-                when (packet) {
-                    is ClientboundBlockUpdatePacket -> packet.pos == edit && packet.blockState.isAir
-                    is ClientboundSectionBlocksUpdatePacket -> {
-                        var found = false
-                        packet.runUpdates { pos, state -> if (pos == edit && state.isAir) found = true }
-                        found
-                    }
-                    else -> false
-                }
+                blockUpdates(packet).any { (pos, state) -> pos == edit && state.isAir }
             }
         }
         checks.then("a tracked entity is removed") {

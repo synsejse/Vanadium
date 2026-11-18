@@ -14,6 +14,7 @@ import net.minecraft.core.BlockPos
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ChunkHolder
 import net.minecraft.server.level.ClientInformation
+import net.minecraft.server.level.ServerChunkCache
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.server.level.TicketType
@@ -111,9 +112,7 @@ internal object SpawnCountChecks {
                     players[0].takeIf { chunk.x() <= center.x() }, players[1].takeIf { chunk.z() <= center.z() }))
             }
         }
-        val chunks = NaturalSpawner.ChunkGetter { key, output ->
-            level.chunkSource.getVisibleChunkIfPresent(key)?.fullChunkFuture?.getNow(ChunkHolder.UNLOADED_LEVEL_CHUNK)?.ifSuccess(output)
-        }
+        val chunks = fullChunksNow(level.chunkSource)
         val reference = NaturalSpawner.createState(289, level, chunks, caps())
 
         // The captured input is Lithium's sliceable section iteration, possibly inside C2ME's filter. The reference
@@ -154,6 +153,14 @@ internal object SpawnCountChecks {
         }, "entry point", players = false)
         println("SPAWN_COUNT_CHECKS_PASSED entities=$scanned columns=${columns.size} filtered=${filter != null} " +
             "charges=${reference.spawnPotential.charges.size} counts=${reference.mobCategoryCounts}")
+    }
+
+    /**
+     * The spawn count's chunk getter, as vanilla's private `ServerChunkCache.getFullChunk`: a tracked holder's chunk
+     * if its FULL future has already completed with one. It never loads or waits; a holder still loading, or none, yields nothing.
+     */
+    internal fun fullChunksNow(source: ServerChunkCache) = NaturalSpawner.ChunkGetter { key, output ->
+        source.getVisibleChunkIfPresent(key)?.fullChunkFuture?.getNow(ChunkHolder.UNLOADED_LEVEL_CHUNK)?.ifSuccess(output)
     }
 
     internal fun same(expected: NaturalSpawner.SpawnState, actual: NaturalSpawner.SpawnState, what: String, players: Boolean = true) {

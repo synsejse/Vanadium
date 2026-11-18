@@ -15,8 +15,6 @@ import net.minecraft.core.Direction
 import net.minecraft.network.Connection
 import net.minecraft.network.protocol.Packet
 import net.minecraft.network.protocol.PacketFlow
-import net.minecraft.network.protocol.game.ClientboundBlockUpdatePacket
-import net.minecraft.network.protocol.game.ClientboundSectionBlocksUpdatePacket
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ChunkHolder
@@ -137,17 +135,9 @@ class ServerIntegrationChecks : ModInitializer {
                 packets.clear()
                 holder.broadcastChanges(chunk)
                 val sent = ArrayList<BlockPos>()
-                for (packet in packets) {
-                    when (packet) {
-                        is ClientboundBlockUpdatePacket -> {
-                            check(packet.blockState.isAir, "wrong single-block state")
-                            sent.add(packet.pos)
-                        }
-                        is ClientboundSectionBlocksUpdatePacket -> packet.runUpdates { p, state ->
-                            check(state.isAir, "wrong section-block state")
-                            sent.add(p.immutable())
-                        }
-                    }
+                for (packet in packets) for ((p, state) in blockUpdates(packet)) {
+                    check(state.isAir) { "wrong block state in ${packet.javaClass.simpleName} at $p: $state" }
+                    sent.add(p)
                 }
                 check(sent.size == changed.size && sent.containsAll(changed)) { "$mode missing block updates: expected=$changed actual=$sent" }
             }

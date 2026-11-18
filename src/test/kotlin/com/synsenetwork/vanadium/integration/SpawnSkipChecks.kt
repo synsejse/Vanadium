@@ -3,7 +3,6 @@ package com.synsenetwork.vanadium.integration
 import com.synsenetwork.vanadium.spawning.SpawnCounts
 import com.synsenetwork.vanadium.spawning.SpawnPreparation
 import kotlin.random.Random
-import net.minecraft.server.level.ChunkHolder
 import net.minecraft.server.level.ServerChunkCache
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.entity.Entity
@@ -33,9 +32,7 @@ internal object SpawnSkipChecks {
         val chunkArea = (-RADIUS..RADIUS).flatMap { dx -> (-RADIUS..RADIUS).map { dz -> ChunkPos(CHUNK_X + dx, CHUNK_Z + dz) } }
         val entities = ArrayList<Entity>()
         val previousRule = level.gameRules.get(GameRules.SPAWN_MOBS)
-        val chunks = NaturalSpawner.ChunkGetter { key, output ->
-            source.getVisibleChunkIfPresent(key)?.fullChunkFuture?.getNow(ChunkHolder.UNLOADED_LEVEL_CHUNK)?.ifSuccess(output)
-        }
+        val chunks = SpawnCountChecks.fullChunksNow(source)
         fun reference() = NaturalSpawner.createState(source.chunkMap.distanceManager.naturalSpawnChunkCount, level, chunks,
             LocalMobCapCalculator(source.chunkMap))
         fun stored() = LAST_SPAWN_STATE.get(source) as NaturalSpawner.SpawnState?
