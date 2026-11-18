@@ -321,8 +321,9 @@ Reading the arms (report each run's values, medians and ranges, not single runs)
 - Attribution: if `load` runs' blast 1 is within the warm range, loading and transforming `ServerExplosion`
   (`armActionMs`) accounts for the cost. What remains above warm in `load` is other first use: the
   classes in `blast-classes.csv` (packets, damage calculators, Lithium helpers) and first execution.
-  `serverExplosionLoadTick` must be the blast tick in `sham` and the arm tick in `load`; a load before
-  the arm means something else loaded the class and the run does not test a cold explosion.
+  `serverExplosionLoadTick` identifies the tick that ends the completion gap containing the load.
+  It should be the blast tick in `sham` and `armTick + 1` in `load`, since the load-only action
+  runs after the arm tick's completion timestamp. An earlier load means the class was already warm.
 - The stall's extent: `next*_ms` against the baseline say whether it is one tick or more.
 
 Limitations:
