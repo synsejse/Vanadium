@@ -61,11 +61,6 @@ class VanadiumConfig : ConfigData {
     @field:Comment("Batch each connection's packets into one flush per tick instead of one per packet")
     @JvmField var consolidateFlushes = true
 
-    @field:Comment("Lock that a chunk lookup the chunk system has not answered yet runs under on the server thread: "
-            + "one reentrant lock per chunk, or false = the chunk cache's own monitor. Only the server thread takes "
-            + "either (workers hand such lookups to it), so neither loads chunks in parallel.")
-    @JvmField var parallelChunkLoads = true
-
     @field:Comment("Index crowded entity sections by cell so pushing and small box queries test only nearby entities")
     @JvmField var crowdedSectionIndex = true
 

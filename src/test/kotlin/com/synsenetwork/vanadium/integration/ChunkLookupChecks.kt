@@ -18,31 +18,27 @@ internal object ChunkLookupChecks {
         val chunks = positions.map { LevelChunk(level, it) }
         val replacement = LevelChunk(level, positions.first())
         val enabled = Vanadium.config.enabled
-        val parallelLoads = Vanadium.config.parallelChunkLoads
         val readers = Executors.newFixedThreadPool(4)
         try {
             chunks.forEach { it.setLoaded(true) }
             for (active in listOf(true, false)) {
                 Vanadium.config.enabled = active
-                for (parallel in listOf(true, false)) {
-                    Vanadium.config.parallelChunkLoads = parallel
-                    val jobs = List(4) {
-                        readers.submit {
-                            repeat(100) {
-                                for (chunk in chunks) {
-                                    val pos = chunk.pos
-                                    check(source.getChunkNow(pos.x(), pos.z()) === chunk, "loaded lookup missed")
-                                    check(source.getChunk(pos.x(), pos.z(), ChunkStatus.FULL, false) === chunk, "FULL lookup missed")
-                                    check(source.hasChunk(pos.x(), pos.z()), "loaded chunk reported absent")
-                                }
+                val jobs = List(4) {
+                    readers.submit {
+                        repeat(100) {
+                            for (chunk in chunks) {
+                                val pos = chunk.pos
+                                check(source.getChunkNow(pos.x(), pos.z()) === chunk, "loaded lookup missed")
+                                check(source.getChunk(pos.x(), pos.z(), ChunkStatus.FULL, false) === chunk, "FULL lookup missed")
+                                check(source.hasChunk(pos.x(), pos.z()), "loaded chunk reported absent")
                             }
                         }
                     }
-                    jobs.forEach { it.get(10, TimeUnit.SECONDS) }
-                    // A loaded full chunk must not override a request for a different status.
-                    val pos = positions.first()
-                    check(source.getChunk(pos.x(), pos.z(), ChunkStatus.BIOMES, false) !== chunks.first(), "status lookup bypassed vanilla")
                 }
+                jobs.forEach { it.get(10, TimeUnit.SECONDS) }
+                // A loaded full chunk must not override a request for a different status.
+                val pos = positions.first()
+                check(source.getChunk(pos.x(), pos.z(), ChunkStatus.BIOMES, false) !== chunks.first(), "status lookup bypassed vanilla")
             }
             replacement.setLoaded(true)
             chunks.first().setLoaded(false)
@@ -55,13 +51,12 @@ internal object ChunkLookupChecks {
                 check(!source.hasChunk(pos.x(), pos.z()), "untracked chunk reported present")
                 check(source.getChunk(pos.x(), pos.z(), ChunkStatus.FULL, false) == null, "missing lookup returned a chunk")
             }
-            // Exercise a real miss/load and publication with both lock policies, including disabled mode.
-            for ((index, parallel) in listOf(true, false).withIndex()) {
-                Vanadium.config.parallelChunkLoads = parallel
+            // Exercise real misses/loads and publication under the per-chunk load locks, with Vanadium still disabled.
+            for (index in 0..1) {
                 val chunk = level.getChunk(-8 - index, -8)
                 check(source.getChunkNow(chunk.pos.x(), chunk.pos.z()) === chunk, "loaded chunk was not published")
             }
-            println("CHUNK_LOOKUP_CHECKS_PASSED enabled=on/off locks=per-chunk/global")
+            println("CHUNK_LOOKUP_CHECKS_PASSED enabled=on/off")
         } finally {
             readers.shutdownNow()
             try {
@@ -70,7 +65,6 @@ internal object ChunkLookupChecks {
                 chunks.forEach { it.setLoaded(false) }
                 replacement.setLoaded(false)
                 Vanadium.config.enabled = enabled
-                Vanadium.config.parallelChunkLoads = parallelLoads
             }
         }
     }

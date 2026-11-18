@@ -46,7 +46,7 @@ class ParallelChunkCache(
     private val loadingLocks = ChunkLockTable()
 
     /** Taken only on the server thread, which is the only thread that can finish a miss. */
-    private val loads = ChunkLoadRouter(loadingLocks, this) { mainThreadProcessor.isSameThread }
+    private val loads = ChunkLoadRouter(loadingLocks) { mainThreadProcessor.isSameThread }
 
     /** Full chunks published by `LevelChunk.setLoaded`; removal matches the published instance. */
     private val loadedChunks = NonBlockingHashMapLong<LevelChunk>()
@@ -79,8 +79,7 @@ class ParallelChunkCache(
             }
         }
         // A worker's lookup runs on the wave's caller, the server thread, which serves it between its tasks.
-        return loads.load(pos, Vanadium.config.parallelChunkLoads,
-            { getChunkUnderLoadLock(chunkX, chunkZ, pos, requiredStatus, load) }, stalled)
+        return loads.load(pos, { getChunkUnderLoadLock(chunkX, chunkZ, pos, requiredStatus, load) }, stalled)
     }
 
     /** Under the load lock: the previous holder's full chunk was published by setLoaded before its load completed. */

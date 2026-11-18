@@ -4,6 +4,7 @@ import com.synsenetwork.vanadium.commands.VanadiumCommand
 import com.synsenetwork.vanadium.concurrent.Interactions
 import com.synsenetwork.vanadium.config.DeveloperProperties
 import com.synsenetwork.vanadium.config.VanadiumConfig
+import com.synsenetwork.vanadium.config.VanadiumConfigSerializer
 import com.synsenetwork.vanadium.diagnostics.ServerTickEvent
 import com.synsenetwork.vanadium.diagnostics.TickBenchmark
 import com.synsenetwork.vanadium.diagnostics.TickProfiler
@@ -16,7 +17,6 @@ import com.synsenetwork.vanadium.tick.TickScheduler
 import com.synsenetwork.vanadium.tick.WorkerPool
 import java.util.function.LongSupplier
 import me.shedaniel.autoconfig.AutoConfig
-import me.shedaniel.autoconfig.serializer.Toml4jConfigSerializer
 import net.fabricmc.api.ModInitializer
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
@@ -48,7 +48,7 @@ object Vanadium : ModInitializer {
     override fun onInitialize() {
         LOGGER.info("Initializing Vanadium...")
         DeveloperProperties.warnRetired()
-        val holder = AutoConfig.register(VanadiumConfig::class.java) { definition, type -> Toml4jConfigSerializer(definition, type) }
+        val holder = AutoConfig.register(VanadiumConfig::class.java) { definition, type -> VanadiumConfigSerializer(definition, type) }
         config = holder.config
         // Crowded-section grids are bypassed and rebuilt after an entity write ran without its owner's lock.
         CrowdedSection.unprotectedWrites = LongSupplier { Interactions.timeouts + Interactions.cycles }
