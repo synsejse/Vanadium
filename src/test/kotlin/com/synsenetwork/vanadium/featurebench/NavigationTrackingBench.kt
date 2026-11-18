@@ -2,8 +2,10 @@ package com.synsenetwork.vanadium.featurebench
 
 import com.mojang.authlib.GameProfile
 import com.synsenetwork.vanadium.Vanadium
+import com.synsenetwork.vanadium.diagnostics.TickProfile
 import com.synsenetwork.vanadium.navigation.NavigationAccess
 import com.synsenetwork.vanadium.navigation.NavigationIndex
+import com.synsenetwork.vanadium.tick.PreparationKind
 import com.synsenetwork.vanadium.tick.Stage
 import com.synsenetwork.vanadium.tracking.NearbyTrackers
 import java.util.UUID
@@ -79,8 +81,25 @@ internal object NavigationTrackingBench {
             Vanadium.scheduler.run(Stage.TRACKING)
         }
         repeat(202) { tick() }
+        val name = "tracking-8-players-$count-mobs"
+        // TrackingPreparationSwitch must select each arm's own route: the parallel diff preparation on, the inline diff off.
+        for (parallel in listOf(false, true)) {
+            FeatureBench.parallelTrackingPreparation = parallel
+            val profile = TickProfile()
+            Vanadium.scheduler.profile = profile
+            try {
+                for (mob in mobs) mob.needsSync = true
+                tick()
+            } finally {
+                Vanadium.scheduler.profile = null
+            }
+            val prepared = profile.toJson().getAsJsonObject("preparations").has(PreparationKind.TRACKING_DIFFS.name)
+            check(prepared == parallel) {
+                "$name: with parallelTrackingPreparation=$parallel the diff preparation ${if (prepared) "ran" else "did not run"}"
+            }
+        }
         var frame = 0L
-        measurements.compare("tracking-8-players-$count-mobs", { FeatureBench.parallelTrackingPreparation = it }) {
+        measurements.compare(name, { FeatureBench.parallelTrackingPreparation = it }) {
             val x = if (++frame and 1 == 0L) 0.0 else 0.25
             for (player in players) player.setPos(x, 100.0, 0.0)
             for (mob in mobs) mob.needsSync = true

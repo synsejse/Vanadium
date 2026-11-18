@@ -32,20 +32,28 @@ object LiveServer {
     fun finish(server: MinecraftServer, mode: String, settleTicks: Int = 20) {
         require(settleTicks > 0)
         check(System.getProperty("vanadium.live.mode") == mode)
-        check(server.commands.dispatcher.execute("vanadium status", server.createCommandSourceStack()) == 1) {
+        check(server.runCommand("vanadium status") == 1) {
             "Vanadium status command was not registered or failed"
         }
         var ticks = 0
         var saved = false
+        var halted = 0L
         ServerTickEvents.END_SERVER_TICK.register { current ->
             if (current === server && ++ticks == settleTicks) {
+                val start = System.nanoTime()
                 server.saveEverything(false, true, true)
                 saved = true
+                halted = System.nanoTime()
+                println("LIVE_SAVE_DONE elapsedMs=${(halted - start) / 1_000_000}")
                 server.halt(false)
             }
         }
         ServerLifecycleEvents.SERVER_STOPPED.register { current ->
-            if (current === server && saved) Files.writeString(Path.of("vanadium-live-passed.txt"), mode)
+            if (current === server && saved) {
+                // The halt request to a stopped server: vanilla's shutdown, including its own final save.
+                println("LIVE_STOP_DONE elapsedMs=${(System.nanoTime() - halted) / 1_000_000}")
+                Files.writeString(Path.of("vanadium-live-passed.txt"), mode)
+            }
         }
     }
 }

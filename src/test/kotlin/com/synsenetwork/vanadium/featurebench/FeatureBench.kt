@@ -38,11 +38,12 @@ class FeatureBench : ModInitializer {
                         NavigationTrackingBench.tracking(level, measurements, 256)
                         NavigationTrackingBench.tracking(level, measurements, 2048)
                         SpawnPacketBench.spawning(level, measurements)
-                        LockBench.items(level, measurements)
+                        LockBench.items(level, measurements, pool)
                         LockBench.neighbors(level, measurements)
                         SpawnPacketBench.packets(level, measurements)
                         profile(measurements, 0)
                         profile(measurements, 2000)
+                        measurements.requireSelection()
                         println("FEATURE_BENCH_PASSED")
                         com.synsenetwork.vanadium.live.LiveServer.finish(server, "featureBench")
                     }

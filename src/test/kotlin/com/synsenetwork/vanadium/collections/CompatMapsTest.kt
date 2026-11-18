@@ -16,29 +16,21 @@ import kotlin.test.assertTrue
 
 /** Collections installed in place of other mods' concretely typed maps (see LithiumCompat). */
 class CompatMapsTest {
+    /** What only the concrete subtype has; the Long2ObjectMap contract it shares is LongObjectMapContractTest's. */
     @Test
     fun openHashMapStandInNeverUsesSuperclassStorage() {
         val map: Long2ObjectOpenHashMap<String> = ConcurrentLongObjectOpenHashMap()
-        assertNull(map.put(-5L, "a"))
-        assertEquals("a", map.put(-5L, "b"))
-        assertEquals("b", map.get(-5L))
-        assertEquals("b", map.getOrDefault(-5L, "x"))
-        assertEquals("x", map.getOrDefault(7L, "x"))
-        assertTrue(map.containsKey(-5L) && map.containsValue("b"))
-        assertEquals(setOf(-5L), map.keys.toSet())
-        assertEquals(listOf("b"), map.values.toList())
+        map.put(-5L, "b")
         assertEquals(1, map.long2ObjectEntrySet().size)
         assertEquals(-5L, map.long2ObjectEntrySet().fastIterator().next().longKey)
         val seen = ArrayList<Long>()
         map.forEach { k, _ -> seen.add(k) }
         assertEquals(listOf(-5L), seen)
-        assertEquals("c", map.computeIfAbsent(9L) { "c" })
-        assertEquals(map, map.clone())
-        map.defaultReturnValue("none")
-        assertEquals("none", map.get(123L))
-        assertEquals("b", map.remove(-5L))
-        map.clear()
-        assertTrue(map.isEmpty() && map.size == 0)
+        val clone = map.clone()
+        assertTrue(clone is ConcurrentLongObjectOpenHashMap<*> && clone == map)
+        map.put(7L, "c")
+        assertEquals(1, clone.size, "clone is a copy, not a view")
+        assertTrue(map.trim() && map.size == 2)
     }
 
     @Test
