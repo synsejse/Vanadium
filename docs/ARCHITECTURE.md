@@ -344,6 +344,9 @@ change re-evaluates its section's village-centre level in the distance graph
 1. A column's unpack stripe (`SectionStorageMixin`), or vanilla's `loadLock` when the server thread
    unpacks prefetched columns: held while the column's sections are created and `onSectionLoad`
    reaches the graph. The stripe spans the column's disk read; no section or graph monitor does.
+   `getOrCreate` holds it too, so an empty section becomes present once: vanilla checks the slot and
+   then puts a new section, and two callers creating one section (a POI block change beside a chunk
+   load's consistency check) would each put one, losing the records added to the first.
 2. A section's monitor (`SyncAllMixin`): its record map and structural changes (`add`, `remove`,
    `release`, `refresh`), point reads and Lithium's merged queries, which run status tests and
    callers' position predicates inside it. `getRecords` only builds a lazy stream over the
@@ -354,8 +357,9 @@ change re-evaluates its section's village-centre level in the distance graph
    section being created.
 
 Records hold no monitor (`PoiRecordMixin`): tickets change by compare-and-set and are read as
-volatile, and the section's dirty callback runs after the swap. A claim therefore holds nothing, a
-release holds its section, a load holds its stripe, and each takes the graph last. Records used to be
+volatile, and the section's dirty callback runs after the swap. A raw `acquireTicket` therefore holds
+nothing, a claim (`PoiClaims`, below) and a release hold their section, a load holds its stripe, and each
+takes the graph last. Records used to be
 synchronized too, which deadlocked two villagers: a claim held a record while its dirty callback's
 village check waited for that record's section, and a section read (`getType`) held the section while
 waiting for the record.
@@ -365,31 +369,57 @@ section could publish in the opposite order to their reads and leave a stale vil
 one). `PoiManagerMixin` re-reads the level inside the monitor: the last update for a section follows
 every change made before it, and the graph converges on the current POI state.
 
-Claims honour the ticket they took. Vanilla returns a claim's position whether or not its ticket was
-still free, so two villagers picking the last ticket of one record could both keep it. `take` (breeding
-beds, and job sites when Lithium's `ai.poi.tasks` is off) skips a candidate whose last ticket another
-thread took after the occupancy filter and searches on, as if that claim had come first (`PoiManagerMixin`);
-Lithium's exact-position `takeAt` claims by compare-and-set and returns empty without a ticket (`PoiTakeAtMixin`,
-one optional hook that `SynchronisePlugin` requires wherever `takeAt` exists). `AcquirePoi` stores the job-site memory, sends its event,
-clears its retry cache and updates debug info only after a claim of its target (`AcquirePoiMixin`); a lost
-claim changes nothing, and the next scheduled attempt searches again. For one live record, each ticket
-therefore goes to one claimant, and only a claimant that took one remembers the POI. Records detached by
-unloading are not covered (see the limits below).
+Claims honour the ticket they took, on a record that is still installed. Vanilla returns a claim's position
+whether or not its ticket was still free, so two villagers picking the last ticket of one record could both
+keep it; and it finds its candidate before it claims (Lithium's searches collect candidates into a list), so
+the record may meanwhile have been removed by a block change, dropped by a section refresh or detached by a
+column unload, and a ticket taken on it is saved nowhere. Both claims commit through `PoiClaims`: under the
+section's monitor, the storage map (read without loading) must still hold that section and the section that
+record at its position; then the ticket is taken by compare-and-set and the dirty callback runs (section, then
+the terminal graph). Removal, refresh and `pack` are synchronized section methods, so each is ordered wholly
+before or after a claim; no caller predicate and no load runs under that monitor. `take` (breeding beds, and
+job sites when Lithium's `ai.poi.tasks` is off) skips a candidate that fails the commit and searches on, as if
+that change had come first (`PoiManagerMixin`); Lithium's exact-position `takeAt` returns empty
+(`PoiTakeAtMixin`, one optional hook that `SynchronisePlugin` requires wherever `takeAt` exists). `AcquirePoi`
+stores the job-site memory, sends its event, clears its retry cache and updates debug info only after a claim of
+its target (`AcquirePoiMixin`); a lost claim changes nothing, and the next scheduled attempt searches again.
+Each ticket therefore goes to one claimant, on the record that is saved, and only a claimant that took one
+remembers the POI. `PoiRecord.acquireTicket` itself stays a plain compare-and-set for other callers.
+
+C2ME's POI unloading (`chunkSystem.allowPOIUnloading`, on by default) flushes a column and removes its sections
+when its chunk downgrades, on the server thread's executor, holding no POI monitor and telling nobody. That
+executor also runs while the server thread waits inside a parallel wave, where workers may be claiming in the
+column; and a village centre in a removed column drops out of the graph at the next nearby update, where vanilla
+(which never unloads POI) keeps it while it is occupied. `PoiUnloadMixin` adds two vetoes to C2ME's merged
+`shouldUnloadPoi`, never overriding its own refusal: on a parallel wave's caller (or a worker), and for a column
+with a village centre in any installed section (the graph's only sources; every vanilla type with tickets is a
+village type, so every claimed ticket is covered). An unload therefore runs only when no other thread claims, and
+removes no source: no level in the graph changes, and nothing is invalidated. A ticket claimed before the unload
+is in the flushed data and reloads with the column. On the server thread itself, a candidate found before an
+unload pumped by its own search fails the commit. A vetoed column stays loaded, as in vanilla, until C2ME asks
+again on a later downgrade of that chunk; the request is not queued or replayed, since nothing records whether the
+chunk was loaded again in between. The hook is optional (absent without C2ME's chunk-system rewrite) and
+`SynchronisePlugin` requires it wherever the method exists.
 
 Saving reads ticket counts after the dirty mark: a ticket changes before its column is marked dirty
 (concurrent set), and a write removes the mark before packing, so it either includes the change or the
 column stays marked for a later write.
 
-Limits, unchanged by this ordering:
+Limits:
 
-- C2ME's POI unloading (`chunkSystem.allowPOIUnloading`) flushes and drops a column on the server
-  thread, which can run chunk-system work mid-wave. It does not notify the graph, so levels near the
-  column stay as they were until a nearby update (as with C2ME on vanilla), and a ticket claimed on a
-  record of that column during the unload is lost when the column reloads (logged as "No data for
-  position"). The claim guarantee above is for one live record; a claim overlapping this unload, and
-  the graph's levels after it, are open issues tracked separately.
-- A claim of a record that a concurrent block change removes is ordered as claim, then removal: the
-  ticket goes with the record, and vanilla's job-site validation drops the memory.
+- Columns are retained more than with C2ME alone: those whose chunks downgrade during a parallel wave, and
+  those holding a village centre, stay loaded as vanilla keeps every column, until a later downgrade finds
+  them eligible. Memory then grows with chunks unloaded mid-wave; a village centre's column is bounded by
+  the villages, as in vanilla.
+- The guarantees cover vanilla's and the pinned Lithium's and C2ME's paths. A mod that calls
+  `acquireTicket` itself skips the installed check, and one that removes POI sections by other means is
+  not vetoed. A ticketed POI type outside the village tag (a mod's, or a datapack's edit of the tag) is not
+  a village centre, so its column may unload outside waves; its tickets are flushed first and reload with it.
+  Outside waves the unload is ordered against claims and section creation only because no other thread
+  does either then; a mod doing so off-thread is not covered.
+- A claim of a record that a concurrent block change removes is ordered by the section's monitor: before
+  the removal, the ticket goes with the record and vanilla's job-site validation drops the memory; after it,
+  the claim fails.
 - Lithium's queries run callers' predicates under a section monitor. Vanilla's and Lithium's predicates
   take no POI monitor; a mod predicate that took another section's monitor, or waited for the server
   thread, could still stall that section.

@@ -58,7 +58,7 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 
 - **Kotlin vs. Java:** Mixin classes must be Java. So are the duck interfaces they implement
   (`vanadium$`-prefixed methods: `NavigationAccess`, `NavigationState`, `InteractionAccess`,
-  `PoiDistanceAccess`, `PoiTicketAccess`, `EntityTickAccess`, `ChunkTickAccess`, `ScheduledTickAccess`, `CrowdAccess`, `CrowdSlotAccess`,
+  `PoiDistanceAccess`, `PoiTicketAccess`, `PoiSectionAccess`, `SectionStorageAccess`, `EntityTickAccess`, `ChunkTickAccess`, `ScheduledTickAccess`, `CrowdAccess`, `CrowdSlotAccess`,
   `CrowdedSectionsAccess`) and code that runs during Mixin
   bootstrap (`mixin/SynchronisePlugin.java`, `compat/C2ME.java`, `compat/Lithium.java`). Everything else is Kotlin.
   Kotlin APIs called from mixins use `@JvmField`/`@JvmStatic` (`Vanadium.config`, `Vanadium.scheduler`);

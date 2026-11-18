@@ -2,11 +2,15 @@ package com.synsenetwork.vanadium.mixin.world.poi;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
+import com.synsenetwork.vanadium.concurrent.PoiSectionAccess;
+import it.unimi.dsi.fastutil.shorts.Short2ObjectMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
+import net.minecraft.core.SectionPos;
 import net.minecraft.world.entity.ai.village.poi.PoiRecord;
 import net.minecraft.world.entity.ai.village.poi.PoiSection;
 import net.minecraft.world.entity.ai.village.poi.PoiType;
@@ -22,10 +26,15 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 /**
  * Section methods are synchronized ({@code SyncAllMixin}), but vanilla's record stream and Lithium's iterators
  * are consumed after the lock is released, while other regions add and remove POI in the section. The per-type
- * map and sets are concurrent, so those reads are weakly consistent instead of failing mid-iteration.
+ * map and sets are concurrent, so those reads are weakly consistent instead of failing mid-iteration. The record map
+ * itself is only read and written under the section's monitor, including by {@code PoiClaims}.
  */
 @Mixin(PoiSection.class)
-public abstract class PoiSectionMixin {
+public abstract class PoiSectionMixin implements PoiSectionAccess {
+    @Shadow
+    @Final
+    private Short2ObjectMap<PoiRecord> records;
+
     @Shadow
     @Final
     @Mutable
@@ -46,5 +55,10 @@ public abstract class PoiSectionMixin {
     private Object vanadium$concurrentTypeSet(Map<Holder<PoiType>, Set<PoiRecord>> byType, Object type, Function<?, ?> vanilla,
             Operation<Object> original) {
         return original.call(byType, type, vanadium$newTypeSet);
+    }
+
+    @Override
+    public PoiRecord vanadium$recordAt(BlockPos pos) {
+        return this.records.get(SectionPos.sectionRelativePos(pos));
     }
 }

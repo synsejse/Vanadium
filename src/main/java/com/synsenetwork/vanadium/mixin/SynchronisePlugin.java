@@ -16,7 +16,8 @@ import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
 /** Stamps ACC_SYNCHRONIZED on every instance method of the SYNC_ALL targets (non-thread-safe vanilla
  *  helpers Vanadium touches from worker threads), and makes {@code Level.randValue} per-thread in the
  *  RAND_VALUE targets. Both run after every mixin, so they also cover other mods' merged code. Also checks
- *  that POI_TAKE_AT's optional hook bound wherever its target exists. */
+ *  that the optional hooks into other mods' merged POI methods (Lithium's takeAt, C2ME's shouldUnloadPoi)
+ *  bound wherever their target exists. */
 public class SynchronisePlugin implements IMixinConfigPlugin {
     private static final Logger LOGGER = LogManager.getLogger();
 
@@ -27,6 +28,9 @@ public class SynchronisePlugin implements IMixinConfigPlugin {
     private static final String POI_TAKE_AT = "com.synsenetwork.vanadium.mixin.compat.lithium.PoiTakeAtMixin";
     private static final String TAKE_AT = "lithium$takeAt";
     private static final String TAKE_AT_HOOK = "vanadium$claimOrEmpty";
+    private static final String POI_UNLOAD = "com.synsenetwork.vanadium.mixin.compat.c2me.PoiUnloadMixin";
+    private static final String SHOULD_UNLOAD_POI = "c2me$shouldUnloadPoi";
+    private static final String SHOULD_UNLOAD_POI_HOOK = "vanadium$keepResident";
     /**
      * Methods that only read volatile or concurrent state; locking them would serialize hot read paths.
      * {@code PoiSection.getRecords} builds a lazy stream over the concurrent per-type sets, consumed after the
@@ -70,7 +74,13 @@ public class SynchronisePlugin implements IMixinConfigPlugin {
             return;
         }
         if (POI_TAKE_AT.equals(mixinClassName)) {
-            checkTakeAtHooks(targetClassName, targetClass);
+            checkOptionalHook(targetClassName, targetClass, TAKE_AT, TAKE_AT_HOOK, "Lithium ai.poi disabled",
+                    "a claim without a ticket would return the position (Lithium changed the method?)");
+            return;
+        }
+        if (POI_UNLOAD.equals(mixinClassName)) {
+            checkOptionalHook(targetClassName, targetClass, SHOULD_UNLOAD_POI, SHOULD_UNLOAD_POI_HOOK, "no C2ME chunk-system POI unloading",
+                    "C2ME could unload POI mid-wave or drop village centres (C2ME changed the method?)");
             return;
         }
         if (!SYNC_ALL.equals(mixinClassName)) {
@@ -88,33 +98,34 @@ public class SynchronisePlugin implements IMixinConfigPlugin {
     }
 
     /**
-     * The takeAt hook is {@code require = 0} only because Lithium's {@code ai.poi} option may be off, leaving no
-     * {@code lithium$takeAt}. With the method present, an unbound hook would leave claims that took no ticket
-     * returning the position. The hook is a plain {@code @Inject}, applied before this runs (MixinExtras' late
-     * injectors are not, so they cannot be checked here).
+     * Hooks into a method another mod merges are {@code require = 0} only because that mod's option or module may
+     * be off, leaving no method: Lithium's {@code ai.poi} adds {@code takeAt}, C2ME's chunk-system rewrite adds
+     * {@code shouldUnloadPoi}. With the method present, an unbound hook would silently lose the guarantee. Both hooks
+     * are plain {@code @Inject}s, applied before this runs (MixinExtras' late injectors are not, so they cannot be
+     * checked here).
      */
-    private static void checkTakeAtHooks(String targetClassName, ClassNode targetClass) {
-        MethodNode takeAt = null;
+    private static void checkOptionalHook(String targetClassName, ClassNode targetClass, String methodName, String hook,
+            String absentReason, String unboundConsequence) {
+        MethodNode target = null;
         for (MethodNode method : targetClass.methods) {
-            if (method.name.equals(TAKE_AT)) {
-                if (takeAt != null) throw new IllegalStateException("Several " + TAKE_AT + " methods in " + targetClassName);
-                takeAt = method;
+            if (method.name.equals(methodName)) {
+                if (target != null) throw new IllegalStateException("Several " + methodName + " methods in " + targetClassName);
+                target = method;
             }
         }
-        if (takeAt == null) {
-            LOGGER.info("No {} in {} (Lithium ai.poi disabled); its claim hook is not applied.", TAKE_AT, targetClassName);
+        if (target == null) {
+            LOGGER.info("No {} in {} ({}); its hook is not applied.", methodName, targetClassName, absentReason);
             return;
         }
         boolean called = false;
-        for (AbstractInsnNode insn = takeAt.instructions.getFirst(); insn != null && !called; insn = insn.getNext()) {
+        for (AbstractInsnNode insn = target.instructions.getFirst(); insn != null && !called; insn = insn.getNext()) {
             called = insn instanceof MethodInsnNode call && call.owner.equals(targetClass.name)
-                    && (call.name.equals(TAKE_AT_HOOK) || call.name.endsWith("$" + TAKE_AT_HOOK));
+                    && (call.name.equals(hook) || call.name.endsWith("$" + hook));
         }
         if (!called) {
-            throw new IllegalStateException(TAKE_AT + " in " + targetClassName + " does not call " + TAKE_AT_HOOK
-                    + ": a claim without a ticket would return the position (Lithium changed the method?)");
+            throw new IllegalStateException(methodName + " in " + targetClassName + " does not call " + hook + ": " + unboundConsequence);
         }
-        LOGGER.info("Bound the claim hook in {}#{}.", targetClassName, TAKE_AT);
+        LOGGER.info("Bound {} in {}#{}.", hook, targetClassName, methodName);
     }
 
     /** Replaces field accesses outside constructors (which only seed the shared field) with per-thread state. */

@@ -73,6 +73,7 @@
     "world.RandValueMixin",
     "world.ServerExplosionMixin",
     "world.poi.PoiSectionMixin",
+    "compat.c2me.PoiUnloadMixin",
     "compat.lithium.ChunkStatusTrackerMixin",
     "compat.lithium.EntitySectionMovementTrackingMixin",
     "compat.lithium.GameEventDispatcherStorageMixin",

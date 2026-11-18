@@ -48,18 +48,15 @@ public abstract class PoiRecordMixin implements PoiTicketAccess {
     /**
      * @author Vanadium
      * @reason Two claims of the last ticket must not both succeed: vanilla's check-then-decrement relied on the
-     * record's monitor, which is gone. Public: Lithium's access widener opens it.
+     * record's monitor, which is gone. Public: Lithium's access widener opens it. Vanilla's and Lithium's claims go
+     * through {@code PoiClaims} instead, which also checks that the record is still installed; this stays for
+     * other callers.
      */
     @Overwrite
     public boolean acquireTicket() {
-        PoiRecord self = (PoiRecord) (Object) this;
-        int free;
-        do {
-            free = (int) vanadium$FREE_TICKETS.getVolatile(self);
-            if (free <= 0) {
-                return false;
-            }
-        } while (!vanadium$FREE_TICKETS.compareAndSet(self, free, free - 1));
+        if (!this.vanadium$takeTicket()) {
+            return false;
+        }
         this.setDirty.run();
         return true;
     }
@@ -93,5 +90,23 @@ public abstract class PoiRecordMixin implements PoiTicketAccess {
     @Override
     public boolean vanadium$acquireTicket() {
         return this.acquireTicket();
+    }
+
+    @Override
+    public boolean vanadium$takeTicket() {
+        PoiRecord self = (PoiRecord) (Object) this;
+        int free;
+        do {
+            free = (int) vanadium$FREE_TICKETS.getVolatile(self);
+            if (free <= 0) {
+                return false;
+            }
+        } while (!vanadium$FREE_TICKETS.compareAndSet(self, free, free - 1));
+        return true;
+    }
+
+    @Override
+    public void vanadium$markDirty() {
+        this.setDirty.run();
     }
 }

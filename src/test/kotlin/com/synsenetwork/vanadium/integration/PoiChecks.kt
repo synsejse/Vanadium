@@ -2,6 +2,8 @@ package com.synsenetwork.vanadium.integration
 
 import com.synsenetwork.vanadium.concurrent.PoiDistanceAccess
 import com.synsenetwork.vanadium.concurrent.PoiTicketAccess
+import com.synsenetwork.vanadium.tick.WorkerPool
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 import it.unimi.dsi.fastutil.longs.LongSet
 import java.lang.management.ManagementFactory
@@ -9,9 +11,12 @@ import java.lang.reflect.Modifier
 import java.util.Optional
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import java.util.function.BiConsumer
 import java.util.function.BiPredicate
+import java.util.function.Consumer
 import java.util.function.Predicate
 import net.caffeinemc.mods.lithium.common.world.interests.PointOfInterestStorageExtended
 import net.minecraft.core.BlockPos
@@ -38,9 +43,10 @@ import net.minecraft.world.level.chunk.storage.SectionStorage
 /**
  * POI locking (docs/ARCHITECTURE.md, "POI locking"): records are lock-free leaves, the distance graph's monitor is
  * terminal, the village-centre level is published from a read made under that monitor, and claims honour the
- * ticket they actually took. Lock edges are probed by holding the monitor a regression would need on a helper
- * thread and waiting a bounded time for the probe; the holder then lets go, so a regression fails the check
- * instead of hanging the server.
+ * ticket they actually took, on a record still installed. C2ME's POI unloading keeps columns that are in use (during
+ * parallel waves, or holding a village centre). Lock edges are probed by holding the monitor a regression would need
+ * on a helper thread and waiting a bounded time for the probe; the holder then lets go, so a regression fails the
+ * check instead of hanging the server.
  */
 internal object PoiChecks {
     private const val WAIT_SECONDS = 5L
@@ -65,6 +71,11 @@ internal object PoiChecks {
         takeAt?.let { checkLithiumTakeAtHonoursTicket(level, it, site(5)) }
         checkOneTicketRace(level, takeAt, site(6))
         checkAcquirePoiOnlyAfterClaim(level, site(7))
+        val c2me = C2meUnload.find(level.poiManager)
+        println("POI_UNLOAD_PATHS c2me=${c2me != null} allowPOIUnloading=${c2me?.enabled}")
+        checkStaleCandidatesNotClaimed(level, takeAt, c2me?.takeIf { it.enabled }, site(8))
+        checkReloadKeepsTicketsAndCentre(level, c2me, site(9))
+        c2me?.takeIf { it.enabled }?.let { checkUnloadKeepsColumnsInUse(level, it, site(10)) }
         println("POI_CHECKS_PASSED")
     }
 
@@ -291,6 +302,204 @@ internal object PoiChecks {
             poi.remove(pos)
         }
     }
+
+    /**
+     * A claim's candidate can go stale before its claim: removed by a block change, dropped by a refresh of its
+     * section, or detached by a column unload. Each invalidation runs inside the claim, between the search and the
+     * commit (take's filter, takeAt's type test), for both claim routes. The stale record must keep its ticket and the
+     * claim must fail; a record the refresh kept is the same live record, and stays claimable.
+     */
+    private fun checkStaleCandidatesNotClaimed(level: ServerLevel, takeAt: PointOfInterestStorageExtended?, c2me: C2meUnload?, base: BlockPos) {
+        val poi = level.poiManager
+        val invalidations = linkedMapOf<String, (PoiRecord, PoiRecord) -> Unit>(
+            "removal" to { stale, _ -> poi.remove(stale.pos) },
+            "refresh" to { stale, kept ->
+                val section = section(poi, SectionPos.asLong(stale.pos)) ?: throw AssertionError("refresh: section missing")
+                PoiSection::class.java.getDeclaredField("isValid").apply { isAccessible = true }.setBoolean(section, false)
+                // Refresh rebuilds an invalid section from its blocks: only the kept position still has a POI.
+                section.refresh(Consumer { out: BiConsumer<BlockPos, Holder<PoiType>> -> out.accept(kept.pos, armorer) })
+            })
+        c2me?.let { invalidations["unload"] = { stale, _ -> it.unload(ChunkPos.containing(stale.pos)) } }
+        val routes = linkedMapOf<String, (BlockPos, () -> Unit) -> Optional<BlockPos>>(
+            "take" to { pos, invalidate -> poi.take(isArmorer, { _, p -> if (p == pos) invalidate(); p == pos }, pos, 1) })
+        takeAt?.let { lithium ->
+            routes["takeAt"] = { pos, invalidate -> lithium.`lithium$takeAt`({ type -> invalidate(); type.`is`(ARMORER) }, { _, _ -> true }, pos) }
+        }
+        var case = 0
+        for ((route, claim) in routes) for ((kind, invalidate) in invalidations) {
+            // A column of its own per case (16 blocks apart), the kept record two blocks over in the same section.
+            val pos = base.offset(16 * case++, 0, 0)
+            val keptPos = pos.offset(2, 0, 0)
+            val stale = addArmorer(level, pos)
+            val kept = addArmorer(level, keptPos)
+            try {
+                val fired = AtomicBoolean()
+                val taken = claim(pos) { if (fired.compareAndSet(false, true)) invalidate(stale, kept) }
+                check(fired.get()) { "$route/$kind: the claim never reached its candidate" }
+                check(taken.isEmpty) { "$route/$kind: claimed a record that is no longer installed" }
+                check(stale.pack().freeTickets() == 1) { "$route/$kind: took a ticket on a detached record" }
+                val current = currentRecord(poi, pos)
+                if (kind == "unload") {
+                    check(current != null && current !== stale) { "$route/$kind: column did not reload a new record" }
+                    check(claim(pos) {} == Optional.of(pos)) { "$route/$kind: the reloaded record is not claimable" }
+                } else {
+                    check(current == null) { "$route/$kind: the invalidated POI is still installed" }
+                }
+                val keptNow = currentRecord(poi, keptPos)
+                if (kind == "unload") check(keptNow !== kept) { "$route/$kind: kept record survived its column's unload" }
+                else check(keptNow === kept) { "$route/$kind: a record the change kept was replaced" }
+                check(claim(keptPos) {} == Optional.of(keptPos)) { "$route/$kind: the kept record is not claimable" }
+                check(keptNow?.pack()?.freeTickets() == 0) { "$route/$kind: claim of the kept record took no ticket" }
+            } finally {
+                for (p in listOf(pos, keptPos)) if (poi.getType(p).isPresent) poi.remove(p)
+            }
+        }
+        println("POI_STALE_CANDIDATES cases=$case routes=${routes.keys} invalidations=${invalidations.keys}")
+    }
+
+    /**
+     * Saving and reloading a column keeps its claimed tickets and its village centre: the column is flushed and its
+     * sections dropped as C2ME's unload does (by hand, since that unload keeps occupied columns), then read back.
+     */
+    private fun checkReloadKeepsTicketsAndCentre(level: ServerLevel, c2me: C2meUnload?, pos: BlockPos) {
+        val poi = level.poiManager
+        val chunk = ChunkPos.containing(pos)
+        val sectionPos = SectionPos.asLong(pos)
+        val record = addArmorer(level, pos)
+        try {
+            check(poi.take(isArmorer, { _, p -> p == pos }, pos, 1) == Optional.of(pos)) { "free job site not claimed" }
+            check(poi.sectionsToVillage(SectionPos.of(pos)) == 0) { "claimed job site is not a village centre" }
+            val before = section(poi, sectionPos)
+            if (c2me != null) {
+                check(c2me.unloadVetoed(chunk)) { "C2ME may unload a column holding a village centre" }
+                c2me.unload(chunk)
+                check(section(poi, sectionPos) === before) { "C2ME unloaded a column holding a village centre" }
+            }
+            evictLikeC2me(poi, chunk)
+            check(stored(poi, sectionPos) == null) { "evicted column is still loaded" }
+            check(poi.getType(pos).orElse(null)?.`is`(ARMORER) == true) { "reloaded column lost its job site" }
+            val reloaded = currentRecord(poi, pos) ?: throw AssertionError("reloaded job site has no record")
+            check(reloaded !== record && section(poi, sectionPos) !== before) { "column was not read back" }
+            check(reloaded.pack().freeTickets() == 0) { "reloaded job site lost its claimed ticket" }
+            check(poi.take(isArmorer, { _, p -> p == pos }, pos, 1).isEmpty) { "reloaded job site gave out its claimed ticket again" }
+            check(poi.sectionsToVillage(SectionPos.of(pos)) == 0) { "reloaded occupied job site is not a village centre" }
+            check(poi.release(pos)) { "reloaded ticket not released" }
+        } finally {
+            if (poi.getType(pos).isPresent) poi.remove(pos)
+        }
+    }
+
+    /**
+     * C2ME's unload, through its own entry points: refused while the server thread runs a parallel wave with a worker
+     * in it (the worker then claims the job site on the record that stayed), refused outside waves while the column
+     * holds that village centre (through a save), and done once the ticket is released, after which the column
+     * reloads with the saved free ticket.
+     */
+    private fun checkUnloadKeepsColumnsInUse(level: ServerLevel, c2me: C2meUnload, pos: BlockPos) {
+        val poi = level.poiManager
+        val chunk = ChunkPos.containing(pos)
+        val sectionPos = SectionPos.asLong(pos)
+        val record = addArmorer(level, pos)
+        try {
+            val before = section(poi, sectionPos)
+            check(!c2me.unloadVetoed(chunk)) { "C2ME would not unload a column with a free job site outside waves" }
+            val workerStarted = CountDownLatch(1)
+            val callerDone = CountDownLatch(1)
+            val vetoed = AtomicReference<Boolean>()
+            val kept = AtomicReference<Boolean>()
+            val claimed = AtomicReference<Boolean>()
+            WorkerPool(1).use { pool ->
+                pool.runWave(List(2) {
+                    Runnable {
+                        if (WorkerPool.isWorkerThread()) {
+                            workerStarted.countDown()
+                            check(callerDone.await(WAIT_SECONDS, TimeUnit.SECONDS)) { "unload attempt gate timed out" }
+                            claimed.set(poi.take(isArmorer, { _, p -> p == pos }, pos, 1) == Optional.of(pos))
+                        } else {
+                            try {
+                                check(workerStarted.await(WAIT_SECONDS, TimeUnit.SECONDS)) { "no worker joined the wave" }
+                                check(WorkerPool.isParallelWaveCaller()) { "caller is not running a parallel wave" }
+                                vetoed.set(c2me.unloadVetoed(chunk))
+                                c2me.unload(chunk)
+                                kept.set(section(poi, sectionPos) === before)
+                            } finally {
+                                callerDone.countDown()
+                            }
+                        }
+                    }
+                })
+            }
+            check(vetoed.get() == true) { "C2ME may unload POI while a parallel wave runs" }
+            check(kept.get() == true) { "C2ME unloaded a POI column during a parallel wave" }
+            check(claimed.get() == true) { "the worker could not claim the job site the wave kept" }
+            check(section(poi, sectionPos) === before && record.pack().freeTickets() == 0) { "the claimed ticket is not on the installed record" }
+            check(poi.sectionsToVillage(SectionPos.of(pos)) == 0) { "claimed job site is not a village centre" }
+
+            check(c2me.unloadVetoed(chunk)) { "C2ME may unload a column holding a village centre" }
+            c2me.unload(chunk)
+            poi.flush(chunk)
+            check(section(poi, sectionPos) === before && record.pack().freeTickets() == 0) { "the occupied column was not kept with its ticket" }
+            check(poi.sectionsToVillage(SectionPos.of(pos)) == 0) { "the kept column lost its village centre" }
+
+            check(poi.release(pos)) { "claimed ticket not released" }
+            check(!c2me.unloadVetoed(chunk)) { "a released column is still kept" }
+            c2me.unload(chunk)
+            check(stored(poi, sectionPos) == null) { "C2ME did not unload the released column" }
+            val reloaded = currentRecord(poi, pos) ?: throw AssertionError("unloaded job site did not reload")
+            check(reloaded !== record && reloaded.pack().freeTickets() == 1) { "reloaded job site did not keep its free ticket" }
+            check(poi.sectionsToVillage(SectionPos.of(pos)) >= NOT_A_VILLAGE) { "a released, reloaded job site is a village centre" }
+        } finally {
+            if (poi.getType(pos).isPresent) poi.remove(pos)
+        }
+    }
+
+    /** C2ME's POI unload entry points, merged into section storage; reflective, since C2ME is not on the compile path. */
+    private class C2meUnload(private val poi: PoiManager, private val should: java.lang.reflect.Method, private val unload: java.lang.reflect.Method,
+                             val enabled: Boolean) {
+        /** The merged answer, C2ME's own check and Vanadium's vetoes together: false when the column must stay. */
+        fun unloadVetoed(chunk: ChunkPos): Boolean = !(should.invoke(poi, chunk) as Boolean)
+
+        fun unload(chunk: ChunkPos) {
+            unload.invoke(poi, chunk)
+        }
+
+        companion object {
+            fun find(poi: PoiManager): C2meUnload? {
+                val should = PoiManager::class.java.declaredMethods.firstOrNull { it.name == "c2me\$shouldUnloadPoi" } ?: return null
+                val unload = SectionStorage::class.java.declaredMethods.single { it.name == "c2me\$unloadPoi" }
+                val config = Class.forName("com.ishland.c2me.rewrites.chunksystem.common.Config", true, PoiManager::class.java.classLoader)
+                return C2meUnload(poi, should, unload, config.getField("allowPOIUnloading").getBoolean(null))
+            }
+        }
+    }
+
+    /** Mirrors pinned C2ME's `c2me$unloadPoi` past its checks: flush, drop the sections, forget the column. */
+    private fun evictLikeC2me(poi: PoiManager, chunk: ChunkPos) {
+        fun field(name: String) = SectionStorage::class.java.getDeclaredField(name).apply { isAccessible = true }.get(poi)
+        poi.flush(chunk)
+        @Suppress("UNCHECKED_CAST")
+        val storage = field("storage") as Long2ObjectMap<Optional<*>>
+        for (y in level(poi).minSectionY..level(poi).maxSectionY) storage.remove(SectionPos.asLong(chunk.x(), y, chunk.z()))
+        synchronized(field("loadLock")) {
+            (field("loadedChunks") as LongSet).remove(chunk.pack())
+            (field("pendingLoads") as Long2ObjectMap<*>).remove(chunk.pack())
+        }
+    }
+
+    private fun level(poi: PoiManager) = SectionStorage::class.java.getDeclaredField("levelHeightAccessor").apply { isAccessible = true }
+        .get(poi) as net.minecraft.world.level.LevelHeightAccessor
+
+    /** The record installed at [pos], loading its column if needed; null if none. */
+    private fun currentRecord(poi: PoiManager, pos: BlockPos): PoiRecord? {
+        poi.getType(pos)
+        val section = section(poi, SectionPos.asLong(pos), allowEmpty = true) ?: return null
+        return synchronized(section) { (section as com.synsenetwork.vanadium.concurrent.PoiSectionAccess).`vanadium$recordAt`(pos) }
+    }
+
+    /** The storage slot without loading: null when the column is not loaded. */
+    private fun stored(poi: PoiManager, sectionPos: Long): Optional<*>? =
+        SectionStorage::class.java.getDeclaredMethod("get", Long::class.javaPrimitiveType).apply { isAccessible = true }
+            .invoke(poi, sectionPos) as Optional<*>?
 
     private fun addArmorer(level: ServerLevel, pos: BlockPos): PoiRecord {
         check(level.poiManager.getType(pos).isEmpty) { "test POI position $pos is occupied" }
