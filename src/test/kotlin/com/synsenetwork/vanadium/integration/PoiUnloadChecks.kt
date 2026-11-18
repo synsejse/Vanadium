@@ -240,12 +240,17 @@ internal object PoiUnloadChecks {
         val tag = FileChannel.open(file, StandardOpenOption.READ).use { channel ->
             val location = readFully(channel, 4L * ((chunk.x() and 31) + (chunk.z() and 31) * 32), 4).int
             if (location == 0) return null
-            val sectors = readFully(channel, (location ushr 8).toLong() * 4096, (location and 0xFF) * 4096)
-            val length = sectors.int
-            val version = sectors.get().toInt()
+            val offset = (location ushr 8).toLong() * 4096
+            val capacity = (location and 0xFF) * 4096
+            // The last allocated sector need not be padded while the region file is open.
+            val header = readFully(channel, offset, 5)
+            val length = header.int
+            check(length in 1..(capacity - Int.SIZE_BYTES)) { "POI column $chunk has invalid record length $length" }
+            val version = header.get().toInt()
             check(version and 0x80 == 0) { "POI column $chunk is in an external .mcc file, which this reader does not follow" }
             val compression = RegionFileVersion.fromId(version) ?: throw AssertionError("POI column $chunk has unknown compression $version")
-            DataInputStream(compression.wrap(ByteArrayInputStream(sectors.array(), sectors.position(), length - 1))).use { NbtIo.read(it) }
+            val payload = readFully(channel, offset + 5, length - 1)
+            DataInputStream(compression.wrap(ByteArrayInputStream(payload.array()))).use { NbtIo.read(it) }
         }
         val section = tag.getCompoundOrEmpty("Sections").get(SectionPos.blockToSectionCoord(pos.y).toString()) ?: return null
         val packed = PoiSection.Packed.CODEC.parse(level.registryAccess().createSerializationContext(NbtOps.INSTANCE), section).getOrThrow()
