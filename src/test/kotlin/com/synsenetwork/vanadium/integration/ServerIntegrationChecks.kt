@@ -72,6 +72,9 @@ class ServerIntegrationChecks : ModInitializer {
             CrowdChecks.schedule(level, ticked)
             ticked.phase("SpawnSkipChecks")
             SpawnSkipChecks.schedule(level, ticked)
+            ticked.phase("IdleWorkerChecks")
+            // Before players join: the frozen server it checks must run no parallel work.
+            IdleWorkerChecks.schedule(level, ticked)
             ticked.phase("PlayerChecks")
             PlayerChecks.schedule(level, ticked)
             ticked.phase("ReportChecks")
