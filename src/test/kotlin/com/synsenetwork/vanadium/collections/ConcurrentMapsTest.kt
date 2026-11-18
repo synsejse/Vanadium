@@ -29,21 +29,6 @@ class ConcurrentMapsTest {
     }
 
     @Test
-    fun long2ObjectPutGetRemoveAndDefaults() {
-        val map = ConcurrentLongObjectMap<String>()
-        assertNull(map.put(1L, "a"))
-        assertEquals("a", map.put(1L, "b"))
-        assertEquals("b", map.get(1L))
-        assertTrue(map.containsKey(1L))
-        assertEquals("b", map.remove(1L))
-        assertEquals(0, map.size)
-        map.defaultReturnValue("N/A")
-        assertEquals("N/A", map.get(42L))
-        assertEquals("N/A", map.put(7L, "v"))
-        assertEquals("N/A", map.remove(999L))
-    }
-
-    @Test
     fun long2BytePutGetRemoveAndDefaults() {
         val map = ConcurrentLongByteMap()
         assertEquals(0, map.put(1L, 5))
@@ -56,23 +41,10 @@ class ConcurrentMapsTest {
         assertEquals(-1, map.remove(77L))
     }
 
+    /** Long-object maps share LongObjectMapContractTest's views; the byte map's primitive iteration is its own. */
     @Test
-    fun viewsExposeOriginalKeysAndWriteThrough() {
+    fun byteViewsExposeOriginalKeys() {
         val keys = setOf(-5L, 0L, 1L shl 40, Long.MIN_VALUE, Long.MAX_VALUE)
-        val objects = ConcurrentLongObjectMap<String>()
-        for (key in keys) objects.put(key, "v$key")
-        assertEquals(keys, objects.keys.toSet())
-        assertTrue(objects.keys.contains(1L shl 40))
-        for (entry in objects.long2ObjectEntrySet()) {
-            assertEquals("v${entry.longKey}", entry.value)
-            entry.setValue("w${entry.longKey}")
-        }
-        for (key in keys) assertEquals("w$key", objects.get(key), "entry setValue must write through")
-        val iterator = objects.long2ObjectEntrySet().iterator()
-        iterator.next()
-        iterator.remove()
-        assertEquals(keys.size - 1, objects.size)
-
         val bytes = ConcurrentLongByteMap()
         for (key in keys) bytes.put(key, 2)
         val visited = HashSet<Long>()
@@ -142,18 +114,6 @@ class ConcurrentMapsTest {
     }
 
     @Test
-    fun long2ObjectComputeFamily() {
-        val map = ConcurrentLongObjectMap<String>()
-        assertEquals("v1", map.computeIfAbsent(1L) { k: Long -> "v$k" })
-        assertEquals("v1", map.computeIfAbsent(1L) { _: Long -> "should-not-run" })
-        assertEquals("v1!", map.computeIfPresent(1L) { _, v -> "$v!" })
-        assertEquals("x", map.compute(2L) { _, _ -> "x" })
-        assertNull(map.putIfAbsent(3L, "a"))
-        assertEquals("a", map.get(3L))
-        assertEquals("ab", map.merge(3L, "b") { old, new -> old + new })
-    }
-
-    @Test
     fun intComputationsPreserveFastutilDefaultReturnValues() {
         val maps = listOf(ConcurrentIntObjectMap<String>(), it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap<String>())
         for (map in maps) {
@@ -166,23 +126,6 @@ class ConcurrentMapsTest {
             map.put(1, "value")
             assertEquals("missing", map.merge(1, "new") { _, _ -> null })
             assertFalse(map.containsKey(1))
-        }
-    }
-
-    @Test
-    fun longComputationsPreserveFastutilDefaultReturnValues() {
-        val maps = listOf(ConcurrentLongObjectMap<String>(), ConcurrentLongObjectOpenHashMap<String>(),
-            it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<String>())
-        for (map in maps) {
-            map.defaultReturnValue("missing")
-            assertEquals("missing", map.computeIfPresent(-1L) { _, _ -> error("absent key") })
-            assertEquals("missing", map.compute(-1L) { _, _ -> null })
-            map.put(-1L, "value")
-            assertEquals("missing", map.computeIfPresent(-1L) { _, _ -> null })
-            assertFalse(map.containsKey(-1L))
-            map.put(-1L, "value")
-            assertEquals("missing", map.merge(-1L, "new") { _, _ -> null })
-            assertFalse(map.containsKey(-1L))
         }
     }
 
