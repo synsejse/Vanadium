@@ -7,8 +7,10 @@ import com.synsenetwork.vanadium.diagnostics.PerformanceResults
 import com.synsenetwork.vanadium.live.LiveServer
 import com.synsenetwork.vanadium.live.TickLog
 import com.synsenetwork.vanadium.live.UptimeClock
+import com.synsenetwork.vanadium.live.formatValue
+import com.synsenetwork.vanadium.live.line
+import com.synsenetwork.vanadium.live.runCommand
 import java.io.BufferedWriter
-import java.io.Writer
 import java.lang.management.ManagementFactory
 import java.nio.file.Files
 import java.nio.file.Path
@@ -121,7 +123,7 @@ class MixedBench : ModInitializer {
                 "mixed.parallelSpawning=$parallelSpawning but vanadium.toml has parallelSpawning=${Vanadium.config.parallelSpawning}"
             }
             // Repeatable conditions: no weather changes, no block damage from mobs, the same dusk start.
-            listOf("gamerule advance_weather false", "weather clear", "gamerule mob_griefing false", "time set 12000").forEach(::command)
+            listOf("gamerule advance_weather false", "weather clear", "gamerule mob_griefing false", "time set 12000").forEach { server.runCommand(it) }
             check(!server.gameRules.get(GameRules.ADVANCE_WEATHER) && !server.gameRules.get(GameRules.MOB_GRIEFING) && !level.isRaining) {
                 "fixed weather and mob griefing rules were not applied"
             }
@@ -259,7 +261,7 @@ class MixedBench : ModInitializer {
             println("MIXED_BENCH_READY ticks=$phaseTicks loadedChunks=$chunks")
             val mark = clock.now()
             flushTicks()
-            command("time set 12000")
+            server.runCommand("time set 12000")
             if (sprint) server.tickRateManager().requestGameToSprint(warmupTicks + windowTicks * windows + 1)
             boundary("ready_end", -1, end, mark)
             next(Phase.WARMUP)
@@ -294,10 +296,10 @@ class MixedBench : ModInitializer {
             flushTicks()
             lastHealth = health
             if (window == 0) csv.line((listOf("mode", "window") + row.keys).joinToString(","))
-            csv.line((listOf(mode, "$window") + row.values.map { format(it) }).joinToString(","))
+            csv.line((listOf(mode, "$window") + row.values.map { formatValue(it) }).joinToString(","))
             csv.flush()
             rows.add(WindowCounters.json(row).apply { addProperty("window", window) })
-            println("MIXED_BENCH_WINDOW mode=$mode window=$window " + row.entries.joinToString(" ") { (k, v) -> "$k=${format(v)}" })
+            println("MIXED_BENCH_WINDOW mode=$mode window=$window " + row.entries.joinToString(" ") { (k, v) -> "$k=${formatValue(v)}" })
             boundary("window_end", window, end, mark)
             window++
             windowStart = end
@@ -317,9 +319,9 @@ class MixedBench : ModInitializer {
             ticksCsv.close()
             boundariesCsv.close()
             Files.newBufferedWriter(output.resolve("threads.csv")).use { out ->
-                out.write("thread,cpu_ms,allocated_mb\n")
+                out.line("thread,cpu_ms,allocated_mb")
                 counters.threadTotals.entries.sortedByDescending { it.value[0] }.forEach { (name, totals) ->
-                    out.write("\"${name.replace("\"", "\"\"")}\",${format(totals[0] / 1e6)},${format(totals[1] / 1048576.0)}\n")
+                    out.line("\"${name.replace("\"", "\"\"")}\",${formatValue(totals[0] / 1e6)},${formatValue(totals[1] / 1048576.0)}")
                 }
             }
             // What the world contained at the end: entity types, and item entities by item.
@@ -329,8 +331,8 @@ class MixedBench : ModInitializer {
                 if (entity is ItemEntity) census.merge("item/" + BuiltInRegistries.ITEM.getKey(entity.item.item), 1, Int::plus)
             }
             Files.newBufferedWriter(output.resolve("entities.csv")).use { out ->
-                out.write("type,count\n")
-                census.entries.sortedByDescending { it.value }.forEach { (type, count) -> out.write("$type,$count\n") }
+                out.line("type,count")
+                census.entries.sortedByDescending { it.value }.forEach { (type, count) -> out.line("$type,$count") }
             }
             val body = JsonObject().apply {
                 addProperty("mode", mode)
@@ -405,24 +407,10 @@ class MixedBench : ModInitializer {
             this.phase = phase
             phaseTicks = 0
         }
-
-        /** Command errors throw; the result is the command's value (false gamerules return 0). */
-        private fun command(command: String) {
-            server.commands.dispatcher.execute(command, server.createCommandSourceStack())
-        }
-
-        private fun format(value: Number?) = when (value) {
-            null -> ""
-            is Double -> "%.3f".format(java.util.Locale.ROOT, value)
-            else -> value.toString()
-        }
     }
 
     private companion object {
         /** Five minutes at 20 TPS for chunk generation around every player to finish. */
         const val READY_LIMIT = 6000
-
-        /** Writer errors throw, unlike `PrintWriter`'s. */
-        fun Writer.line(text: String): Writer = append(text).append('\n')
     }
 }

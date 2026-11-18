@@ -2,6 +2,7 @@ package com.synsenetwork.vanadium.integration
 
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.concurrent.Interactions
+import com.synsenetwork.vanadium.live.runCommand
 import com.synsenetwork.vanadium.tick.EntityTickAccess
 import com.synsenetwork.vanadium.tick.PersistentTickTasks
 import net.minecraft.core.BlockPos
@@ -115,7 +116,7 @@ internal object EntityCollectionChecks {
             ticked(plain, false, "plain under a pig rule")
             ticked(spawner!!, false, "spawner under a pig rule")
             check(tasks.isSerial(plain) == true)
-            check(server.commands.dispatcher.execute("vanadium reload", server.createCommandSourceStack()) == 1) { "reload failed" }
+            check(server.runCommand("vanadium reload") == 1) { "reload failed" }
             check(config().serialEntityTypes.isEmpty()) { "the live config file has serial entity rules" }
         }
         checks.then("reload restores the wave") {

@@ -8,7 +8,9 @@ import com.synsenetwork.vanadium.live.LiveServer
 import com.synsenetwork.vanadium.live.TestPlayer
 import com.synsenetwork.vanadium.live.TickLog
 import com.synsenetwork.vanadium.live.UptimeClock
-import java.io.Writer
+import com.synsenetwork.vanadium.live.formatValue
+import com.synsenetwork.vanadium.live.line
+import com.synsenetwork.vanadium.live.runCommand
 import java.lang.management.ManagementFactory
 import java.nio.file.Files
 import java.nio.file.Path
@@ -109,7 +111,7 @@ class ColdExplosion : ModInitializer {
             // Only the fixture's explosions: no spawning, weather or day–night changes, no block damage from mobs.
             listOf("gamerule spawn_mobs false", "gamerule spawn_patrols false", "gamerule spawn_wandering_traders false",
                 "gamerule advance_weather false", "weather clear", "gamerule advance_time false", "time set 6000",
-                "gamerule mob_griefing false").forEach(::command)
+                "gamerule mob_griefing false").forEach { server.runCommand(it) }
             check(!server.gameRules.get(GameRules.SPAWN_MOBS) && !server.gameRules.get(GameRules.MOB_GRIEFING) &&
                     !server.gameRules.get(GameRules.ADVANCE_TIME) && !level.isRaining) { "fixed world rules were not applied" }
             check(ExplosionLog.records.isEmpty()) { "an explosion happened before setup: ${describe(ExplosionLog.records.first())}" }
@@ -228,7 +230,7 @@ class ColdExplosion : ModInitializer {
                 }
                 "sham" -> Unit
             }
-            println("COLD_EXPLOSION_ARM arm=$arm tick=$armTick actionMs=${format(armNanos / 1e6)}")
+            println("COLD_EXPLOSION_ARM arm=$arm tick=$armTick actionMs=${formatValue(armNanos / 1e6)}")
         }
 
         private fun ignite(arena: Arena) {
@@ -295,7 +297,7 @@ class ColdExplosion : ModInitializer {
                 for (i in 0 until ticks.size) out.line("${ticks.ids[i]},${ticks.durations[i]},${ticks.ends[i]}")
             }
             if (loads != null) Files.writeString(output.resolve("blast-classes.csv"), "blast,uptime_ns,in_explode,class\n$classRows")
-            rows.forEach { row -> println("COLD_EXPLOSION_BLAST " + row.entries.joinToString(" ") { (k, v) -> "$k=${format(v)}" }) }
+            rows.forEach { row -> println("COLD_EXPLOSION_BLAST " + row.entries.joinToString(" ") { (k, v) -> "$k=${formatValue(v)}" }) }
             val measured = rows.filter { it["kind"] == "measured" }
             val warm = measured.drop(1)
             fun median(key: String) = warm.map { it[key] as Double }.sorted().let { it[it.size / 2] }
@@ -306,7 +308,7 @@ class ColdExplosion : ModInitializer {
                 "warmTickMedianMs" to median("blast_tick_ms"),
                 "firstMeasuredRoute" to measured[0]["route"],
             )
-            println("COLD_EXPLOSION_SUMMARY arm=$arm mode=$mode " + summary.entries.joinToString(" ") { (k, v) -> "$k=${format(v)}" })
+            println("COLD_EXPLOSION_SUMMARY arm=$arm mode=$mode " + summary.entries.joinToString(" ") { (k, v) -> "$k=${formatValue(v)}" })
             val explosionLoad = loads?.firstLoad(SERVER_EXPLOSION)
             val body = JsonObject().apply {
                 addProperty("arm", arm)
@@ -347,7 +349,7 @@ class ColdExplosion : ModInitializer {
         private fun writeCsv(name: String, rows: List<Map<String, Any?>>) {
             Files.newBufferedWriter(output.resolve(name)).use { out ->
                 out.line(rows[0].keys.joinToString(","))
-                rows.forEach { row -> out.line(row.values.joinToString(",") { format(it) }) }
+                rows.forEach { row -> out.line(row.values.joinToString(",") { formatValue(it) }) }
             }
         }
 
@@ -360,17 +362,6 @@ class ColdExplosion : ModInitializer {
                     else -> addProperty(key, value.toString())
                 }
             }
-        }
-
-        /** Command errors throw. */
-        private fun command(command: String) {
-            server.commands.dispatcher.execute(command, server.createCommandSourceStack())
-        }
-
-        private fun format(value: Any?) = when (value) {
-            null -> ""
-            is Double -> "%.3f".format(java.util.Locale.ROOT, value)
-            else -> value.toString()
         }
     }
 
@@ -392,8 +383,5 @@ class ColdExplosion : ModInitializer {
         const val BASELINE_TICKS = 20
         const val NEXT_TICKS = 5
         const val READY_LIMIT = 2400
-
-        /** Writer errors throw, unlike `PrintWriter`'s. */
-        fun Writer.line(text: String): Writer = append(text).append('\n')
     }
 }

@@ -32,7 +32,7 @@ object LiveServer {
     fun finish(server: MinecraftServer, mode: String, settleTicks: Int = 20) {
         require(settleTicks > 0)
         check(System.getProperty("vanadium.live.mode") == mode)
-        check(server.commands.dispatcher.execute("vanadium status", server.createCommandSourceStack()) == 1) {
+        check(server.runCommand("vanadium status") == 1) {
             "Vanadium status command was not registered or failed"
         }
         var ticks = 0
