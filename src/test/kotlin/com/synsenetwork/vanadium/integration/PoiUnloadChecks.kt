@@ -71,7 +71,7 @@ internal object PoiUnloadChecks {
     fun schedule(level: ServerLevel, checks: TickedChecks) {
         val poi = level.poiManager
         val source = level.chunkSource
-        val c2me = PoiChecks.C2meUnload.require(poi)
+        val c2me = PoiEvictionChecks.C2meUnload.require(poi)
         val tracker = field(PoiManager::class.java, "distanceTracker", poi) as PoiDistanceAccess
         val dirty = field(SectionStorage::class.java, "dirtyChunks", poi) as LongSet
         val freePos = BlockPos(FREE.minBlockX + 8, -40, FREE.minBlockZ + 8)
