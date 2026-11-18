@@ -12,7 +12,6 @@ import java.util.concurrent.locks.LockSupport
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicIntegerArray
-import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -196,15 +195,14 @@ class WorkerPoolTest {
         assertEquals(2, completed.get())
     }
 
+    /** A one-task wave runs inline: its task has finished, on the caller, before runWave returns. */
     @Test
-    fun runWaveBlocksUntilDone() {
+    fun oneTaskWaveFinishesBeforeRunWaveReturns() {
         val pool = WorkerPool(2)
-        val done = AtomicBoolean(false)
-        pool.runWave(listOf(Runnable {
-            Thread.sleep(40)
-            done.set(true)
-        }))
-        assertTrue(done.get(), "runWave returned before its task finished")
+        val order = ArrayList<String>() // Unsynchronized on purpose: only the caller touches it.
+        pool.runWave(listOf(Runnable { order.add("task on ${Thread.currentThread().name}") }))
+        order.add("returned")
+        assertEquals(listOf("task on ${Thread.currentThread().name}", "returned"), order)
         pool.close()
     }
 
@@ -426,7 +424,7 @@ class WorkerPoolTest {
     }
 
     /** Spins for a minute in every state but after a tick with slack, so parking happens only when a test asks. */
-    private fun steadyPool(threads: Int) = WorkerPool(threads, SpinPolicy(60_000_000_000L, 60_000_000_000L, fixed = false))
+    private fun steadyPool(threads: Int) = WorkerPool(threads, SpinPolicy(MINUTE, MINUTE))
 
     /** Ends a tick with an hour of slack, more than any spin: idle workers park at once. */
     private fun parkAll(pool: WorkerPool, threads: Int) {
@@ -628,25 +626,9 @@ class WorkerPoolTest {
         }
     }
 
-    /** A clock the test advances by hand; the timer polls it in short real parks. */
-    private class ManualClock : PrewakeClock {
-        private val now = AtomicLong()
-
-        override fun nanoTime(): Long = now.get()
-
-        override fun park(blocker: Any, nanos: Long) = LockSupport.parkNanos(blocker, minOf(nanos, 1_000_000L))
-
-        fun advance(nanos: Long) {
-            now.addAndGet(nanos)
-        }
-    }
-
-    /**
-     * Like [steadyPool], in [mode], with timed wakes on [clock] [LEAD] before each tick. The lead is a minute so
-     * that workers it wakes spin until the test starts the tick, however slow the machine.
-     */
-    private fun timedPool(threads: Int, clock: ManualClock, mode: IdleWorkers = IdleWorkers.BALANCED) =
-        WorkerPool(threads, SpinPolicy(MINUTE, MINUTE, fixed = false, leadNanos = LEAD, forced = mode, hotNanos = MINUTE), clock = clock)
+    /** Like [steadyPool], in [mode]; hot workers spin a minute between waves of a tick. */
+    private fun modePool(threads: Int, mode: IdleWorkers) =
+        WorkerPool(threads, SpinPolicy(MINUTE, MINUTE, hotNanos = MINUTE)).also { it.configureIdle(mode) }
 
     /** One tick whose widest wave had [helpers] helpers, ended with [gap] until the next one. */
     private fun tick(pool: WorkerPool, helpers: Int, gap: Long) {
@@ -656,174 +638,29 @@ class WorkerPoolTest {
     }
 
     @Test
-    fun timedWakeBringsUpTheWorkersTheLastTickUsedBeforeTheTick() {
-        val threads = 6
-        val clock = ManualClock()
-        timedPool(threads, clock).use { pool ->
-            tick(pool, helpers = 2, gap = 2 * LEAD)
-            awaitCondition("workers did not park when the tick ended") { (0 until threads).all(pool::isParked) }
-            assertTrue(pool.timedWakePending)
-            // Until the clock reaches the lead, nothing wakes.
-            assertFalse(awaitConditionFor(100) { pool.timedWakeCount > 0 || (0 until threads).any { !pool.isParked(it) } })
-
-            clock.advance(LEAD)
-            awaitCondition("the timed wake did not bring up the last tick's workers") { (0..1).none(pool::isParked) }
-            assertEquals(1, pool.timedWakeCount)
-            assertFalse(pool.timedWakePending)
-            assertTrue((2 until threads).all(pool::isParked), "a worker the last tick did not use was woken")
-
-            // They spin into the tick: neither its start nor its first wave has anyone to wake.
-            pool.tickStarted()
-            assertFalse(pool.lastFanOut, "the tick start found a pre-woken worker parked")
-            assertEquals(workerNames(0..1) + Thread.currentThread().name, gatedWave(pool, 3))
-            assertFalse(pool.lastFanOut)
-            assertEquals(0, pool.lastCallerUnparks)
-        }
-    }
-
-    @Test
-    fun timedWakeFansOutToEveryHelper() {
-        val threads = 12
-        val clock = ManualClock()
-        timedPool(threads, clock).use { pool ->
-            tick(pool, helpers = threads, gap = 2 * LEAD)
-            awaitCondition("workers did not park") { (0 until threads).all(pool::isParked) }
-            clock.advance(LEAD)
-            awaitCondition("the fan-out did not reach every worker") { (0 until threads).none(pool::isParked) }
-            pool.tickStarted()
-            assertEquals(workerNames(0 until threads) + Thread.currentThread().name, gatedWave(pool, threads + 1))
-            assertFalse(pool.lastFanOut)
-        }
-    }
-
-    @Test
-    fun nothingIsScheduledWithoutSlackOrWithoutParallelWork() {
-        val clock = ManualClock()
-        timedPool(4, clock).use { pool ->
-            tick(pool, helpers = 0, gap = 2 * LEAD) // An idle or frozen tick ran nothing in parallel.
-            assertFalse(pool.timedWakePending)
-            tick(pool, helpers = 3, gap = LEAD - 1) // Behind schedule, or a rate too high for the lead.
-            assertFalse(pool.timedWakePending)
-            pool.tickStarted()
-            gatedWave(pool, 4)
-            pool.tickEnded(2 * LEAD, sprinting = true)
-            assertFalse(pool.timedWakePending)
-            assertFalse(pool.timerAlive, "a timer started with nothing to wake")
-            clock.advance(10 * LEAD)
-            assertFalse(awaitConditionFor(100) { pool.timedWakeCount > 0 })
-        }
-        // No tick events at all, as in tests and benchmarks.
-        steadyPool(2).use { pool ->
-            gatedWave(pool, 3)
-            assertFalse(pool.timerAlive)
-        }
-    }
-
-    @Test
-    fun aPausedServerWakesNothingAfterTheLastTimedWake() {
+    fun aPausedServerWakesNothingBetweenTicks() {
         val threads = 4
-        val clock = ManualClock()
-        timedPool(threads, clock).use { pool ->
-            val parks = AtomicIntegerArray(threads)
-            pool.parkHook = WorkerPool.ParkHook { worker, at -> if (at == WorkerPool.ParkPoint.BEFORE_ANNOUNCE) parks.incrementAndGet(worker) }
-            tick(pool, helpers = threads, gap = 2 * LEAD)
-            awaitCondition("workers did not park") { (0 until threads).all(pool::isParked) }
-            val before = IntArray(threads) { parks.get(it) }
-            // The next tick never comes (pause-when-empty fires no tick events): the clock runs far past it.
-            clock.advance(HOUR)
-            // Past the due time, the woken workers spin only for the grace period, then park again.
-            awaitCondition("pre-woken workers kept spinning with no tick") {
-                (0 until threads).all { parks.get(it) > before[it] && pool.isParked(it) }
+        for (mode in IdleWorkers.entries) {
+            // A 20 ms gap is slack against a 2 ms spin. Hot workers spin through it, then park: the next tick never
+            // comes (pause-when-empty fires no tick events), and only its start would wake anyone.
+            WorkerPool(threads, SpinPolicy(2_000_000L, MINUTE, hotNanos = MINUTE)).also { it.configureIdle(mode) }.use { pool ->
+                val parks = AtomicIntegerArray(threads)
+                pool.parkHook = WorkerPool.ParkHook { worker, at -> if (at == WorkerPool.ParkPoint.BEFORE_ANNOUNCE) parks.incrementAndGet(worker) }
+                tick(pool, helpers = threads, gap = 20_000_000L)
+                awaitCondition("$mode workers kept spinning with no tick") { (0 until threads).all(pool::isParked) }
+                val after = IntArray(threads) { parks.get(it) }
+                assertFalse(awaitConditionFor(200) {
+                    (0 until threads).any { parks.get(it) != after[it] || !pool.isParked(it) }
+                }, "something woke while no ticks ran in $mode")
             }
-            assertEquals(1, pool.timedWakeCount)
-            val after = IntArray(threads) { parks.get(it) }
-            clock.advance(HOUR)
-            assertFalse(awaitConditionFor(200) {
-                pool.timedWakeCount != 1 || (0 until threads).any { parks.get(it) != after[it] || !pool.isParked(it) }
-            }, "something woke while no ticks ran")
         }
     }
 
     @Test
-    fun aTickThatStartsBeforeTheTimedWakeGetsAllItsHelpersAndDropsIt() {
-        val threads = 6
-        val clock = ManualClock()
-        timedPool(threads, clock).use { pool ->
-            tick(pool, helpers = 2, gap = 2 * LEAD)
-            awaitCondition("workers did not park") { (0 until threads).all(pool::isParked) }
-            assertTrue(pool.timedWakePending)
-            // The tick comes early (or the timer late): its start and its waves wake everyone they need.
-            pool.tickStarted()
-            assertFalse(pool.timedWakePending, "the tick start left a stale timed wake")
-            assertEquals(workerNames(0 until threads) + Thread.currentThread().name, gatedWave(pool, threads + 1))
-            clock.advance(10 * LEAD)
-            assertFalse(awaitConditionFor(100) { pool.timedWakeCount > 0 }, "a dropped timed wake fired")
-        }
-    }
-
-    @Test
-    fun aTimedWakeNeverReplacesAWaveWithWorkLeft() {
-        val clock = ManualClock()
-        timedPool(1, clock).use { pool ->
-            tick(pool, helpers = 1, gap = 2 * LEAD)
-            // Another thread runs a wave whose third task nobody can claim while the first two block.
-            val running = CountDownLatch(2)
-            val release = CountDownLatch(1)
-            val ran = AtomicInteger()
-            val failure = AtomicReference<Throwable?>()
-            val caller = Thread {
-                try {
-                    pool.runWave(List(3) {
-                        Runnable {
-                            running.countDown()
-                            check(release.await(10, TimeUnit.SECONDS))
-                            ran.incrementAndGet()
-                        }
-                    })
-                } catch (t: Throwable) {
-                    failure.set(t)
-                }
-            }.apply { start() }
-            try {
-                await(running)
-                clock.advance(LEAD)
-                awaitCondition("the timer did not look at the wave") { pool.timedWakeSkips == 1 }
-                assertEquals(0, pool.timedWakeCount)
-            } finally {
-                release.countDown()
-                caller.join(10_000)
-            }
-            assertFalse(caller.isAlive)
-            assertNull(failure.get())
-            assertEquals(3, ran.get())
-        }
-    }
-
-    @Test
-    fun closeStopsATimerWithAPendingWake() {
-        val clock = ManualClock()
-        val pool = timedPool(4, clock)
-        tick(pool, helpers = 3, gap = 2 * LEAD)
-        assertTrue(pool.timedWakePending)
-        awaitCondition("the timer did not start") { pool.timerAlive }
-        assertTimeoutPreemptively(Duration.ofSeconds(10)) { pool.close() }
-        assertFalse(pool.timerAlive, "close left the timer running")
-        assertFalse(pool.timedWakePending)
-        clock.advance(10 * LEAD)
-        assertEquals(0, pool.timedWakeCount)
-        // Ticks after close schedule nothing and start no thread.
-        pool.tickStarted()
-        pool.tickEnded(2 * LEAD, sprinting = false)
-        assertFalse(pool.timedWakePending)
-    }
-
-    @Test
-    fun hotSpinsThroughTheGapAndLeanParksWithoutATimer() {
+    fun hotSpinsThroughTheGapAndLeanParks() {
         val threads = 4
-        val clock = ManualClock()
-        timedPool(threads, clock, IdleWorkers.HOT).use { pool ->
+        modePool(threads, IdleWorkers.HOT).use { pool ->
             tick(pool, helpers = threads, gap = HOUR)
-            assertFalse(pool.timedWakePending)
             assertFalse(awaitConditionFor(200) { (0 until threads).any(pool::isParked) }, "a hot worker parked between ticks")
             pool.tickStarted()
             assertEquals(workerNames(0 until threads) + Thread.currentThread().name, gatedWave(pool, threads + 1))
@@ -833,12 +670,10 @@ class WorkerPoolTest {
             tick(pool, helpers = 0, gap = HOUR)
             awaitCondition("hot workers spun through a gap after a tick with no parallel work") { (0 until threads).all(pool::isParked) }
         }
-        timedPool(threads, clock, IdleWorkers.LEAN).use { pool ->
+        modePool(threads, IdleWorkers.LEAN).use { pool ->
             tick(pool, helpers = threads, gap = HOUR)
             awaitCondition("lean workers did not park when the tick ended") { (0 until threads).all(pool::isParked) }
-            assertFalse(pool.timedWakePending)
-            assertFalse(pool.timerAlive)
-            // The tick start still wakes them, as before timed wakes existed.
+            // The tick start wakes them.
             pool.tickStarted()
             awaitCondition("the tick start did not wake the last tick's workers") { (0 until threads).none(pool::isParked) }
         }
@@ -847,19 +682,20 @@ class WorkerPoolTest {
     @Test
     fun configurationSwitchesModesFromTheNextTickEvent() {
         val threads = 3
-        val clock = ManualClock()
-        WorkerPool(threads, SpinPolicy(MINUTE, MINUTE, fixed = false, leadNanos = LEAD, hotNanos = MINUTE), clock = clock).use { pool ->
+        WorkerPool(threads, SpinPolicy(MINUTE, MINUTE, hotNanos = MINUTE)).use { pool ->
             assertEquals(IdleWorkers.BALANCED, pool.idleWorkers)
-            pool.configureIdle(IdleWorkers.LEAN)
-            tick(pool, helpers = threads, gap = HOUR)
-            assertFalse(pool.timedWakePending)
-            pool.configureIdle(IdleWorkers.BALANCED)
-            tick(pool, helpers = threads, gap = HOUR)
-            assertTrue(pool.timedWakePending)
-            pool.configureIdle(IdleWorkers.HOT)
-            assertEquals(IdleWorkers.HOT, pool.idleWorkers)
-            tick(pool, helpers = threads, gap = HOUR)
-            assertFalse(pool.timedWakePending, "the hot tick start dropped the old wake and scheduled none")
+            for (mode in listOf(IdleWorkers.LEAN, IdleWorkers.HOT, IdleWorkers.BALANCED, IdleWorkers.HOT, IdleWorkers.LEAN)) {
+                pool.configureIdle(mode)
+                assertEquals(mode, pool.idleWorkers)
+                tick(pool, helpers = threads, gap = HOUR)
+                if (mode == IdleWorkers.HOT) {
+                    assertFalse(awaitConditionFor(200) { (0 until threads).any(pool::isParked) }, "a hot worker parked between ticks")
+                    assertEquals(Long.MAX_VALUE, pool.serverSpinNanos)
+                } else {
+                    awaitCondition("$mode workers did not park when the tick ended") { (0 until threads).all(pool::isParked) }
+                    assertEquals(if (mode == IdleWorkers.BALANCED) Long.MAX_VALUE / 1_000L * 1_000L else 0L, pool.serverSpinNanos)
+                }
+            }
         }
     }
 
@@ -913,7 +749,6 @@ class WorkerPoolTest {
         const val SLACK = 3_600_000_000_000L
         const val HOUR = 3_600_000_000_000L
         const val MINUTE = 60_000_000_000L
-        const val LEAD = 60_000_000_000L
     }
 
     /** One participant owns every home: phase by phase, homes in order, each cell from its front. */

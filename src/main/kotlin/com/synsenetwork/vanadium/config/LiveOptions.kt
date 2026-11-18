@@ -7,22 +7,20 @@ import me.shedaniel.autoconfig.ConfigData
 
 /** Runtime-only options for `/vanadium set`: booleans, integers and choices; worker count requires a restart. */
 object LiveOptions {
-    private val fields: Map<String, Field> = VanadiumConfig::class.java.declaredFields
-        .filter {
-            !Modifier.isStatic(it.modifiers) && !Modifier.isTransient(it.modifiers) &&
-                    (it.type == java.lang.Boolean.TYPE || it.type == String::class.java || it.type == Integer.TYPE && it.name != "workers")
-        }
-        .associateBy { it.name }
+    /** Text options `set` accepts, with their values. A text field not listed here is not a live option. */
+    private val CHOICES: Map<String, List<String>> = mapOf("idleWorkers" to IdleWorkers.names)
+
+    /** Fields that never change live although their type would allow it. */
+    private val RESTART_ONLY = setOf("workers")
+
+    private val fields: Map<String, Field> = liveFields(VanadiumConfig::class.java, CHOICES.keys)
 
     val names: Set<String> get() = fields.keys
 
     fun isBoolean(name: String): Boolean = fields[name]?.type == java.lang.Boolean.TYPE
 
-    /** The accepted values of a text option, for suggestions; null when any value is checked by validation only. */
-    fun choices(name: String): List<String>? = when (name) {
-        "idleWorkers" -> IdleWorkers.names
-        else -> null
-    }
+    /** The accepted values of a text option, for suggestions; null for any other option. */
+    fun choices(name: String): List<String>? = if (name in fields) CHOICES[name] else null
 
     fun get(config: VanadiumConfig, name: String): Any? = fields[name]?.get(config)
 
@@ -36,7 +34,7 @@ object LiveOptions {
                 else -> return "$name takes true/false or on/off"
             }
             String::class.java -> {
-                val choices = checkNotNull(choices(name)) { "No accepted values registered for live option '$name'" }
+                val choices = CHOICES.getValue(name)
                 choices.firstOrNull { it.equals(text, ignoreCase = true) }
                     ?: return "$name takes one of ${choices.joinToString()}"
             }
@@ -53,4 +51,19 @@ object LiveOptions {
             e.message ?: "invalid value for $name"
         }
     }
+
+    /**
+     * The live fields of [type], in declaration order: every boolean and integer field except [RESTART_ONLY], and
+     * the text fields named in [choices]. Static and transient fields, other types and other text never are.
+     */
+    internal fun liveFields(type: Class<*>, choices: Set<String>): Map<String, Field> = type.declaredFields
+        .filter { field ->
+            !Modifier.isStatic(field.modifiers) && !Modifier.isTransient(field.modifiers) && field.name !in RESTART_ONLY &&
+                when (field.type) {
+                    java.lang.Boolean.TYPE, Integer.TYPE -> true
+                    String::class.java -> field.name in choices
+                    else -> false
+                }
+        }
+        .associateBy { it.name }
 }

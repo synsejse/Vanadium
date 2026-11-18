@@ -13,9 +13,6 @@ package com.synsenetwork.vanadium.tick
 object ServerSpin {
     private const val SLICE_NANOS = 50_000L
 
-    /** `vanadium.serverSpinMicros` replaces the mode's spin window; negative or absent keeps the mode's. */
-    private val OVERRIDE_NANOS: Long? = java.lang.Long.getLong("vanadium.serverSpinMicros")?.let { it.coerceAtLeast(0L) * 1_000L }
-
     private var armedFor = 0L
     private var armed = false
     private var windowNanos = 0L
@@ -23,10 +20,9 @@ object ServerSpin {
     /** Spins at most [windowNanos] before the tick due at [nextTickNanos]; zero disarms. */
     @JvmStatic
     fun arm(nextTickNanos: Long, windowNanos: Long) {
-        val window = OVERRIDE_NANOS ?: windowNanos
-        armed = window > 0
+        armed = windowNanos > 0
         armedFor = nextTickNanos
-        this.windowNanos = window
+        this.windowNanos = windowNanos
     }
 
     @JvmStatic
@@ -57,7 +53,4 @@ object ServerSpin {
     @JvmStatic
     fun parkNanos(nextTickNanos: Long, nanos: Long): Long =
         if (!armed || nextTickNanos != armedFor) nanos else maxOf(0L, nanos - windowNanos)
-
-    /** Whether `vanadium.serverSpinMicros` replaces the mode's window; for status output. */
-    val overridden: Boolean get() = OVERRIDE_NANOS != null
 }

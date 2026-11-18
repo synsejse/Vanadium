@@ -324,7 +324,7 @@ Slow state (morning):
 | `lean` behaviour (park at tick end, wake at tick start; earlier branch default) | 2 | 12.00–12.23 | 15.9–16.6 | 27.0–29.1 | 20% | 22–23% |
 | …and spin 50 ms between waves of a tick | 1 | 12.22 | 15.9 | 29.4 | 23% | 22% |
 | Workers woken 0.5 / 1 / 2 / 10 ms before each tick | 1 each | 12.52 / 11.99 / 13.27 / 12.05 | 15.4–18.7 | 24.5–34.9 | 21 / 21 / 25 / 39% | 21–24% |
-| Workers spin through everything (`hot` workers; `workerSpinMicros=60000`) | 2 | 6.03–6.57 | 8.0–8.5 | 10.6–12.1 | 99% | 12–13% |
+| Workers spin through everything (`hot` workers; `workerSpinMicros=60000`, a JVM override since removed) | 2 | 6.03–6.57 | 8.0–8.5 | 10.6–12.1 | 99% | 12–13% |
 
 Fast state (afternoon), alternating configurations:
 
@@ -347,7 +347,9 @@ Fast state (afternoon), alternating configurations:
 - `balanced` (the server thread spinning through the gap, about one core) is the cheapest setting that keeps
   one thread busy through the gap, as `hot` does. It was not measured in the slow state: whether one
   spinning thread suffices there is not known. A short server spin (1 or 5 ms) and early worker wake-ups
-  measured no faster than nothing in either state.
+  measured no faster than nothing in either state. Both experiments' controls (`vanadium.serverSpinMicros`,
+  `vanadium.prewakeLeadMicros`) were later removed, so these rows can no longer be reproduced on a
+  current build.
 - A later alternating run in the fast state, two fresh servers per mode: `lean` 6.56–7.09 ms average
   (p95 8.9–9.9), `balanced` 6.37–6.49 (8.6–9.2), `hot` 6.39–6.89 (8.8–9.9). No mode is ahead by more than
   the run-to-run spread, so `lean` is the default: it is the only one that costs nothing when it does not

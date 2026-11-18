@@ -72,7 +72,7 @@ class VanadiumConfig : ConfigData {
             + "while the world has parallel work. hot: workers spin too; on a 72-thread Xeon VM every worker that "
             + "ran then holds a core (24 workers: 24 cores, against 11-25% each otherwise), and it halved 20 TPS "
             + "tick times at times when idle threads were slow, with little or no gain otherwise. Compare the modes "
-            + "on your own machine with /vanadium profile. Live next tick; -Dvanadium.idleWorkers overrides it.")
+            + "on your own machine with /vanadium profile. Live next tick.")
     @JvmField var idleWorkers = "lean"
 
     @field:Comment("Warn about waves exceeding this many milliseconds. 0 disables diagnostics; live next tick.")
