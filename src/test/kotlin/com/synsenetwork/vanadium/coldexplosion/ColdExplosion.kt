@@ -292,6 +292,11 @@ class ColdExplosion : ModInitializer {
             val expectedFirst = if (arm == "warmup") arenas[0].creeper else arenas[1].creeper
             check(first?.source === expectedFirst) { "the JVM's first explosion was not the arm's: ${first?.let(::describe)}" }
             check(records.none { it.source === arenas[0].creeper } || arm == "warmup") { "arena 0 exploded in the $arm arm" }
+            // The observer's route is the measured path: a creeper fuse in the flat entity wave, or vanilla's serial tick.
+            val inWave = mode == "enabled"
+            records.firstOrNull { (it.route != ExplosionLog.Route.OUTSIDE_ENTITY_WAVE) != inWave }?.let {
+                error("a blast ${if (inWave) "outside" else "inside"} the entity wave in $mode mode: ${describe(it)}")
+            }
             writeCsv("blasts.csv", rows)
             Files.newBufferedWriter(output.resolve("ticks.csv"), java.nio.file.StandardOpenOption.APPEND).use { out ->
                 for (i in 0 until ticks.size) out.line("${ticks.ids[i]},${ticks.durations[i]},${ticks.ends[i]}")
