@@ -38,7 +38,7 @@ class FeatureBench : ModInitializer {
                         NavigationTrackingBench.tracking(level, measurements, 256)
                         NavigationTrackingBench.tracking(level, measurements, 2048)
                         SpawnPacketBench.spawning(level, measurements)
-                        LockBench.items(level, measurements)
+                        LockBench.items(level, measurements, pool)
                         LockBench.neighbors(level, measurements)
                         SpawnPacketBench.packets(level, measurements)
                         profile(measurements, 0)

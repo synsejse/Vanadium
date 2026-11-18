@@ -1,9 +1,8 @@
 package com.synsenetwork.vanadium.featurebench
 
-import com.synsenetwork.vanadium.Vanadium
-import com.synsenetwork.vanadium.tick.PreparationKind
+import com.synsenetwork.vanadium.concurrent.Interactions
+import com.synsenetwork.vanadium.tick.WorkerPool
 import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.locks.ReentrantLock
 import java.util.function.Consumer
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
@@ -15,25 +14,38 @@ import net.minecraft.world.level.redstone.CollectingNeighborUpdater
 import net.minecraft.world.level.redstone.CollectingNeighborUpdater.NeighborUpdates
 
 internal object LockBench {
-    fun items(level: ServerLevel, measurements: Measurements) {
+    /**
+     * Item stacks lying together each try to merge with the other in the same tick (the pairwise case
+     * `ItemEntityMixin` protects). On: one flat entity wave on [pool], every merge inside its pair scope (both
+     * owners' locks, then the recheck). Off: the same ticks serially on the caller, outside any wave, as with
+     * `enabled = false`. Nonmatching stacks keep every merge attempt repeatable without removals.
+     */
+    fun items(level: ServerLevel, measurements: Measurements, pool: WorkerPool) {
         val merge = ItemEntity::class.java.getDeclaredMethod("tryToMerge", ItemEntity::class.java).apply { isAccessible = true }
-        val lock = ItemEntity::class.java.getDeclaredField("vanadium\$lock").apply { isAccessible = true }
         for (pairs in intArrayOf(1, 32)) {
-            val items = ArrayList<ItemEntity>()
-            val individual = ArrayList<ReentrantLock>()
-            val jobs = (0 until pairs).map { i ->
-                // Nonmatching stacks keep candidate checks repeatable without removals/reset work.
+            val ticks = (0 until pairs).flatMap { i ->
                 val a = ItemEntity(level, i * 64.0, 100.0, 0.0, ItemStack(Items.STONE, 16))
                 val b = ItemEntity(level, i * 64.0, 100.0, 0.0, ItemStack(Items.DIRT, 16))
-                items += listOf(a, b)
-                individual += listOf(lock.get(a) as ReentrantLock, lock.get(b) as ReentrantLock)
-                Runnable { repeat(128) { merge.invoke(a, b) } }
+                listOf(a to b, b to a).map { (self, other) ->
+                    Runnable { Interactions.tick(self, Consumer { repeat(128) { merge.invoke(self, other) } }) }
+                }
             }
-            val global = ReentrantLock()
-            // Same safe merge implementation, but all pairs contend on one lock in the off arm.
-            measurements.compare("item-locks-$pairs-pairs", { on ->
-                items.forEachIndexed { i, item -> lock.set(item, if (on) individual[i] else global) }
-            }) { Vanadium.scheduler.prepare(PreparationKind.TRACKING_DIFFS, jobs) }
+            val wave = Runnable { pool.runWave(ticks) }
+            val name = "item-merge-$pairs-pairs"
+            // Each arm's route: the wave takes a pair scope for every merge attempt, the serial ticks none.
+            Interactions.takeCounts()
+            Interactions.runWave(wave, null)
+            val scoped = Interactions.takeCounts()[Interactions.Kind.PAIR]
+            ticks.forEach(Runnable::run)
+            val serial = Interactions.takeCounts()[Interactions.Kind.PAIR]
+            check(scoped == ticks.size * 128L && serial == 0L) {
+                "$name: ${ticks.size * 128} merges took $scoped pair scopes in the wave and $serial serially"
+            }
+            var parallel = true
+            measurements.compare(name, { parallel = it }) {
+                if (parallel) Interactions.runWave(wave, null) else ticks.forEach(Runnable::run)
+            }
+            check(!Interactions.active) { "$name left the entity wave active" }
         }
     }
 
