@@ -1,5 +1,6 @@
 package com.synsenetwork.vanadium.mixedbench
 
+import com.google.gson.JsonNull
 import com.google.gson.JsonObject
 import com.sun.management.OperatingSystemMXBean
 import com.sun.management.ThreadMXBean
@@ -18,8 +19,6 @@ internal class WindowCounters(private val server: MinecraftServer) {
     private val threads = ManagementFactory.getThreadMXBean() as ThreadMXBean
     private val os = ManagementFactory.getOperatingSystemMXBean() as OperatingSystemMXBean
     private val serverThread = Thread.currentThread().threadId()
-    private var ticks = LongArray(1024)
-    private var count = 0
     private var start = Snapshot.empty()
 
     /** Per-thread CPU/allocation over all windows so far, by thread name. */
@@ -50,6 +49,9 @@ internal class WindowCounters(private val server: MinecraftServer) {
             allocated[ids[i]] = maxOf(0, allocations[i])
             names[ids[i]] = info.threadName
         }
+        // gc_count/gc_ms sum every collector bean, whatever it counts: G1's young/concurrent/old collections, but ZGC's
+        // cycle beans and the pause beans inside those cycles, overlapping. Not pause time, and not comparable across
+        // collectors: compare pauses with gc.log (mixed.gcLog) or JFR GC events.
         var gcCount = 0L
         var gcMillis = 0L
         for (gc in ManagementFactory.getGarbageCollectorMXBeans()) {
@@ -60,13 +62,7 @@ internal class WindowCounters(private val server: MinecraftServer) {
     }
 
     fun begin() {
-        count = 0
         start = snapshot()
-    }
-
-    fun tick(nanos: Long) {
-        if (count == ticks.size) ticks = ticks.copyOf(count * 2)
-        ticks[count++] = nanos
     }
 
     private fun group(id: Long, name: String) = when {
@@ -76,8 +72,11 @@ internal class WindowCounters(private val server: MinecraftServer) {
         else -> 3
     }
 
-    /** Ends the window and returns its row; [extra] adds world and workload-health columns. */
-    fun end(extra: Map<String, Number>): LinkedHashMap<String, Number> {
+    /**
+     * Ends the window and returns its row from the window's first [count] tick [durations]; [extra] appends world,
+     * workload-health and tick-timing columns (null: no value for this window).
+     */
+    fun end(durations: LongArray, count: Int, extra: Map<String, Number?>): LinkedHashMap<String, Number?> {
         val end = snapshot()
         val groupCpu = LongArray(4)
         var allocated = 0L
@@ -92,11 +91,11 @@ internal class WindowCounters(private val server: MinecraftServer) {
                 it[1] += allocDelta
             }
         }
-        val sorted = ticks.copyOf(count).also { it.sort() }
+        val sorted = durations.copyOf(count).also { it.sort() }
         fun percentile(p: Double) = if (count == 0) 0.0 else sorted[minOf(count - 1, (p * count).toInt())] / 1e6
         val wallNanos = end.wall - start.wall
         val processCpu = end.process - start.process
-        return linkedMapOf<String, Number>(
+        return linkedMapOf<String, Number?>(
             "ticks" to count,
             "wall_ms" to wallNanos / 1e6,
             "tps" to if (wallNanos > 0) count * 1e9 / wallNanos else 0.0,
@@ -148,6 +147,8 @@ internal class WindowCounters(private val server: MinecraftServer) {
     }
 
     companion object {
-        fun json(row: Map<String, Number>) = JsonObject().apply { row.forEach { (key, value) -> addProperty(key, value) } }
+        fun json(row: Map<String, Number?>) = JsonObject().apply {
+            row.forEach { (key, value) -> if (value == null) add(key, JsonNull.INSTANCE) else addProperty(key, value) }
+        }
     }
 }

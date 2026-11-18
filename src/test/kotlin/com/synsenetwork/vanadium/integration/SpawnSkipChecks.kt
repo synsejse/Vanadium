@@ -101,6 +101,9 @@ internal object SpawnSkipChecks {
             check(!counts().isDeferred(), "count skipped after it was read")
             SpawnCountChecks.same(reference(), checkNotNull(stored()), "after a read")
         }
+        // The fixture's centre chunk is simulated and spawnable: tickSpawningChunk's dispatch order there.
+        checks.awaitAsync("spawn dispatch chunk ticking", 100) { SpawnDispatchChecks.ready(level, ChunkPos(CHUNK_X, CHUNK_Z)) }
+        checks.then("spawn dispatch order") { SpawnDispatchChecks.run(level, ChunkPos(CHUNK_X, CHUNK_Z)) }
         checks.then("spawn skip cleanup") {
             level.gameRules.set(GameRules.SPAWN_MOBS, previousRule, level.server)
             entities.forEach { if (!it.isRemoved) it.discard() }

@@ -45,6 +45,7 @@ class ServerIntegrationChecks : ModInitializer {
             runCheck("ServerThreadChunkChecks.run") { ServerThreadChunkChecks.run(level) }
             runCheck("ChunkWaitChecks.run") { ChunkWaitChecks.run(level) }
             runCheck("LithiumChecks.run") { LithiumChecks.run(level) }
+            runCheck("PoiChecks.run") { PoiChecks.run(level) }
             runCheck("FlatEntityChecks.run") { FlatEntityChecks.run(level) }
             runCheck("SectionMoveChecks.run") { SectionMoveChecks.run(level) }
             runCheck("TickSafetyChecks.run") { TickSafetyChecks.run(level) }
@@ -60,6 +61,8 @@ class ServerIntegrationChecks : ModInitializer {
             println("INTEGRATION_CHECKS_PASSED")
             // Checks that need real ticks; the run finishes only after they pass.
             val ticked = TickedChecks(server, "ticked_checks")
+            // First: its downgrades should not meet the entity fixtures' waves.
+            PoiUnloadChecks.schedule(level, ticked)
             EntityCollectionChecks.schedule(level, ticked)
             CrowdChecks.schedule(level, ticked)
             SpawnSkipChecks.schedule(level, ticked)

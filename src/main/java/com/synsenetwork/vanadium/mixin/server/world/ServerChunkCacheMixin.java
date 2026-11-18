@@ -126,10 +126,6 @@ public abstract class ServerChunkCacheMixin implements ChunkTickAccess {
     private void dispatchSpawning(ServerLevel level, LevelChunk chunk, NaturalSpawner.SpawnState info,
                                 List<MobCategory> categories) {
         if (!Vanadium.config.enabled || !Vanadium.config.parallelSpawning) {
-            // Thunder for this chunk must finish before its inline spawn attempt.
-            if (Vanadium.config.enabled && Vanadium.config.parallelChunkTicks) {
-                Vanadium.scheduler.run(Stage.SPAWNING);
-            }
             NaturalSpawner.spawnForChunk(level, chunk, info, categories);
             return;
         }
@@ -141,7 +137,9 @@ public abstract class ServerChunkCacheMixin implements ChunkTickAccess {
     @Redirect(method = "tickSpawningChunk", at = @At(value = "INVOKE",
             target = "Lnet/minecraft/server/level/ServerLevel;tickThunder(Lnet/minecraft/world/level/chunk/LevelChunk;)V"))
     private void dispatchThunder(ServerLevel level, LevelChunk chunk) {
-        if (!Vanadium.config.enabled || !Vanadium.config.parallelChunkTicks) {
+        // Serial spawning keeps vanilla's order: each visited chunk's thunder runs here, inline, before its
+        // eligibility checks and spawn attempt, whether or not an attempt follows.
+        if (!Vanadium.config.enabled || !Vanadium.config.parallelChunkTicks || !Vanadium.config.parallelSpawning) {
             level.tickThunder(chunk);
             return;
         }

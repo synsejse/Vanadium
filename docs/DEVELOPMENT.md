@@ -130,6 +130,8 @@ world-safety or performance claim.
 ./gradlew runFeatureBench -Pbench.filter='spawn-.*' -Pbench.rounds=2 -Pbench.scale=0.1 -Pbench.jfr=false
 ./gradlew runMixedBench -Pmixed.mode=enabled
 ./gradlew runMixedBench -Pmixed.mode=serial
+./gradlew runColdExplosion -Pcold.arm=sham
+./gradlew runColdExplosion -Pcold.arm=warmup
 ```
 
 `runFeatureBench` uses another fresh isolated server and a test-only mod. It runs paired
@@ -146,6 +148,11 @@ generated terrain with natural spawning, measured in fixed-tick windows. It runs
 invocation in a fresh `.vanadium/runs/mixedBench-UUID/` directory and takes several minutes; see
 [profiling](PROFILING.md#mixed-whole-server-benchmark) for the workload, `mixed.*` properties,
 outputs and how to compare modes. It is never part of `build` or `runIntegration`.
+
+`runColdExplosion` is a manual fixture for the first explosion in a fresh JVM: ordinary creeper blasts in
+identical arenas on a fixed tick schedule, with one arm per invocation (`sham`, `warmup` or the load-only
+`load` control). See [profiling](PROFILING.md#cold-first-use-explosion) for the schedule, outputs and how
+to read the arms. It is never part of `build` or `runIntegration`.
 
 For whole-server measurements use `/vanadium benchmark`, `/vanadium profile`, and the
 JDK's `jcmd`/`jfr` tools; see [profiling](PROFILING.md). Old exploratory harnesses and 26.2 reports have been removed; current chart evidence is

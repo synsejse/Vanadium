@@ -6,6 +6,7 @@ import org.gradle.api.configuration.BuildFeatures
 import org.gradle.api.tasks.JavaExec
 import java.io.File
 import java.net.ServerSocket
+import java.nio.file.FileSystems
 
 class PrepareLiveRun(
     private val run: File,
@@ -61,20 +62,41 @@ data class LiveSettings(
     val c2meParallelism: Int? = 4,
 ) : java.io.Serializable
 
-class VerifyLiveRun(private val mode: String, private val jfr: Boolean) : Action<Task> {
+/**
+ * Checks a finished live run: the pass marker, the JFR recording when requested, every file in [outputs] (run-relative
+ * path, `*` matching within its directory, to its minimum line count) and an error-free server log.
+ */
+class VerifyLiveRun(
+    private val mode: String,
+    private val jfr: Boolean,
+    private val outputs: Map<String, Long> = emptyMap(),
+) : Action<Task> {
     override fun execute(task: Task) {
-        val run = (task as JavaExec).workingDir
+        verify((task as JavaExec).workingDir)
+        task.logger.lifecycle("$mode passed; evidence retained in ${task.workingDir}")
+    }
+
+    fun verify(run: File) {
         val marker = run.resolve("vanadium-live-passed.txt")
         check(marker.isFile && marker.readText().trim() == mode) {
             "Live checks/tick/save/shutdown did not complete; inspect $run"
         }
-        check(!jfr || run.resolve("live.jfr").isFile) { "Missing JFR recording in $run" }
+        check(!jfr || run.resolve("live.jfr").let { it.isFile && it.length() > 0 }) { "Missing JFR recording in $run" }
+        for ((path, minimumLines) in outputs) {
+            val file = File(path).let { relative ->
+                val directory = run.resolve(relative.parent ?: ".")
+                val matcher = FileSystems.getDefault().getPathMatcher("glob:${relative.name}")
+                directory.listFiles().orEmpty().filter { it.isFile && matcher.matches(it.toPath().fileName) }.maxByOrNull { it.name }
+            }
+            checkNotNull(file) { "Missing $path in $run" }
+            val lines = file.useLines { it.count() }
+            check(lines >= minimumLines) { "$file has $lines lines, expected at least $minimumLines" }
+        }
         val log = run.resolve("logs/latest.log")
         check(log.isFile) { "Missing server log in $run" }
         check(log.useLines { lines -> lines.none { "/ERROR]" in it || " ERROR]" in it || "Exception in server tick loop" in it } }) {
             "Server logged errors; inspect $log"
         }
-        task.logger.lifecycle("$mode passed; evidence retained in $run")
     }
 }
 

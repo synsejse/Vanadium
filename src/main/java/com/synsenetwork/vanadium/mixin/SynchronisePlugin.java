@@ -15,7 +15,9 @@ import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
 
 /** Stamps ACC_SYNCHRONIZED on every instance method of the SYNC_ALL targets (non-thread-safe vanilla
  *  helpers Vanadium touches from worker threads), and makes {@code Level.randValue} per-thread in the
- *  RAND_VALUE targets. Both run after every mixin, so they also cover other mods' merged code. */
+ *  RAND_VALUE targets. Both run after every mixin, so they also cover other mods' merged code. Also checks
+ *  that the optional hooks into other mods' merged POI methods (Lithium's takeAt, C2ME's shouldUnloadPoi)
+ *  bound wherever their target exists. */
 public class SynchronisePlugin implements IMixinConfigPlugin {
     private static final Logger LOGGER = LogManager.getLogger();
 
@@ -23,9 +25,20 @@ public class SynchronisePlugin implements IMixinConfigPlugin {
     private static final String RAND_VALUE = "com.synsenetwork.vanadium.mixin.world.RandValueMixin";
     private static final Set<String> RAND_VALUE_OWNERS = Set.of("net/minecraft/world/level/Level", "net/minecraft/server/level/ServerLevel");
     private static final String RAND_VALUE_STATE = "com/synsenetwork/vanadium/concurrent/PerThreadRandValue";
-    /** Methods that only read volatile state; locking them would serialize hot read paths. */
+    private static final String POI_TAKE_AT = "com.synsenetwork.vanadium.mixin.compat.lithium.PoiTakeAtMixin";
+    private static final String TAKE_AT = "lithium$takeAt";
+    private static final String TAKE_AT_HOOK = "vanadium$claimOrEmpty";
+    private static final String POI_UNLOAD = "com.synsenetwork.vanadium.mixin.compat.c2me.PoiUnloadMixin";
+    private static final String SHOULD_UNLOAD_POI = "c2me$shouldUnloadPoi";
+    private static final String SHOULD_UNLOAD_POI_HOOK = "vanadium$keepResident";
+    /**
+     * Methods that only read volatile or concurrent state; locking them would serialize hot read paths.
+     * {@code PoiSection.getRecords} builds a lazy stream over the concurrent per-type sets, consumed after the
+     * monitor would be released anyway; it runs under the POI distance graph's monitor, which takes no other lock.
+     */
     private static final Set<String> UNSYNCHRONIZED = Set.of(
-            "net.minecraft.world.level.lighting.DynamicGraphMinFixedPoint#hasWork");
+            "net.minecraft.world.level.lighting.DynamicGraphMinFixedPoint#hasWork",
+            "net.minecraft.world.entity.ai.village.poi.PoiSection#getRecords");
 
     @Override
     public void onLoad(String mixinPackage) {
@@ -60,6 +73,16 @@ public class SynchronisePlugin implements IMixinConfigPlugin {
             perThreadRandValue(targetClassName, targetClass);
             return;
         }
+        if (POI_TAKE_AT.equals(mixinClassName)) {
+            checkOptionalHook(targetClassName, targetClass, TAKE_AT, TAKE_AT_HOOK, "Lithium ai.poi disabled",
+                    "a claim without a ticket would return the position (Lithium changed the method?)");
+            return;
+        }
+        if (POI_UNLOAD.equals(mixinClassName)) {
+            checkOptionalHook(targetClassName, targetClass, SHOULD_UNLOAD_POI, SHOULD_UNLOAD_POI_HOOK, "no C2ME chunk-system POI unloading",
+                    "C2ME could unload POI mid-wave or drop village centres (C2ME changed the method?)");
+            return;
+        }
         if (!SYNC_ALL.equals(mixinClassName)) {
             return;
         }
@@ -72,6 +95,37 @@ public class SynchronisePlugin implements IMixinConfigPlugin {
                 LOGGER.info("Setting synchronize bit for {} in {}.", method.name, targetClassName);
             }
         }
+    }
+
+    /**
+     * Hooks into a method another mod merges are {@code require = 0} only because that mod's option or module may
+     * be off, leaving no method: Lithium's {@code ai.poi} adds {@code takeAt}, C2ME's chunk-system rewrite adds
+     * {@code shouldUnloadPoi}. With the method present, an unbound hook would silently lose the guarantee. Both hooks
+     * are plain {@code @Inject}s, applied before this runs (MixinExtras' late injectors are not, so they cannot be
+     * checked here).
+     */
+    private static void checkOptionalHook(String targetClassName, ClassNode targetClass, String methodName, String hook,
+            String absentReason, String unboundConsequence) {
+        MethodNode target = null;
+        for (MethodNode method : targetClass.methods) {
+            if (method.name.equals(methodName)) {
+                if (target != null) throw new IllegalStateException("Several " + methodName + " methods in " + targetClassName);
+                target = method;
+            }
+        }
+        if (target == null) {
+            LOGGER.info("No {} in {} ({}); its hook is not applied.", methodName, targetClassName, absentReason);
+            return;
+        }
+        boolean called = false;
+        for (AbstractInsnNode insn = target.instructions.getFirst(); insn != null && !called; insn = insn.getNext()) {
+            called = insn instanceof MethodInsnNode call && call.owner.equals(targetClass.name)
+                    && (call.name.equals(hook) || call.name.endsWith("$" + hook));
+        }
+        if (!called) {
+            throw new IllegalStateException(methodName + " in " + targetClassName + " does not call " + hook + ": " + unboundConsequence);
+        }
+        LOGGER.info("Bound {} in {}#{}.", hook, targetClassName, methodName);
     }
 
     /** Replaces field accesses outside constructors (which only seed the shared field) with per-thread state. */

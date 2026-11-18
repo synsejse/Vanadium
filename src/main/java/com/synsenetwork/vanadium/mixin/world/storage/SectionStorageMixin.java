@@ -4,10 +4,12 @@ import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.synsenetwork.vanadium.collections.ConcurrentLongSet;
 import com.synsenetwork.vanadium.compat.LithiumCompat;
+import com.synsenetwork.vanadium.concurrent.SectionStorageAccess;
 import it.unimi.dsi.fastutil.HashCommon;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
 import java.util.Optional;
+import net.minecraft.core.SectionPos;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.storage.SectionStorage;
 import org.spongepowered.asm.mixin.Final;
@@ -21,7 +23,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /** Priority above Lithium's default so its constructor hook runs after Lithium's `ai.poi` replaces storage. */
 @Mixin(value = SectionStorage.class, priority = 1100)
-public abstract class SectionStorageMixin<R> {
+public abstract class SectionStorageMixin<R> implements SectionStorageAccess {
     @Shadow
     @Final
     @Mutable
@@ -61,8 +63,33 @@ public abstract class SectionStorageMixin<R> {
      */
     @WrapMethod(method = "unpackChunk(Lnet/minecraft/world/level/ChunkPos;)V")
     private void vanadium$unpackOnce(ChunkPos pos, Operation<Void> original) {
-        synchronized (vanadium$unpackLocks[(int) HashCommon.mix(pos.pack()) & (vanadium$unpackLocks.length - 1)]) {
+        synchronized (vanadium$unpackLock(pos.pack())) {
             original.call(pos);
         }
+    }
+
+    /**
+     * Vanilla publishes a new section by checking the slot, then putting it: two callers creating one empty section
+     * (POI added by block changes, or by a chunk load's consistency check on the server thread) could both put one,
+     * and the records added to the first would be lost with it. Creation holds the column's unpack stripe, which
+     * also covers loading the column first, so a later caller finds the installed section. Callers hold no POI
+     * section or graph monitor here; the section's {@code add} runs after this returns.
+     */
+    @WrapMethod(method = "getOrCreate(J)Ljava/lang/Object;")
+    private R vanadium$createOnce(long sectionPos, Operation<R> original) {
+        synchronized (vanadium$unpackLock(ChunkPos.pack(SectionPos.x(sectionPos), SectionPos.z(sectionPos)))) {
+            return original.call(sectionPos);
+        }
+    }
+
+    @Unique
+    private Object vanadium$unpackLock(long chunkPos) {
+        return vanadium$unpackLocks[(int) HashCommon.mix(chunkPos) & (vanadium$unpackLocks.length - 1)];
+    }
+
+    @Override
+    public Object vanadium$installed(long sectionPos) {
+        Optional<R> section = this.storage.get(sectionPos);
+        return section == null ? null : section.orElse(null);
     }
 }

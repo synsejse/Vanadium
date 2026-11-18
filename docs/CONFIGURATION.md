@@ -83,6 +83,13 @@ for that long before each tick, in every mode; `0` never),
 off by default because no lead measured faster) and `-Dvanadium.workerSpinMicros=<µs>` (a fixed
 worker spin that ignores ticks).
 
+`-Dvanadium.spawnParticipants=<auto|N>` is a measurement control, not a tuning option: it bounds
+natural spawning waves at N threads, the server thread included (`1` = inline on the server
+thread). It is an upper bound, not a guaranteed occupancy: a wave gets the smaller of the scheduler's
+estimate and N, and offered threads may find no work. The default `auto` leaves the scheduler's estimate alone; `0`, negative or malformed values
+stop the server at start. Results record the resolved value as `environment.spawnParticipants`; see
+[Profiling](PROFILING.md#spawn-contention-arms).
+
 Serial rules match exact registry IDs. Set them as TOML string arrays:
 
 ```toml

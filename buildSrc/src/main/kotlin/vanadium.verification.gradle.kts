@@ -3,6 +3,7 @@ import com.synsenetwork.vanadium.gradle.LiveFixture
 import com.synsenetwork.vanadium.gradle.LiveSettings
 import com.synsenetwork.vanadium.gradle.MixedBenchSettings
 import com.synsenetwork.vanadium.gradle.BuildFeaturesAccess
+import com.synsenetwork.vanadium.gradle.ColdExplosionSettings
 import com.synsenetwork.vanadium.gradle.PrepareRuntimeMod
 import com.synsenetwork.vanadium.gradle.PrepareLiveRun
 import com.synsenetwork.vanadium.gradle.VerifyLiveRun
@@ -25,6 +26,7 @@ tasks.named<Test>("test") {
 
 val testOutput = sourceSets.named("test").map { it.output }
 val mixedBench = MixedBenchSettings { providers.gradleProperty(it).orNull }
+val coldExplosion = ColdExplosionSettings { providers.gradleProperty(it).orNull }
 val liveRuns = LiveFixture.entries.associateWith {
     layout.projectDirectory.dir(".vanadium/runs/${it.runName}-${UUID.randomUUID()}")
 }
@@ -41,11 +43,16 @@ loom.runs {
                 systemProperties.put("vanadium.live.ticks", providers.gradleProperty("live.ticks").getOrElse("500"))
                 systemProperties.put("vanadium.live.sprint", providers.gradleProperty("live.sprint").getOrElse("true"))
             }
-            if (fixture == LiveFixture.MIXED_BENCH) {
-                systemProperties.putAll(mixedBench.systemProperties)
-                jvmArguments.addAll(mixedBench.jvmArgs)
-            } else {
-                jvmArguments.addAll("-Xms2g", "-Xmx2g", "-XX:+UseG1GC")
+            when (fixture) {
+                LiveFixture.MIXED_BENCH -> {
+                    systemProperties.putAll(mixedBench.systemProperties)
+                    jvmArguments.addAll(mixedBench.jvmArgs)
+                }
+                LiveFixture.COLD_EXPLOSION -> {
+                    systemProperties.putAll(coldExplosion.systemProperties)
+                    jvmArguments.addAll(coldExplosion.jvmArgs)
+                }
+                else -> jvmArguments.addAll("-Xms2g", "-Xmx2g", "-XX:+UseG1GC")
             }
             if (fixture == LiveFixture.FEATURE_BENCH) {
                 listOf("workers" to "4", "rounds" to "12", "scale" to "1", "filter" to "", "jfr" to "true").forEach { (key, default) ->
@@ -63,7 +70,11 @@ liveRuns.keys.forEach { fixture ->
         dependsOn("testClasses")
         archiveFileName = fixture.jarName
         destinationDirectory = layout.buildDirectory.dir("test-mods")
-        from(testOutput) { include("com/synsenetwork/vanadium/${fixture.packageDirectory}/**", "com/synsenetwork/vanadium/live/**") }
+        from(testOutput) {
+            include("com/synsenetwork/vanadium/${fixture.packageDirectory}/**", "com/synsenetwork/vanadium/live/**")
+            // Unit tests of fixture helpers stay in the test task.
+            exclude("**/*Test.class", "**/*Test$*.class")
+        }
         from("src/test/resources/${fixture.descriptor}") { rename { "fabric.mod.json" } }
         fixture.resources.forEach { from("src/test/resources/$it") }
     }
@@ -115,14 +126,17 @@ liveRuns.forEach { (fixture, directory) ->
     tasks.named<JavaExec>("run${fixture.runName.replaceFirstChar(Char::uppercase)}") {
         group = if (fixture == LiveFixture.INTEGRATION) "verification" else "benchmark"
         if (fixture == LiveFixture.MIXED_BENCH) description = "Manual realistic whole-server benchmark (one mode per run; see docs/PROFILING.md)"
+        if (fixture == LiveFixture.COLD_EXPLOSION) description = "Manual first-explosion (cold first use) benchmark (one arm per run; see docs/PROFILING.md)"
         dependsOn(runtimeMods, fixture.jarTask)
         val mixed = fixture == LiveFixture.MIXED_BENCH
+        val cold = fixture == LiveFixture.COLD_EXPLOSION
         timeout.set(Duration.ofMinutes(if (mixed) maxOf(fixture.timeoutMinutes, mixedBench.timeoutMinutes) else fixture.timeoutMinutes))
         args("nogui")
         doFirst(PrepareLiveRun(directory.asFile, configurationCache, layout.projectDirectory.file(".vanadium/eula.txt").asFile,
             runtimeMods.map { it.get().destination.get().asFile }, layout.buildDirectory.file("test-mods/${fixture.jarName}").get().asFile, fixture.runName,
-            if (mixed) mixedBench.liveSettings else LiveSettings()))
-        doLast(VerifyLiveRun(fixture.runName, providers.gradleProperty("live.jfr").getOrElse("false").toBoolean()))
+            when { mixed -> mixedBench.liveSettings; cold -> coldExplosion.liveSettings; else -> LiveSettings() }))
+        doLast(VerifyLiveRun(fixture.runName, providers.gradleProperty("live.jfr").getOrElse("false").toBoolean(),
+            when { mixed -> mixedBench.expectedOutputs(); cold -> coldExplosion.expectedOutputs(); else -> emptyMap() }))
     }
 }
 

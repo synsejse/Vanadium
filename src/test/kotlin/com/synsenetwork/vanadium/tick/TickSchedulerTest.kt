@@ -232,6 +232,74 @@ class TickSchedulerTest {
         }
     }
 
+    /** Runs [regions] separate tasks in [stage] and returns the threads they ran on and the most that overlapped. */
+    private fun regionWave(scheduler: TickScheduler, stage: Stage, regions: Int, gate: CountDownLatch?,
+                           nanos: Long = 0, inside: () -> Unit = {}): Pair<Set<Thread>, Int> {
+        val threads = ConcurrentHashMap.newKeySet<Thread>()
+        val running = AtomicInteger()
+        val most = AtomicInteger()
+        scheduler.begin(stage)
+        for (i in 0 until regions) scheduler.enqueue(stage, i * 8, 0, {
+            most.accumulateAndGet(running.incrementAndGet(), ::maxOf)
+            threads.add(Thread.currentThread())
+            inside()
+            if (gate != null) {
+                gate.countDown()
+                check(gate.await(5, TimeUnit.SECONDS)) { "the wave did not get ${gate.count} more participants" }
+            }
+            val until = System.nanoTime() + nanos
+            while (System.nanoTime() < until) Thread.onSpinWait()
+            running.decrementAndGet()
+        }, null)
+        scheduler.run(stage)
+        return threads to most.get()
+    }
+
+    @Test
+    fun spawnParticipantCeilingBoundsOnlySpawningWaves() {
+        WorkerPool(5).use { pool ->
+            // A zero participant cost always estimates every worker, so only the ceiling can lower it.
+            val scheduler = TickScheduler(pool, 1, participantCostNanos = 0.0, spawnParticipants = ParticipantCeiling.of(2))
+            assertEquals(2, scheduler.regionParticipants(Stage.SPAWNING, 100, 1e9))
+            assertEquals(6, scheduler.regionParticipants(Stage.CHUNK, 100, 1e9), "other stages keep their estimate")
+            assertEquals(1, scheduler.regionParticipants(Stage.SPAWNING, 1, 1e9), "never more than the regions")
+            // Cheap regions (dataflow), then heavy ones (claiming once measured): two overlap, never a third.
+            repeat(3) {
+                val (threads, most) = regionWave(scheduler, Stage.SPAWNING, 8, CountDownLatch(2), nanos = 150_000)
+                assertEquals(2, threads.size)
+                assertEquals(2, most)
+            }
+            assertEquals(6, regionWave(scheduler, Stage.CHUNK, 6, CountDownLatch(6)).first.size)
+            assertEquals(6, regionWave(scheduler, Stage.BLOCK_ENTITY, 6, CountDownLatch(6)).first.size)
+        }
+    }
+
+    /** A ceiling of 1 is the attempt-only serial arm: regions run in plan order on the caller, which may then block. */
+    @Test
+    fun spawnParticipantCeilingOfOneRunsInlineWithoutDeferral() {
+        WorkerPool(4).use { pool ->
+            val scheduler = TickScheduler(pool, 1, participantCostNanos = 0.0, spawnParticipants = ParticipantCeiling.of(1))
+            val inParallelWave = AtomicInteger()
+            val (threads, most) = regionWave(scheduler, Stage.SPAWNING, 6, null) {
+                if (WorkerPool.isParallelWaveCaller() || WorkerPool.isWorkerThread()) inParallelWave.incrementAndGet()
+            }
+            assertEquals(setOf(Thread.currentThread()), threads)
+            assertEquals(1, most)
+            assertEquals(0, inParallelWave.get(), "inline spawn tasks run as on the server thread: nothing defers")
+            assertEquals(5, regionWave(scheduler, Stage.CHUNK, 5, CountDownLatch(5)).first.size)
+        }
+    }
+
+    @Test
+    fun defaultSchedulerHasNoSpawnCeiling() {
+        WorkerPool(3).use { pool ->
+            val scheduler = TickScheduler(pool, 1)
+            assertSame(ParticipantCeiling.AUTO, scheduler.spawnParticipants)
+            assertEquals(scheduler.participants(100, 1e9), scheduler.regionParticipants(Stage.SPAWNING, 100, 1e9))
+            assertEquals(4, regionWave(TickScheduler(pool, 1, participantCostNanos = 0.0), Stage.SPAWNING, 4, CountDownLatch(4)).first.size)
+        }
+    }
+
     @Test
     fun wavesFinishOtherRegionsAndPropagateFailure() {
         val pool = WorkerPool(4)

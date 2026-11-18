@@ -20,6 +20,11 @@ import kotlin.math.sqrt
  * wave whose longest task is known also gets no more threads than finish the rest of its work while that task
  * runs ([flatParticipants]).
  *
+ * Natural spawning waves ([Stage.SPAWNING]) may also be bounded by an experimental [spawnParticipants] ceiling
+ * (`-Dvanadium.spawnParticipants`, default `auto`: no bound). The bound lowers the participants the wave is offered
+ * and records, never raises them, and does not guarantee that many threads find work; the learned estimates,
+ * region plan, spawn-count preparation and every other stage are unchanged.
+ *
  * @param participantCostNanos what involving one more thread costs a wave; 0 always uses every worker
  */
 class TickScheduler internal constructor(
@@ -28,8 +33,11 @@ class TickScheduler internal constructor(
     private val participantCostNanos: Double,
     /** Share of a flat wave's longest task within which the other threads should finish ([flatParticipants]); 0 never bounds. */
     private val criticalPathShare: Double = CRITICAL_PATH_SHARE,
+    /** Most participants of a spawning wave, the caller included, on top of [participants]; experimental. */
+    val spawnParticipants: ParticipantCeiling = ParticipantCeiling.AUTO,
 ) {
-    constructor(pool: WorkerPool, isolation: Int) : this(pool, isolation, PARTICIPANT_COST_NANOS)
+    constructor(pool: WorkerPool, isolation: Int, spawnParticipants: ParticipantCeiling = ParticipantCeiling.AUTO) :
+        this(pool, isolation, PARTICIPANT_COST_NANOS, CRITICAL_PATH_SHARE, spawnParticipants)
 
     private val grids = EnumMap<Stage, RegionGrid>(Stage::class.java).apply {
         Stage.entries.forEach { if (it != Stage.ENTITY) put(it, RegionGrid()) }
@@ -92,6 +100,12 @@ class TickScheduler internal constructor(
         val most = maxOf(1, minOf(pool.workerCount + 1, tasks))
         if (estimatedNanos <= 0.0 || participantCostNanos <= 0.0) return most
         return sqrt(estimatedNanos / participantCostNanos).toInt().coerceIn(1, most)
+    }
+
+    /** [participants] for a region wave of [stage], within that stage's ceiling (only spawning has one). */
+    internal fun regionParticipants(stage: Stage, regions: Int, estimatedNanos: Double): Int {
+        val estimated = participants(regions, estimatedNanos)
+        return if (stage == Stage.SPAWNING) spawnParticipants.apply(estimated) else estimated
     }
 
     /**
@@ -204,7 +218,7 @@ class TickScheduler internal constructor(
         val regions = grid.plan(pool.workerCount + 1, isolation)
         recording?.recordWave(stage, regions)
         val waitRecorder = recording?.let { LongConsumer { nanos -> it.recordWait(stage, nanos) } }
-        val participants = participants(regions.size, grid.estimatedNanos)
+        val participants = regionParticipants(stage, regions.size, grid.estimatedNanos)
         val event = WaveEvent()
         event.begin()
         val start = System.nanoTime()
@@ -254,13 +268,13 @@ class TickScheduler internal constructor(
         }
     }
 
-    private companion object {
+    companion object {
         /**
          * Average region work above which dynamic claiming beats dataflow ordering: measured on 26.3, heavy
          * entity regions finished about 6% sooner when claimed, cheap random-tick regions about 2x sooner in
          * dataflow order.
          */
-        const val CLAIM_MIN_REGION_NANOS = 100_000.0
+        private const val CLAIM_MIN_REGION_NANOS = 100_000.0
 
         /**
          * Default cost of involving one more thread in a wave, in nanoseconds (`vanadium.participantCostNanos`).
@@ -275,5 +289,13 @@ class TickScheduler internal constructor(
          * of the longest task's expected time, leaving room for its late start and for estimates that run short.
          */
         private val CRITICAL_PATH_SHARE = (System.getProperty("vanadium.criticalPathShare") ?: "0.8").toDouble()
+
+        /** JVM property for [spawnParticipants]; read at server start ([spawnParticipantsProperty]). */
+        const val SPAWN_PARTICIPANTS_PROPERTY = "vanadium.spawnParticipants"
+
+        /** The validated `-Dvanadium.spawnParticipants` ceiling; fails on an invalid value instead of guessing. */
+        @JvmStatic
+        fun spawnParticipantsProperty(): ParticipantCeiling =
+            ParticipantCeiling.parse(SPAWN_PARTICIPANTS_PROPERTY, System.getProperty(SPAWN_PARTICIPANTS_PROPERTY))
     }
 }

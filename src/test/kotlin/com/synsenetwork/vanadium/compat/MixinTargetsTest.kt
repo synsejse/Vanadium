@@ -12,7 +12,8 @@ import kotlin.test.assertTrue
 
 /**
  * Checks member bindings without initializing Minecraft or applying mixins, against vanilla and the pinned
- * Lithium jar on the test classpath. Injections may target methods Lithium's own mixins merge into a class.
+ * Lithium jar on the test classpath. Injections may target methods Lithium's own mixins merge into a class, and
+ * the C2ME-merged methods listed in [c2meMerged] (C2ME is not on the test classpath).
  */
 class MixinTargetsTest {
     @TestFactory
@@ -62,7 +63,7 @@ class MixinTargetsTest {
                     if ('*' in selector) continue
                     val name = selector.substringBefore('(')
                     val desc = if ('(' in selector) "(" + selector.substringAfter('(') else null
-                    val merged = lithiumMerged[target.name].orEmpty()
+                    val merged = lithiumMerged[target.name].orEmpty() + c2meMerged[target.name].orEmpty()
                     if (target.methods.none { it.name == name && (desc == null || it.desc == desc) } &&
                             merged.none { it.first == name && (desc == null || it.second == desc) }) missing.add("injection $selector")
                 }
@@ -70,6 +71,14 @@ class MixinTargetsTest {
         }
         assertTrue(missing.isEmpty(), missing.joinToString("\n"))
     }
+
+    /**
+     * Methods the pinned C2ME release merges, by target internal name, as read from its nested
+     * `c2me-fabric-rewrites-chunk-system` jar (`MixinPointOfInterestStorage`). Hooks into them are optional and
+     * `SynchronisePlugin` fails the transformation if one exists but its hook did not bind; live POI checks call them.
+     */
+    private val c2meMerged: Map<String, List<Pair<String, String>>> = mapOf(
+        "net/minecraft/world/entity/ai/village/poi/PoiManager" to listOf("c2me\$shouldUnloadPoi" to "(Lnet/minecraft/world/level/ChunkPos;)Z"))
 
     /** Methods each Lithium mixin class adds to its targets, by target internal name. */
     private val lithiumMerged: Map<String, List<Pair<String, String>>> by lazy {
