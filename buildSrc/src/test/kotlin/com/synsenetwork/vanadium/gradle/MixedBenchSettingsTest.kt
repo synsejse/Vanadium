@@ -55,12 +55,34 @@ class MixedBenchSettingsTest {
     }
 
     @Test
+    fun collectorIsChosenOnceAndGcLoggingIsOptIn() {
+        assertEquals(200, settings().jfrLeadTicks)
+        assertEquals("200", settings().systemProperties["vanadium.mixed.jfrLead"])
+        assertEquals("0", settings("mixed.jfrLead" to "0").systemProperties["vanadium.mixed.jfrLead"])
+        assertTrue(settings().jvmArgs.none { it.startsWith("-Xlog") })
+        val zgc = settings("mixed.gc" to "zgc", "mixed.gcLog" to "true", "mixed.jvmArgs" to "-XX:+AlwaysPreTouch")
+        assertEquals(listOf("-Xms4g", "-Xmx4g", "-XX:+UseZGC", MixedBenchSettings.GC_LOG, "-XX:+AlwaysPreTouch"), zgc.jvmArgs)
+        assertEquals(1, zgc.jvmArgs.count { it.matches(Regex("-XX:\\+Use\\w+GC")) })
+        assertTrue("uptimenanos" in MixedBenchSettings.GC_LOG && "file=gc.log" in MixedBenchSettings.GC_LOG)
+        assertEquals("-XX:+UseG1GC", settings("mixed.gc" to "g1", "mixed.gcLog" to "false").jvmArgs[2])
+        // A second collector would make the JVM refuse to start; the choice belongs to mixed.gc.
+        for (flag in listOf("-XX:+UseZGC", "-XX:+UseG1GC", "-XX:-UseG1GC", "-XX:+UseParallelGC", "-XX:+UseShenandoahGC")) {
+            assertFailsWith<IllegalArgumentException>(flag) { settings("mixed.jvmArgs" to "-XX:+AlwaysPreTouch $flag") }
+        }
+        assertEquals(listOf("-XX:+UseStringDeduplication", "-XX:ZUncommitDelay=60"),
+            settings("mixed.gc" to "zgc", "mixed.jvmArgs" to "-XX:+UseStringDeduplication -XX:ZUncommitDelay=60").extraJvmArgs)
+    }
+
+    @Test
     fun rejectsInvalidValuesBeforeLaunch() {
         assertFailsWith<IllegalArgumentException> { settings("mixed.mode" to "off") }
         assertFailsWith<IllegalArgumentException> { settings("mixed.window" to "0") }
         assertFailsWith<IllegalArgumentException> { settings("mixed.players" to "eight") }
         assertFailsWith<IllegalArgumentException> { settings("mixed.sprint" to "yes") }
         assertFailsWith<IllegalArgumentException> { settings("mixed.heap" to "4") }
+        assertFailsWith<IllegalArgumentException> { settings("mixed.gc" to "shenandoah") }
+        assertFailsWith<IllegalArgumentException> { settings("mixed.gcLog" to "1") }
+        assertFailsWith<IllegalArgumentException> { settings("mixed.jfrLead" to "-1") }
     }
 
     @Test

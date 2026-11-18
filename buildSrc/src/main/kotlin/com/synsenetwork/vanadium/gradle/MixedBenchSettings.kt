@@ -31,12 +31,24 @@ class MixedBenchSettings(private val property: (String) -> String?) {
     val heap = (property("mixed.heap") ?: "4g").also {
         require(it.matches(Regex("[1-9][0-9]*[mMgG]"))) { "mixed.heap must look like 4g or 6144m, not '$it'" }
     }
-    val extraJvmArgs: List<String> = property("mixed.jvmArgs")?.trim()?.split(Regex("\\s+"))?.filter { it.isNotEmpty() }.orEmpty()
+    /** One collector per run: `g1` (default) or `zgc` (generational, the only ZGC mode on Java 25). */
+    val gc = (property("mixed.gc") ?: "g1").also {
+        require(it in GCS) { "mixed.gc must be one of ${GCS.keys}, not '$it'" }
+    }
+    /** GC and safepoint unified logging into the run directory's `gc.log`, decorated with JVM uptime in nanoseconds. */
+    val gcLog = bool("mixed.gcLog", false)
+    /** Ticks of JFR (`-Plive.jfr=true`) before the first window, so starting the recording is not measured. */
+    val jfrLeadTicks = int("mixed.jfrLead", 200, 0..1_000_000)
+    val extraJvmArgs: List<String> = property("mixed.jvmArgs")?.trim()?.split(Regex("\\s+"))?.filter { it.isNotEmpty() }.orEmpty().also { args ->
+        args.firstOrNull { COLLECTOR_FLAG.matches(it) }?.let {
+            throw IllegalArgumentException("mixed.jvmArgs must not select a collector ('$it'); use mixed.gc=${GCS.keys.joinToString("|")}")
+        }
+    }
 
     /** Setup and readiness take minutes; measured ticks are allowed half speed (10 TPS) before the run is killed. */
     val timeoutMinutes: Long get() = 15L + (warmupTicks.toLong() + windowTicks.toLong() * windows) / 600
 
-    val jvmArgs: List<String> get() = listOf("-Xms$heap", "-Xmx$heap", "-XX:+UseG1GC") + extraJvmArgs
+    val jvmArgs: List<String> get() = listOf("-Xms$heap", "-Xmx$heap", GCS.getValue(gc)) + (if (gcLog) listOf(GC_LOG) else emptyList()) + extraJvmArgs
 
     val systemProperties: Map<String, String> get() = linkedMapOf(
         "vanadium.mixed.mode" to mode,
@@ -47,6 +59,7 @@ class MixedBenchSettings(private val property: (String) -> String?) {
         "vanadium.mixed.windows" to "$windows",
         "vanadium.mixed.sprint" to "$sprint",
         "vanadium.mixed.parallelSpawning" to "$parallelSpawning",
+        "vanadium.mixed.jfrLead" to "$jfrLeadTicks",
     )
 
     val liveSettings: LiveSettings get() = LiveSettings(
@@ -81,5 +94,14 @@ class MixedBenchSettings(private val property: (String) -> String?) {
 
     companion object {
         val MODES = listOf("enabled", "serial")
+        val GCS = linkedMapOf("g1" to "-XX:+UseG1GC", "zgc" to "-XX:+UseZGC")
+
+        /**
+         * Every GC and safepoint message, unrotated. `uptimenanos` is the clock of `mixed-bench/ticks.csv`
+         * (`end_uptime_ns`); `time` gives wall-clock time for matching JFR in Mission Control.
+         */
+        const val GC_LOG = "-Xlog:gc*,safepoint:file=gc.log:time,uptime,uptimenanos,level,tags:filecount=0"
+
+        private val COLLECTOR_FLAG = Regex("-XX:[+-]Use(Serial|Parallel|ParallelOld|G1|Z|Shenandoah|Epsilon|ConcMarkSweep)GC")
     }
 }

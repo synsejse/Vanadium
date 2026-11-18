@@ -82,8 +82,11 @@ overloaded); with `mixed.sprint=true` it runs uncapped (throughput).
 | `mixed.parallelSpawning` | `true` | `false` writes `parallelSpawning = false` (serial spawning arm; needs `mixed.mode=enabled`) |
 | `mixed.c2me` | C2ME default | `globalExecutorParallelism` |
 | `mixed.viewDistance` / `mixed.simulationDistance` | 8 / 6 | server view and simulation distance |
-| `mixed.heap` / `mixed.jvmArgs` | `4g` / none | `-Xms`/`-Xmx` and extra JVM flags (space-separated) |
-| `live.jfr` | `false` | record the measured windows only into the run's `live.jfr` (100µs monitor/park thresholds) |
+| `mixed.heap` / `mixed.jvmArgs` | `4g` / none | `-Xms`/`-Xmx` and extra JVM flags (space-separated; collector flags are rejected, use `mixed.gc`) |
+| `mixed.gc` | `g1` | `g1` (`-XX:+UseG1GC`) or `zgc` (`-XX:+UseZGC`, generational) |
+| `mixed.gcLog` | `false` | GC and safepoint logging into the run's `gc.log` (see below) |
+| `live.jfr` | `false` | record into the run's `live.jfr` (100µs monitor/park thresholds) from `mixed.jfrLead` ticks before the first window to the last |
+| `mixed.jfrLead` | 200 | ticks of recording before the first window; with a shorter warmup the recording starts at the end of setup |
 
 Outputs in the run directory:
 
@@ -95,9 +98,49 @@ Outputs in the run directory:
   near 0 except toggles, about 6 per base per 100 ticks), and items smelted so far.
 - `mixed-bench/threads.csv`: CPU and allocation per thread over all windows.
 - `mixed-bench/entities.csv`: entity types, and item entities by item, at the end.
-- `vanadium/results/mixed-bench-*.json`: the same windows with settings, JVM arguments, versions and
-  the Vanadium configuration (also logged as a `VANADIUM_RESULT` line). `MIXED_BENCH_WINDOW` lines
-  in the log repeat each row.
+- `mixed-bench/ticks.csv`: every tick from the end of setup to the last measured tick (readiness,
+  warmup and windows; none excluded): `phase` (`ready`, `warmup`, `measure`), `window` (-1 outside
+  windows), `tick_id` (`MinecraftServer.tickCount`), `tick_ns` (vanilla `tickServer` duration) and
+  `end_uptime_ns` (completion, below). Buffered as primitives and written at each boundary.
+- `mixed-bench/boundaries.csv`: `setup_end`, `jfr_start`, `ready_end`, `measure_start` and each
+  `window_end`, with the last completed tick, its completion, when the boundary's server-thread work
+  began (`mark_uptime_ns`), how long it took (`work_ns`: snapshots, file writes, starting JFR) and
+  wall-clock `epoch_us`.
+- `gc.log` (with `mixed.gcLog=true`): `-Xlog:gc*,safepoint:file=gc.log:time,uptime,uptimenanos,level,tags:filecount=0`.
+- `vanadium/results/mixed-bench-*.json`: the same windows with settings, JVM arguments, collectors,
+  versions and the Vanadium configuration (also logged as a `VANADIUM_RESULT` line). `MIXED_BENCH_WINDOW`
+  lines in the log repeat each row.
+
+Tick timing (columns appended to `windows.csv` after the health columns):
+
+- Clock: `*_uptime_ns` values are `System.nanoTime()` converted to JVM uptime, the clock of unified
+  logging's `uptimenanos` decoration, so `gc.log` pauses and safepoints line up with ticks directly.
+  The offset is calibrated once at setup (`MIXED_BENCH_CLOCK` line; uncertainty in the result JSON,
+  normally well under a microsecond).
+- Completion: when the fixture's `END_SERVER_TICK` hook starts, after vanilla's `tickServer` returns
+  its duration and after earlier-registered end-of-tick listeners. A tick's start is approximately
+  `end_uptime_ns - tick_ns`.
+- Window boundary `t0`: the completion of the tick before the window (the last warmup tick, the
+  readiness tick when `mixed.warmup=0`, or the previous window's last tick). Windows tile the timeline:
+  each tick belongs to exactly one phase or window. Boundary work runs on the server thread after
+  `t0`, so it is inside the next window's first gap (and in its `work_ns`), not excluded.
+- `completion_span_ms`/`completion_tps`: last completion minus `t0`, and ticks over that span.
+  `wall_ms`/`tps` keep their earlier definition (counter snapshots at the boundaries).
+- `max_gap_ms`/`max_gap_tick`: the longest interval between consecutive completions (the first starts at
+  `t0`) and the tick that ends it. A gap holds the tick, the pacing wait and anything else the server
+  thread did in between, so stalls outside `tickServer` show here but not in `tick_max_ms`.
+- `ticks_over_50ms`/`ticks_over_100ms`: ticks whose `tickServer` duration is strictly greater;
+  `tick_max_id` is the longest one. `first_tick`/`last_tick` give the window's tick IDs.
+- `rolling_tps_min_20t`/`rolling_tps_min_100t`: the lowest `k / (t(j) - t(j-k))` over every complete
+  run of `k` consecutive completions inside the window (the first starts at `t0`; none crosses a window
+  boundary). Empty when the window has fewer than `k` ticks.
+
+For attribution, `live.jfr` also contains `vanadium.MixedBenchTick` (tick ID, phase, window, duration and
+completion uptime) and `vanadium.MixedBenchBoundary` instant events, next to `vanadium.ServerTick`.
+Starting the recording happens `mixed.jfrLead` ticks ahead, not inside a window; `jfrRecordedLeadTicks`
+in the JSON is the lead it actually got. Startup and first-use effects (class loading, mixin transforms
+such as the first explosion) are not preloaded or excluded: the first window may contain them, and
+the per-tick data shows where.
 
 A stalled tick or setup stops the run after five minutes (`max-tick-time`) with vanilla's crash
 report, which includes every thread's stack and held monitors.
@@ -107,7 +150,9 @@ To compare modes, alternate fresh runs with identical properties, for example
 CPU per tick, busy cores) rather than single means; whole-server timings vary noticeably between
 runs, so use several runs per mode. Mob AI, spawning and villager behaviour are random, so
 entity counts differ slightly between runs; check them and the health columns before comparing.
-Record the hardware, flags and properties with any published result. Short smoke settings (for example
+Record the hardware, flags and properties with any published result. For tail work, run with
+`-Pmixed.gcLog=true` and match slow ticks or long gaps (`ticks.csv`) to `gc.log` lines by uptime.
+Short smoke settings (for example
 `-Pmixed.warmup=200 -Pmixed.window=200 -Pmixed.windows=2`) only check the harness.
 
 ### Spawn contention arms

@@ -63,7 +63,11 @@ liveRuns.keys.forEach { fixture ->
         dependsOn("testClasses")
         archiveFileName = fixture.jarName
         destinationDirectory = layout.buildDirectory.dir("test-mods")
-        from(testOutput) { include("com/synsenetwork/vanadium/${fixture.packageDirectory}/**", "com/synsenetwork/vanadium/live/**") }
+        from(testOutput) {
+            include("com/synsenetwork/vanadium/${fixture.packageDirectory}/**", "com/synsenetwork/vanadium/live/**")
+            // Unit tests of fixture helpers stay in the test task.
+            exclude("**/*Test.class", "**/*Test$*.class")
+        }
         from("src/test/resources/${fixture.descriptor}") { rename { "fabric.mod.json" } }
         fixture.resources.forEach { from("src/test/resources/$it") }
     }
