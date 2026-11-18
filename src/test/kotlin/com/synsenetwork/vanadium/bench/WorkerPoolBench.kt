@@ -44,7 +44,7 @@ object WorkerPoolBench {
         for (workers in counts) {
             for ((start, callerWakes) in listOf("spinning" to 2, "parked" to 2, "parked" to Int.MAX_VALUE, "prewoken" to 2)) {
                 val long = if (start == "spinning") 60_000_000_000L else 2_000_000L
-                val pool = WorkerPool(workers, SpinPolicy(long, 60_000_000_000L, fixed = false), callerWakes)
+                val pool = WorkerPool(workers, SpinPolicy(long, 60_000_000_000L), callerWakes)
                 try {
                     val rounds = if (start == "spinning") 2000 else 300
                     val joined = LongArray(rounds)
@@ -110,7 +110,7 @@ object WorkerPoolBench {
         val participants = intArrayOf(1, 2, 4, 8, 16, 24, 32, 48, 64, 73).filter { it <= workers + 1 }
         println("participant cost: workers=$workers, 512 balanced tasks per wave, spinning pool")
         println("work us," + participants.joinToString(",") { "p=$it us" })
-        val pool = WorkerPool(workers, SpinPolicy(60_000_000_000L, 60_000_000_000L, fixed = false))
+        val pool = WorkerPool(workers, SpinPolicy(60_000_000_000L, 60_000_000_000L))
         try {
             val perIteration = measureBurn()
             for (workMicros in intArrayOf(10, 50, 200, 1000, 4000)) {

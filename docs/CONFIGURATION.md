@@ -72,16 +72,16 @@ host's power states, so check your own machine with `/vanadium profile` at 20 TP
   `workers` × 100%). It halved tick times when idle threads were slow and was within noise of
   `lean` otherwise.
 
-After a tick without parallel work (an empty or `/tick freeze` world) nothing spins in any mode,
-and a server paused when empty (`pause-when-empty-seconds`) never spins.
+After a tick without parallel work (an empty world) nothing spins in any mode, and a server paused
+when empty (`pause-when-empty-seconds`) never spins. A `/tick freeze` world still tracks its
+entities and checks each one in parallel waves, so with many entities `hot` keeps spinning.
 
 `/vanadium set idleWorkers hot` switches live for a comparison; `/vanadium reload` restores the
-file's value. System properties override the option and are shown by `/vanadium status`:
-`-Dvanadium.idleWorkers=<mode>`, `-Dvanadium.serverSpinMicros=<µs>` (spin the server thread only
-for that long before each tick, in every mode; `0` never),
-`-Dvanadium.prewakeLeadMicros=<µs>` (in `balanced`, wake workers that long before each tick;
-off by default because no lead measured faster) and `-Dvanadium.workerSpinMicros=<µs>` (a fixed
-worker spin that ignores ticks).
+file's value. The option is the only control: the former JVM overrides `-Dvanadium.idleWorkers`,
+`-Dvanadium.serverSpinMicros`, `-Dvanadium.prewakeLeadMicros`, `-Dvanadium.prewakeGraceMicros`,
+`-Dvanadium.workerSpinMicros`, `-Dvanadium.callerSpinMicros`, `-Dvanadium.callerWakes` and
+`-Dvanadium.prewake` were removed. If one is still set, the server logs a warning naming it and
+ignores it.
 
 `-Dvanadium.spawnParticipants=<auto|N>` is a measurement control, not a tuning option: it bounds
 natural spawning waves at N threads, the server thread included (`1` = inline on the server

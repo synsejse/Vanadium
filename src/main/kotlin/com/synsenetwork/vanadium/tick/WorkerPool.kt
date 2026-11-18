@@ -1,8 +1,8 @@
 package com.synsenetwork.vanadium.tick
 
+import com.synsenetwork.vanadium.config.DeveloperProperties
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.RejectedExecutionException
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicIntegerArray
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicLongArray
@@ -20,8 +20,8 @@ import java.util.function.Supplier
  * Wake-up fans out: the caller unparks at most [CALLER_WAKES] parked helpers, and every helper that joins a
  * waking batch unparks further ones from the batch's shared wake cursor before it claims work, so the server
  * thread never issues a wake-up per worker. Idle workers spin for [SpinPolicy]'s budget, which follows the
- * server's tick events, then park. Between ticks, [IdleWorkers] decides whether they park and are woken shortly
- * before the next tick by a timer thread, or keep spinning.
+ * server's tick events, then park. Between ticks, [IdleWorkers] decides whether they park until the next tick's
+ * start wakes them, or keep spinning.
  *
  * A wave is claimed in list order through one shared cursor, or, given [WaveHomes], home by home: each participant
  * runs its own homes' tasks first and takes others' only when it has none left, so the same tasks (and the data they
@@ -30,32 +30,18 @@ import java.util.function.Supplier
 class WorkerPool internal constructor(
     threads: Int,
     private val spin: SpinPolicy,
+    /** Parked helpers the caller unparks itself; [Int.MAX_VALUE] is the serial loop, kept for benchmarks. */
     private val callerWakes: Int = CALLER_WAKES,
-    private val clock: PrewakeClock = PrewakeClock.SYSTEM,
 ) : AutoCloseable {
     constructor(threads: Int) : this(threads, SpinPolicy.fromSystemProperties())
 
     private val workers = Array(maxOf(1, threads)) { WorkerThread(this, it) }
 
-    /**
-     * The latest batch. The caller publishes waves with a plain write; the timed wake only replaces a batch that
-     * has nothing left to claim, with a compare-and-set, so it never hides a wave from a worker that could help.
-     */
+    /** The latest batch: a wave, or a tick start's wake-up. Only the thread that runs waves publishes. */
     private val current = AtomicReference<WorkBatch?>()
 
     @Volatile
     private var closed = false
-
-    /** The timed wake [tickEnded] scheduled and neither the timer nor [tickStarted] has taken yet. */
-    private val pendingWake = AtomicReference<TimedWake?>()
-
-    /** Started by the first [tickEnded] that schedules a timed wake; tests and benches without ticks have none. */
-    @Volatile
-    private var timer: PrewakeTimer? = null
-
-    /** Timed wakes that published a batch, and ones that found a wave with work left; for tests. */
-    private val timedWakes = AtomicInteger()
-    private val timedWakesSkipped = AtomicInteger()
 
     /**
      * One bit per worker between announcing a park and leaving it; the caller reads the bits of a wave's
@@ -122,7 +108,7 @@ class WorkerPool internal constructor(
             batch.participate(caller, CALLER_SLOT)
             val waitStart = if (callerWait != null) System.nanoTime() else 0
             try {
-                batch.awaitCompletion(caller, maxOf(CALLER_SPIN_NANOS, spin.callerSpinNanos))
+                batch.awaitCompletion(caller, maxOf(CALLER_SPIN_FLOOR_NANOS, spin.callerSpinNanos))
             } finally {
                 callerWait?.accept(System.nanoTime() - waitStart)
             }
@@ -177,40 +163,29 @@ class WorkerPool internal constructor(
     }
 
     /**
-     * Server thread, at the start of a tick: workers may spin between waves again, a timed wake that has not
-     * fired yet is dropped (the tick came first), and the workers the last tick used are woken now (fanning out
-     * as for a wave), so they spin by the time the first wave arrives instead of being woken by it. Workers a
-     * timed wake already brought up only restart their spin budget here.
+     * Server thread, at the start of a tick: workers may spin between waves again, and the workers the last tick
+     * used are woken now (fanning out as for a wave), so they spin by the time the first wave arrives instead of
+     * being woken by it.
      */
     fun tickStarted() {
-        pendingWake.set(null)
         spin.tickStarted()
         val peak = tickPeakHelpers
         tickPeakHelpers = 0
-        if (!PREWAKE || peak == 0 || closed || CALLER.get().parallelWaves > 0) return
+        if (peak == 0 || closed || CALLER.get().parallelWaves > 0) return
         publish(WorkBatch(emptyList(), minOf(peak, workers.size) + 1, null))
     }
 
     /**
      * Server thread, at the end of a tick: [nanosUntilNextTick] is how long the server will sleep before the
-     * next one (zero or less when it is behind). With slack, idle workers park at once, and in
-     * [IdleWorkers.BALANCED] with a lead, a timer wakes the workers this tick used [SpinPolicy.leadNanos] before
-     * the next one is due; in [IdleWorkers.HOT] they spin until just after it is due. A tick that ran nothing in parallel (an
-     * idle or frozen server) wakes or keeps nobody. Under pressure workers spin through the gap.
+     * next one (zero or less when it is behind). With slack, idle workers park at once, except in
+     * [IdleWorkers.HOT], where they spin until just after it is due. A tick that ran nothing in parallel (an idle
+     * or frozen server) keeps nobody spinning. Under pressure workers spin through the gap.
      */
     fun tickEnded(nanosUntilNextTick: Long, sprinting: Boolean) {
-        val peak = tickPeakHelpers
-        val due = clock.nanoTime() + nanosUntilNextTick
-        val gap = spin.tickEnded(nanosUntilNextTick, sprinting, PREWAKE_GRACE_NANOS, ranParallel = peak > 0)
-        if (gap == SpinPolicy.Gap.WAKE_EARLY && peak > 0 && !closed) {
-            schedule(TimedWake(due - spin.leadNanos, due, minOf(peak, workers.size)))
-        }
+        spin.tickEnded(nanosUntilNextTick, sprinting, HOT_GRACE_NANOS, ranParallel = tickPeakHelpers > 0)
     }
 
-    /**
-     * Server thread: idle-worker behaviour chosen by configuration, applied from the next tick event. A system
-     * property override ([SpinPolicy.fromSystemProperties]) wins.
-     */
+    /** Server thread: idle-worker behaviour chosen by configuration, applied from the next tick event. */
     fun configureIdle(mode: IdleWorkers) = spin.configure(mode)
 
     /** Idle-worker behaviour in effect. */
@@ -219,65 +194,15 @@ class WorkerPool internal constructor(
     /** After [tickEnded]: how long before the next tick the server thread should spin ([ServerSpin.arm]). */
     val serverSpinNanos: Long get() = spin.serverWindowNanos
 
-    /** Hands [wake] to the timer, starting it on first use; the timer only ever acts on the latest request. */
-    private fun schedule(wake: TimedWake) {
-        pendingWake.set(wake)
-        val thread = timer ?: PrewakeTimer(this).also {
-            timer = it
-            it.start()
-        }
-        LockSupport.unpark(thread)
-    }
-
-    /**
-     * Timer thread: lets the workers of [wake] spin until just after its tick is due, then publishes an empty
-     * batch for them and starts its fan-out, as a wave's caller would. A batch with work still to claim is never
-     * replaced: a wave is running (outside a tick, as the tick's own start drops pending wakes) and its
-     * wake-up covers its helpers. Each helper is checked by a thread that has seen the new batch, so the Dekker
-     * pairing with [WorkerThread.run] holds as for a wave.
-     */
-    private fun fireTimedWake(wake: TimedWake) {
-        if (closed) return
-        spin.extendSpin(System.nanoTime() + maxOf(0L, wake.due - clock.nanoTime()) + PREWAKE_GRACE_NANOS)
-        val batch = WorkBatch(emptyList(), wake.helpers + 1, null)
-        val fanOut = callerWakes != Int.MAX_VALUE
-        if (fanOut) batch.waking = true
-        while (true) {
-            val seen = current.get()
-            if (seen != null && !seen.fullyClaimed) {
-                timedWakesSkipped.incrementAndGet()
-                return
-            }
-            if (current.compareAndSet(seen, batch)) break
-        }
-        timedWakes.incrementAndGet()
-        batch.wake(workers, callerWakes)
-    }
-
     /** For tests: whether [worker] has announced a park and not yet left it. */
     internal fun isParked(worker: Int): Boolean = workers[worker].parked
 
-    /** For tests: timed wakes that have published a batch so far. */
-    internal val timedWakeCount: Int get() = timedWakes.get()
-
-    /** For tests: timed wakes that found a wave with work left to claim and left it alone. */
-    internal val timedWakeSkips: Int get() = timedWakesSkipped.get()
-
-    /** For tests: whether a timed wake is scheduled and has not fired or been dropped. */
-    internal val timedWakePending: Boolean get() = pendingWake.get() != null
-
-    /** For tests: whether the timer thread exists and is alive. */
-    internal val timerAlive: Boolean get() = timer?.isAlive == true
-
-    /** Called after the last wave; finishes late helpers and releases the pool's threads, the timer's included. */
+    /** Called after the last wave; finishes late helpers and releases the pool's threads. */
     override fun close() {
         closed = true
-        pendingWake.set(null)
         workers.forEach(LockSupport::unpark)
-        val timer = timer
-        if (timer != null) LockSupport.unpark(timer)
         var interrupted = false
-        for (thread in workers.asList() + listOfNotNull(timer)) {
+        for (thread in workers) {
             if (thread === Thread.currentThread()) continue
             while (thread.isAlive) {
                 try {
@@ -288,41 +213,6 @@ class WorkerPool internal constructor(
             }
         }
         if (interrupted) Thread.currentThread().interrupt()
-    }
-
-    /** A wake-up the timer issues at [at] ([clock] time) for a tick due at [due], for workers 0 until [helpers]. */
-    private class TimedWake(val at: Long, val due: Long, val helpers: Int)
-
-    /**
-     * Sleeps until the pending wake is due and fires it. It only acts on a request it removed from
-     * [pendingWake] itself, so each fires at most once, and one that [tickStarted] or [close] dropped, or a newer
-     * one replaced, before that never fires. One taken just before a tick started can still fire into the tick:
-     * it then finds a wave it leaves alone, or wakes workers that tick may use anyway, for at most its lead and
-     * grace of spinning.
-     * After [close] it exits; [close] unparks and joins it. A timer started after [close] read its field sees
-     * [closed] (set first) at once.
-     */
-    private class PrewakeTimer(private val pool: WorkerPool) : Thread("Vanadium-Prewake") {
-        init {
-            isDaemon = true
-        }
-
-        override fun run() {
-            while (!pool.closed) {
-                val wake = pool.pendingWake.get()
-                if (wake == null) {
-                    LockSupport.park(pool)
-                } else {
-                    val remaining = wake.at - pool.clock.nanoTime()
-                    if (remaining > 0) {
-                        pool.clock.park(pool, remaining)
-                    } else if (pool.pendingWake.compareAndSet(wake, null)) {
-                        pool.fireTimedWake(wake)
-                    }
-                }
-                interrupted() // Never interrupted for control; ignore strays.
-            }
-        }
     }
 
     /**
@@ -624,7 +514,7 @@ class WorkerPool internal constructor(
                 if (pool.closed) return
                 if (!rested) {
                     val now = System.nanoTime()
-                    if (now - idleSince < pool.spin.workerSpinNanos || pool.spin.spinUntil.get() - now > 0) {
+                    if (now - idleSince < pool.spin.workerSpinNanos || pool.spin.spinUntil - now > 0) {
                         onSpinWait()
                         continue
                     }
@@ -661,19 +551,19 @@ class WorkerPool internal constructor(
          * Least caller spin while waiting for the wave tail before parking; [SpinPolicy.callerSpinNanos] raises it
          * under pressure.
          */
-        private val CALLER_SPIN_NANOS = java.lang.Long.getLong("vanadium.callerSpinMicros", 200) * 1_000L
+        private const val CALLER_SPIN_FLOOR_NANOS = 200_000L
 
         /**
          * Parked helpers the caller unparks itself; each of them unparks more. Two start the fan-out on two
          * threads while costing the server thread only two wake-ups.
          */
-        internal val CALLER_WAKES = Integer.getInteger("vanadium.callerWakes", 2).coerceAtLeast(1)
+        internal const val CALLER_WAKES = 2
 
         /**
-         * How long past the due time pre-woken workers keep spinning for a tick that has not started: the server
-         * thread's own wake-up and packet handling come first. A later tick start wakes them as before.
+         * How long past the due time [IdleWorkers.HOT] workers keep spinning for a tick that has not started: the
+         * server thread's own wake-up and packet handling come first. A later tick start wakes them as before.
          */
-        private val PREWAKE_GRACE_NANOS = java.lang.Long.getLong("vanadium.prewakeGraceMicros", 1_000) * 1_000L
+        private const val HOT_GRACE_NANOS = 1_000_000L
 
         private val SET_BIT = LongBinaryOperator { word, bit -> word or bit }
         private val CLEAR_BIT = LongBinaryOperator { word, bit -> word and bit.inv() }
@@ -683,9 +573,6 @@ class WorkerPool internal constructor(
 
         /** How long a [callOnWaveCaller] request may wait before its `stalled` callback runs. */
         private val REQUEST_STALL_NANOS = java.lang.Long.getLong("vanadium.callerRequestStallSeconds", 10) * 1_000_000_000L
-
-        /** Whether [tickStarted] wakes the workers the previous tick used. */
-        private val PREWAKE = System.getProperty("vanadium.prewake", "true").toBoolean()
 
         /** Wave callers' state; read only on the calling thread, outside per-task hot paths. */
         private val CALLER = ThreadLocal.withInitial(::CallerState)
@@ -868,14 +755,13 @@ class WorkerPool internal constructor(
 }
 
 /**
- * What idle workers do between ticks that leave slack. Chosen with `idleWorkers` in the config, or
- * `-Dvanadium.idleWorkers`; `vanadium.workerSpinMicros` replaces all of it with one fixed spin.
+ * What idle workers do between ticks that leave slack. Chosen with `idleWorkers` in the config, or live with
+ * `/vanadium set idleWorkers`.
  */
 enum class IdleWorkers {
     /**
-     * Workers park when a tick ends and wake when the next starts (or, with `vanadium.prewakeLeadMicros`, that
-     * long before it is due); the server thread spins through its wait for the next tick ([ServerSpin]).
-     * About one core while ticks run parallel work.
+     * Workers park when a tick ends and wake when the next starts; the server thread spins through its wait for
+     * the next tick ([ServerSpin]). About one core while ticks run parallel work.
      */
     BALANCED,
 
@@ -900,36 +786,28 @@ enum class IdleWorkers {
  * worker; parking costs a wake-up (hundreds of microseconds on a VM) when the next wave comes, and a core
  * left idle for the rest of a 50 ms tick comes back slow.
  *
- * - Under pressure (sprinting, or the last tick ended less than [longNanos] before the next was due, or less
- *   than the lead in [IdleWorkers.BALANCED]), workers spin [longNanos] through every gap, including the one
- *   between ticks: throughput is what matters, and the next wave is close.
+ * - Under pressure (sprinting, or the last tick ended less than [longNanos] before the next was due), workers
+ *   spin [longNanos] through every gap, including the one between ticks: throughput is what matters, and the
+ *   next wave is close.
  * - With slack, workers spin [shortNanos] between waves of a tick ([hotNanos] in [IdleWorkers.HOT]); when the
  *   tick ends, [betweenTicks] says what the pool does until the next one.
  *
- * Without tick events (tests, benchmarks, before the first tick) workers spin [longNanos]. A fixed policy
- * ignores tick events. Events come from the server thread; workers only read [workerSpinNanos].
+ * Without tick events (tests, benchmarks, before the first tick) workers spin [longNanos]. Events come from the
+ * server thread; workers only read [workerSpinNanos] and [spinUntil].
  */
 internal class SpinPolicy(
     private val longNanos: Long,
     private val shortNanos: Long,
-    private val fixed: Boolean,
-    /** How long before a tick is due [IdleWorkers.BALANCED] wakes its workers. */
-    val leadNanos: Long = DEFAULT_LEAD_MICROS * 1_000L,
-    /** A mode set by system property; configuration cannot change it. */
-    private val forced: IdleWorkers? = null,
     private val hotNanos: Long = HOT_SPIN_MICROS * 1_000L,
     /** How long before a tick is due the server thread starts spinning in [IdleWorkers.BALANCED]. */
     private val serverLeadNanos: Long = DEFAULT_SERVER_LEAD_MICROS * 1_000L,
     /** How long a wave's caller spins for its tail under pressure; see [callerSpinNanos]. */
-    private val callerPressureNanos: Long = CALLER_PRESSURE_SPIN_MICROS * 1_000L,
+    private val callerPressureNanos: Long = CALLER_PRESSURE_SPIN_NANOS,
 ) {
     /** What the pool does at the end of a tick. */
     enum class Gap {
-        /** Under pressure or fixed: keep the spin budget, nothing more. */
+        /** Under pressure: keep the spin budget, nothing more. */
         PRESSURE,
-
-        /** Park now; a timer wakes the workers [leadNanos] before the next tick. */
-        WAKE_EARLY,
 
         /** Spin until just after the next tick is due. */
         SPIN_THROUGH,
@@ -948,17 +826,18 @@ internal class SpinPolicy(
      * events) it spins through tails of up to [callerPressureNanos]: a combat tick's tail is one long entity tick,
      * often longer than a worker's budget. With slack it spins as long as an idle worker would. Read by the caller.
      */
-    var callerSpinNanos: Long = if (fixed) longNanos else maxOf(longNanos, callerPressureNanos)
+    var callerSpinNanos: Long = maxOf(longNanos, callerPressureNanos)
         private set
 
     /**
-     * [System.nanoTime] until which idle workers keep spinning whatever [workerSpinNanos] says: set by a timed
-     * wake (timer thread) to just past the tick it wakes them for, and in [IdleWorkers.HOT] by [tickEnded] to just
-     * past the next tick. Only raised, except by [tickEnded] when workers are to park.
+     * [System.nanoTime] until which idle workers keep spinning whatever [workerSpinNanos] says: set in
+     * [IdleWorkers.HOT] by [tickEnded] to just past the next tick, and back to the present when workers are to park.
      */
-    val spinUntil = AtomicLong(System.nanoTime())
+    @Volatile
+    var spinUntil: Long = System.nanoTime()
+        private set
 
-    var mode: IdleWorkers = forced ?: IdleWorkers.BALANCED
+    var mode: IdleWorkers = IdleWorkers.BALANCED
         private set
 
     /** Whether the last tick ended with the next one due soon (see the class comment), or the server was sprinting. */
@@ -979,9 +858,9 @@ internal class SpinPolicy(
     var serverWindowNanos = 0L
         private set
 
-    /** Applies [mode] from the next tick event, unless a system property forced one. */
+    /** Applies [mode] from the next tick event. */
     fun configure(mode: IdleWorkers) {
-        if (forced == null) this.mode = mode
+        this.mode = mode
     }
 
     fun tickStarted() {
@@ -996,11 +875,9 @@ internal class SpinPolicy(
      */
     fun tickEnded(nanosUntilNextTick: Long, sprinting: Boolean, graceNanos: Long = 0L, ranParallel: Boolean = true): Gap {
         inTick = false
-        val threshold = if (mode == IdleWorkers.BALANCED) maxOf(longNanos, leadNanos) else longNanos
-        underPressure = sprinting || nanosUntilNextTick < threshold
+        underPressure = sprinting || nanosUntilNextTick < longNanos
         val gap = when {
-            fixed || underPressure -> Gap.PRESSURE
-            mode == IdleWorkers.BALANCED && leadNanos > 0 -> Gap.WAKE_EARLY
+            underPressure -> Gap.PRESSURE
             mode == IdleWorkers.HOT && ranParallel -> Gap.SPIN_THROUGH
             else -> Gap.PARK
         }
@@ -1013,43 +890,33 @@ internal class SpinPolicy(
         }
         val now = System.nanoTime()
         when (gap) {
-            Gap.SPIN_THROUGH -> extendSpin(now + nanosUntilNextTick + graceNanos)
-            // A timed wake for a tick that ended within its grace period must not keep workers spinning.
-            Gap.WAKE_EARLY, Gap.PARK -> spinUntil.set(now)
+            Gap.SPIN_THROUGH -> spinUntil = now + nanosUntilNextTick + graceNanos
+            // A spin-through for a tick that ended within its grace period must not keep workers spinning.
+            Gap.PARK -> spinUntil = now
             Gap.PRESSURE -> {}
         }
         update()
         return gap
     }
 
-    /** Raises [spinUntil] to [until]; never lowers it, as the timer and the server thread may both extend it. */
-    fun extendSpin(until: Long) {
-        spinUntil.getAndAccumulate(until, LATER)
-    }
-
     private fun update() {
         workerSpinNanos = when {
-            fixed -> longNanos
             mode == IdleWorkers.HOT -> if (inTick || underPressure) maxOf(hotNanos, longNanos) else 0L
             underPressure -> longNanos
             inTick -> shortNanos
             else -> 0L
         }
-        callerSpinNanos = when {
-            fixed -> longNanos
-            underPressure -> maxOf(workerSpinNanos, callerPressureNanos)
-            else -> workerSpinNanos
-        }
+        callerSpinNanos = if (underPressure) maxOf(workerSpinNanos, callerPressureNanos) else workerSpinNanos
     }
 
     companion object {
-        /** The later of two [System.nanoTime] values, safe across wrap-around. */
-        private val LATER = LongBinaryOperator { a, b -> if (b - a > 0) b else a }
-
         /** Idle spin under pressure: two milliseconds covers inter-wave gaps on the Xeon VM. */
         private const val LONG_SPIN_MICROS = 2_000L
 
-        /** Idle spin between waves of a tick with slack: covers the usual serial gaps, not long serial phases. */
+        /**
+         * Idle spin between waves of a tick with slack (`vanadium.workerSlackSpinMicros`): covers the usual serial
+         * gaps, not long serial phases.
+         */
         private const val SHORT_SPIN_MICROS = 500L
 
         /** Idle spin between waves in [IdleWorkers.HOT]: longer than any normal serial phase of a tick. */
@@ -1060,13 +927,7 @@ internal class SpinPolicy(
          * 600-mob fight at 36 to 48 workers (1 to 2.5 ms on average, one villager's path search), so the caller
          * parks only for waves that run long.
          */
-        private val CALLER_PRESSURE_SPIN_MICROS = java.lang.Long.getLong("vanadium.callerPressureSpinMicros", 10_000L)
-
-        /**
-         * How long before the next tick [IdleWorkers.BALANCED] wakes workers; none by default, as no lead from
-         * 0.5 to 10 ms made 20 TPS ticks faster on the Xeon VM (see docs/PERFORMANCE.md).
-         */
-        const val DEFAULT_LEAD_MICROS = 0L
+        private const val CALLER_PRESSURE_SPIN_MICROS = 10_000L
 
         /**
          * How long before the next tick the server thread spins in [IdleWorkers.BALANCED]: through the whole gap.
@@ -1074,44 +935,20 @@ internal class SpinPolicy(
          */
         const val DEFAULT_SERVER_LEAD_MICROS = Long.MAX_VALUE / 1_000L
 
+        /** What the two spin overrides accept, in microseconds: none to a second. */
+        private val SPIN_OVERRIDE_MICROS = 0L..1_000_000L
+
+        /** Read once per JVM; an invalid value warns and keeps the default. */
+        private val SLACK_SPIN_NANOS =
+            DeveloperProperties.long("vanadium.workerSlackSpinMicros", SHORT_SPIN_MICROS, SPIN_OVERRIDE_MICROS) * 1_000L
+        private val CALLER_PRESSURE_SPIN_NANOS =
+            DeveloperProperties.long("vanadium.callerPressureSpinMicros", CALLER_PRESSURE_SPIN_MICROS, SPIN_OVERRIDE_MICROS) * 1_000L
+
         /**
-         * `vanadium.workerSpinMicros` fixes the spin (the caller's included) and ignores ticks;
-         * `vanadium.workerSlackSpinMicros` sets the short one, `vanadium.prewakeLeadMicros` the lead,
-         * `vanadium.callerPressureSpinMicros` the caller's under pressure, and `vanadium.idleWorkers` forces a mode.
+         * The production policy: `vanadium.workerSlackSpinMicros` sets the short spin and
+         * `vanadium.callerPressureSpinMicros` the caller's under pressure; everything else is fixed.
          */
-        fun fromSystemProperties(): SpinPolicy {
-            val fixedMicros = java.lang.Long.getLong("vanadium.workerSpinMicros")
-            if (fixedMicros != null) return SpinPolicy(fixedMicros * 1_000L, fixedMicros * 1_000L, fixed = true)
-            val shortMicros = java.lang.Long.getLong("vanadium.workerSlackSpinMicros", SHORT_SPIN_MICROS)
-            val leadMicros = java.lang.Long.getLong("vanadium.prewakeLeadMicros", DEFAULT_LEAD_MICROS).coerceAtLeast(0L)
-            val forced = System.getProperty("vanadium.idleWorkers")?.let { text ->
-                IdleWorkers.parse(text) ?: throw IllegalArgumentException(
-                    "vanadium.idleWorkers must be one of ${IdleWorkers.names.joinToString()} (got '$text')"
-                )
-            }
-            return SpinPolicy(LONG_SPIN_MICROS * 1_000L, shortMicros * 1_000L, fixed = false, leadMicros * 1_000L, forced)
-        }
-
-        /** The mode text `vanadium.idleWorkers` forces, if any; for status output. */
-        val forcedMode: String? get() = System.getProperty("vanadium.idleWorkers")
-
-        /** Whether `vanadium.workerSpinMicros` replaces the tick-driven policy; for status output. */
-        val fixedSpin: Boolean get() = System.getProperty("vanadium.workerSpinMicros") != null
-    }
-}
-
-/** Time source for timed wakes; tests substitute one they advance by hand. */
-internal interface PrewakeClock {
-    fun nanoTime(): Long
-
-    /** Waits up to [nanos] or until unparked; may return early. */
-    fun park(blocker: Any, nanos: Long)
-
-    companion object {
-        val SYSTEM = object : PrewakeClock {
-            override fun nanoTime(): Long = System.nanoTime()
-            override fun park(blocker: Any, nanos: Long) = LockSupport.parkNanos(blocker, nanos)
-        }
+        fun fromSystemProperties(): SpinPolicy = SpinPolicy(LONG_SPIN_MICROS * 1_000L, SLACK_SPIN_NANOS)
     }
 }
 

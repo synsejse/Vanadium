@@ -11,14 +11,14 @@ class SpinPolicyTest {
 
     @Test
     fun spinsLongWithoutTickEvents() {
-        val policy = SpinPolicy(long, short, fixed = false)
+        val policy = SpinPolicy(long, short)
         assertEquals(long, policy.workerSpinNanos)
         assertTrue(policy.inTick && policy.underPressure)
     }
 
     @Test
     fun parksBetweenTicksWithSlackAndSpinsShortInsideThem() {
-        val policy = SpinPolicy(long, short, fixed = false)
+        val policy = SpinPolicy(long, short)
         policy.tickEnded(45_000_000L, sprinting = false)
         assertFalse(policy.underPressure)
         assertEquals(0L, policy.workerSpinNanos, "workers kept spinning through a sleep")
@@ -30,7 +30,7 @@ class SpinPolicyTest {
 
     @Test
     fun spinsLongThroughEveryGapUnderPressure() {
-        val policy = SpinPolicy(long, short, fixed = false)
+        val policy = SpinPolicy(long, short)
         for ((slack, sprinting) in listOf(-5_000_000L to false, 0L to false, long - 1 to false, 45_000_000L to true)) {
             policy.tickEnded(45_000_000L, sprinting = false)
             policy.tickEnded(slack, sprinting)
@@ -49,7 +49,7 @@ class SpinPolicyTest {
     @Test
     fun theCallerSpinsThroughLongTailsOnlyUnderPressure() {
         val caller = 10_000_000L
-        val policy = SpinPolicy(long, short, fixed = false, callerPressureNanos = caller)
+        val policy = SpinPolicy(long, short, callerPressureNanos = caller)
         assertEquals(caller, policy.callerSpinNanos, "without tick events")
         policy.tickEnded(0L, sprinting = true)
         policy.tickStarted()
@@ -62,50 +62,43 @@ class SpinPolicyTest {
         policy.tickEnded(-1_000_000L, sprinting = false)
         policy.tickStarted()
         assertEquals(caller, policy.callerSpinNanos)
-        // Never shorter than the workers' budget, and a fixed spin applies to the caller too.
-        val hot = SpinPolicy(long, short, fixed = false, hotNanos = 50_000_000L, callerPressureNanos = caller)
+        // Never shorter than the workers' budget.
+        val hot = SpinPolicy(long, short, hotNanos = 50_000_000L, callerPressureNanos = caller)
         hot.configure(IdleWorkers.HOT)
         hot.tickStarted()
         assertEquals(50_000_000L, hot.callerSpinNanos)
-        val fixed = SpinPolicy(100_000L, 100_000L, fixed = true, callerPressureNanos = caller)
-        fixed.tickStarted()
-        assertEquals(100_000L, fixed.callerSpinNanos)
     }
 
     @Test
-    fun balancedWakesEarlyAndTreatsAGapShorterThanTheLeadAsPressure() {
-        val lead = 5_000_000L
-        val policy = SpinPolicy(long, short, fixed = false, leadNanos = lead)
+    fun balancedParksWorkersUntilTheTickStartsAndTreatsShortGapsAsPressure() {
+        val policy = SpinPolicy(long, short)
         assertEquals(IdleWorkers.BALANCED, policy.mode)
         policy.tickEnded(45_000_000L, sprinting = false)
-        assertEquals(SpinPolicy.Gap.WAKE_EARLY, policy.betweenTicks)
+        assertEquals(SpinPolicy.Gap.PARK, policy.betweenTicks)
         assertEquals(0L, policy.workerSpinNanos)
-        // Waking 5 ms early into a 4 ms gap means not parking at all.
-        policy.tickEnded(lead - 1, sprinting = false)
+        assertTrue(policy.spinUntil - System.nanoTime() <= 0, "balanced workers kept spinning through the gap")
+        // A gap shorter than the long spin is pressure, as in every mode.
+        policy.tickEnded(long - 1, sprinting = false)
         assertEquals(SpinPolicy.Gap.PRESSURE, policy.betweenTicks)
         assertEquals(long, policy.workerSpinNanos)
         policy.tickEnded(45_000_000L, sprinting = true)
         assertEquals(SpinPolicy.Gap.PRESSURE, policy.betweenTicks)
-        // No lead: parking until the tick starts is all that is left.
-        val noLead = SpinPolicy(long, short, fixed = false, leadNanos = 0L)
-        noLead.tickEnded(45_000_000L, sprinting = false)
-        assertEquals(SpinPolicy.Gap.PARK, noLead.betweenTicks)
     }
 
     @Test
     fun hotSpinsThroughGapsAndLeanParks() {
         val hot = 50_000_000L
-        val policy = SpinPolicy(long, short, fixed = false, hotNanos = hot)
+        val policy = SpinPolicy(long, short, hotNanos = hot)
         policy.configure(IdleWorkers.HOT)
         policy.tickStarted()
         assertEquals(hot, policy.workerSpinNanos, "hot workers parked between waves of a tick")
         policy.tickEnded(45_000_000L, sprinting = false)
         assertEquals(SpinPolicy.Gap.SPIN_THROUGH, policy.betweenTicks)
-        assertTrue(policy.spinUntil.get() - System.nanoTime() > 40_000_000L, "spin-through ends before the next tick")
+        assertTrue(policy.spinUntil - System.nanoTime() > 40_000_000L, "spin-through ends before the next tick")
         // A frozen or idle tick ran nothing in parallel: nothing to keep hot.
         policy.tickEnded(45_000_000L, sprinting = false, ranParallel = false)
         assertEquals(SpinPolicy.Gap.PARK, policy.betweenTicks)
-        assertTrue(policy.spinUntil.get() - System.nanoTime() <= 0, "parking left a spin-through in place")
+        assertTrue(policy.spinUntil - System.nanoTime() <= 0, "parking left a spin-through in place")
         policy.tickEnded(-1, sprinting = false)
         assertEquals(SpinPolicy.Gap.PRESSURE, policy.betweenTicks)
         assertEquals(hot, policy.workerSpinNanos)
@@ -121,7 +114,7 @@ class SpinPolicyTest {
 
     @Test
     fun serverSpinsBeforeTicksThatRanParallelWork() {
-        val policy = SpinPolicy(long, short, fixed = false, serverLeadNanos = 5_000_000L)
+        val policy = SpinPolicy(long, short, serverLeadNanos = 5_000_000L)
         policy.tickEnded(45_000_000L, sprinting = false)
         assertEquals(5_000_000L, policy.serverWindowNanos)
         policy.tickEnded(45_000_000L, sprinting = false, ranParallel = false)
@@ -135,12 +128,16 @@ class SpinPolicyTest {
     }
 
     @Test
-    fun aForcedModeIgnoresConfiguration() {
-        val policy = SpinPolicy(long, short, fixed = false, forced = IdleWorkers.LEAN)
-        policy.configure(IdleWorkers.HOT)
-        assertEquals(IdleWorkers.LEAN, policy.mode)
+    fun theProductionPolicyKeepsItsDefaults() {
+        val policy = SpinPolicy.fromSystemProperties()
+        assertEquals(2_000_000L, policy.workerSpinNanos)
+        assertEquals(10_000_000L, policy.callerSpinNanos)
         policy.tickEnded(45_000_000L, sprinting = false)
         assertEquals(SpinPolicy.Gap.PARK, policy.betweenTicks)
+        assertEquals(Long.MAX_VALUE / 1_000L * 1_000L, policy.serverWindowNanos, "balanced spins the server through the gap")
+        policy.tickStarted()
+        assertEquals(500_000L, policy.workerSpinNanos)
+        assertEquals(500_000L, policy.callerSpinNanos)
     }
 
     @Test
@@ -149,18 +146,5 @@ class SpinPolicyTest {
         assertEquals(IdleWorkers.BALANCED, IdleWorkers.parse("balanced"))
         assertEquals(null, IdleWorkers.parse("warm"))
         assertEquals(listOf("balanced", "hot", "lean"), IdleWorkers.names)
-    }
-
-    @Test
-    fun fixedSpinIgnoresTicks() {
-        val policy = SpinPolicy(long, long, fixed = true)
-        policy.tickEnded(45_000_000L, sprinting = false)
-        assertEquals(long, policy.workerSpinNanos)
-        policy.tickStarted()
-        assertEquals(long, policy.workerSpinNanos)
-        policy.configure(IdleWorkers.HOT)
-        policy.tickEnded(45_000_000L, sprinting = false)
-        assertEquals(SpinPolicy.Gap.PRESSURE, policy.betweenTicks, "a fixed spin started a timed wake or a spin-through")
-        assertEquals(long, policy.workerSpinNanos)
     }
 }

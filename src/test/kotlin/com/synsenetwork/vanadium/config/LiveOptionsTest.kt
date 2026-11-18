@@ -48,5 +48,38 @@ class LiveOptionsTest {
         assertEquals("hot", config.idleWorkers)
         assertNotNull(LiveOptions.set(config, "idleWorkers", "warm"))
         assertEquals("hot", config.idleWorkers)
+        assertNull(LiveOptions.choices("parallelTracking"))
+    }
+
+    @Test
+    fun optionNamesKeepTheirOrder() {
+        assertEquals(
+            listOf(
+                "enabled", "isolation", "parallelEntities", "skipFailedEntityTicks", "parallelBlockEntities",
+                "parallelChunkTicks", "parallelScheduledTicks", "parallelSpawning", "parallelTracking",
+                "parallelChunkPackets", "consolidateFlushes", "parallelChunkLoads", "crowdedSectionIndex",
+                "idleWorkers", "slowWaveMillis", "detailedTickDiagnostics",
+            ),
+            LiveOptions.names.toList(),
+        )
+    }
+
+    @Suppress("unused")
+    private class Fields {
+        @JvmField var flag = true
+        @JvmField var count = 1
+        @JvmField var workers = 2
+        @JvmField var mode = "a"
+        @JvmField var label = "unlisted"
+        @JvmField var ids: MutableList<String> = ArrayList()
+        @JvmField var ratio = 0.5
+        @Transient @JvmField var cached = false
+    }
+
+    @Test
+    fun onlyListedTextFieldsAreLive() {
+        // A new text field without accepted values stays out instead of registering and failing on set.
+        assertEquals(listOf("flag", "count", "mode"), LiveOptions.liveFields(Fields::class.java, setOf("mode")).keys.toList())
+        assertEquals(listOf("flag", "count"), LiveOptions.liveFields(Fields::class.java, emptySet()).keys.toList())
     }
 }

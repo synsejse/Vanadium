@@ -2,6 +2,7 @@ package com.synsenetwork.vanadium
 
 import com.synsenetwork.vanadium.commands.VanadiumCommand
 import com.synsenetwork.vanadium.concurrent.Interactions
+import com.synsenetwork.vanadium.config.DeveloperProperties
 import com.synsenetwork.vanadium.config.VanadiumConfig
 import com.synsenetwork.vanadium.diagnostics.ServerTickEvent
 import com.synsenetwork.vanadium.diagnostics.TickBenchmark
@@ -41,11 +42,12 @@ object Vanadium : ModInitializer {
     private var diagnostics: WaveDiagnostics? = null
     private var tickEvent: ServerTickEvent? = null
 
-    /** The idle-worker mode the running pool uses (a system property may override the config); null when stopped. */
+    /** The idle-worker mode the running pool uses (the config's, from the next tick start); null when stopped. */
     fun idleWorkersActive(): IdleWorkers? = pool?.idleWorkers
 
     override fun onInitialize() {
         LOGGER.info("Initializing Vanadium...")
+        DeveloperProperties.warnRetired()
         val holder = AutoConfig.register(VanadiumConfig::class.java) { definition, type -> Toml4jConfigSerializer(definition, type) }
         config = holder.config
         // Crowded-section grids are bypassed and rebuilt after an entity write ran without its owner's lock.
