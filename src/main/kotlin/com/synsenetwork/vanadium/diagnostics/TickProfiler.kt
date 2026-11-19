@@ -10,74 +10,62 @@ import net.minecraft.network.chat.Component
  * profiles are published through [PerformanceResults] as well as reported in chat and the log.
  */
 object TickProfiler {
-    private var active: TickProfile? = null
-    private var source: CommandSourceStack? = null
-    private var requestedSeconds = 0
-    private var startedAt = 0L
-    private var deadline = 0L
+    private class Capture(val source: CommandSourceStack, val requestedSeconds: Int) {
+        val profile = TickProfile()
+        val startedAt = System.nanoTime()
+        val deadline = startedAt + requestedSeconds * 1_000_000_000L
+        val configuration = "workers=${Vanadium.scheduler.workerCount}, isolation=${Vanadium.scheduler.isolation}; " +
+            "keep configuration fixed during capture"
+    }
+
+    private var active: Capture? = null
     private var tickStart = 0L
-    private var configuration = ""
-    private var lastReport: PerformanceReport? = null
+    private var completed: PerformanceReport? = null
 
     fun start(commandSource: CommandSourceStack, seconds: Int): Boolean {
         if (active != null) return false
-        active = TickProfile()
-        source = commandSource
-        requestedSeconds = seconds
-        startedAt = System.nanoTime()
-        deadline = startedAt + seconds * 1_000_000_000L
+        active = Capture(commandSource, seconds)
         tickStart = 0
-        configuration = "workers=${Vanadium.scheduler.workerCount}, isolation=${Vanadium.scheduler.isolation}; " +
-                "keep configuration fixed during capture"
         return true
     }
 
     fun onTickStart() {
-        val profile = active ?: return
+        val capture = active ?: return
         tickStart = System.nanoTime()
-        Vanadium.scheduler.profile = profile
+        Vanadium.scheduler.profile = capture.profile
     }
 
     fun onTickEnd() {
-        val profile = active ?: return
+        val capture = active ?: return
         if (tickStart == 0L) return
         val now = System.nanoTime()
-        profile.recordTick(now - tickStart)
+        capture.profile.recordTick(now - tickStart)
         tickStart = 0
-        if (now >= deadline || profile.isFull()) stop()
+        if (now >= capture.deadline || capture.profile.isFull()) stop()
     }
 
     fun stop(): Boolean {
-        val profile = active ?: return false
+        val capture = active ?: return false
         Vanadium.scheduler.profile = null
-        val recipient = source
-        val result = JsonObject().apply {
-            addProperty("requestedSeconds", requestedSeconds)
-            addProperty("seconds", (System.nanoTime() - startedAt) / 1e9)
-            add("profile", profile.toJson())
-        }
-        val file = recipient?.let { PerformanceResults.publish(it.server, "profile", result) }
-        val report = PerformanceReport("profile", result, configuration,
-            if (file == null) null else PerformanceResults.describe(recipient.server, file))
-        lastReport = report
         active = null
-        source = null
         tickStart = 0
-        val summary = report.view()
-        Vanadium.LOGGER.info(summary.string)
-        recipient?.sendSuccess({ summary }, false)
+        val result = JsonObject()
+        result.addProperty("requestedSeconds", capture.requestedSeconds)
+        result.addProperty("seconds", (System.nanoTime() - capture.startedAt) / 1e9)
+        result.add("profile", capture.profile.toJson())
+        completed = PerformanceResults.report(capture.source, "profile", result, capture.configuration)
         return true
     }
 
-    fun lastReport(section: String = "summary"): Component = lastReport?.view(section)
-        ?: Component.literal("Vanadium: no completed profile for this server")
+    fun lastReport(section: String = "summary"): Component {
+        val report = completed ?: return Component.literal("Vanadium: no completed profile for this server")
+        return report.view(section)
+    }
 
     fun onServerStopped() {
         if (active != null) Vanadium.scheduler.profile = null
         active = null
-        source = null
-        lastReport = null
-        configuration = ""
+        completed = null
         tickStart = 0
     }
 }

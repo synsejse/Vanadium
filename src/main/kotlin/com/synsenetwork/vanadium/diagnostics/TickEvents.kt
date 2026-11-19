@@ -9,9 +9,9 @@ import jdk.jfr.StackTrace
 
 /**
  * JFR events for Vanadium's parallel sections. With no recording running each costs a branch and its
- * object (about 48 bytes per wave; 0.01% of a sprinting 600-mob server's sampled allocation, so no
- * disabled-event guard is kept), and they share a timeline with JFR's monitor, park and allocation
- * events. Server-thread only.
+ * object, so no disabled-event guard is kept: about 48 bytes per wave, which was 0.00-0.01% of a sprinting
+ * brawl600 server's sampled allocation (`benchScheduler` and JFR allocation samples, #34, 2026-11-19).
+ * They share a timeline with JFR's monitor, park and allocation events. Server-thread only.
  * Inspect with JDK Mission Control or `jfr print --events vanadium.* <recording.jfr>`.
  */
 @Name("vanadium.ServerTick")

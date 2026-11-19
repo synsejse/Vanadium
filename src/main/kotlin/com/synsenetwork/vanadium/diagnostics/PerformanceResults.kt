@@ -9,6 +9,7 @@ import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import net.fabricmc.loader.api.FabricLoader
+import net.minecraft.commands.CommandSourceStack
 import net.minecraft.server.MinecraftServer
 
 /**
@@ -43,8 +44,22 @@ object PerformanceResults {
         }
     }
 
+    /**
+     * Publishes a finished capture, then logs its chat summary and sends it to [recipient]. Returns the report that
+     * the `report` subcommands show.
+     */
+    internal fun report(recipient: CommandSourceStack, kind: String, body: JsonObject, configuration: String): PerformanceReport {
+        val server = recipient.server
+        val file = publish(server, kind, body)
+        val report = PerformanceReport(kind, body, configuration, if (file == null) null else describe(server, file))
+        val summary = report.view()
+        Vanadium.LOGGER.info(summary.string)
+        recipient.sendSuccess({ summary }, false)
+        return report
+    }
+
     /** Server-relative path for chat messages, falling back to the absolute path. */
-    fun describe(server: MinecraftServer, file: Path): String = try {
+    private fun describe(server: MinecraftServer, file: Path): String = try {
         server.serverDirectory.toAbsolutePath().relativize(file.toAbsolutePath()).toString()
     } catch (_: IllegalArgumentException) {
         // Paths on different Windows drives cannot be made relative to each other.

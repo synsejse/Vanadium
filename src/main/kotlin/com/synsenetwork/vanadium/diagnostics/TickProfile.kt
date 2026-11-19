@@ -113,9 +113,6 @@ class TickProfile {
         var participantWaves = 0L
         var participants = 0L
 
-        fun utilization(): Double? =
-            if (capacityNanos == 0L) null else minOf(1.0, regionDurations.totalNanos.toDouble() / capacityNanos)
-
         fun toJson(): JsonObject = JsonObject().apply {
             add("execution", durations.toJson())
             add("regionExecution", regionDurations.toJson())
@@ -124,7 +121,7 @@ class TickProfile {
             addProperty("regions", regions)
             addProperty("tasks", tasks)
             addProperty("maxTasksPerRegion", maxTasksPerRegion)
-            utilization()?.let { addProperty("utilization", it) }
+            if (capacityNanos > 0) addProperty("utilization", minOf(1.0, regionDurations.totalNanos.toDouble() / capacityNanos))
             if (participantWaves > 0) addProperty("avgParticipants", participants.toDouble() / participantWaves)
             flatGroups.addTo(this)
         }
@@ -177,17 +174,19 @@ class TickProfile {
             values[size++] = nanos
         }
 
-        fun toJson(): JsonObject = JsonObject().apply {
-            addProperty("count", count)
-            addProperty("totalMs", totalNanos / 1e6)
-            if (size == 0) return@apply
+        fun toJson(): JsonObject {
+            val json = JsonObject()
+            json.addProperty("count", count)
+            json.addProperty("totalMs", totalNanos / 1e6)
+            if (size == 0) return json
             val sorted = values.copyOf(size)
             sorted.sort()
-            addProperty("avgMs", totalNanos / (count * 1e6))
-            addProperty("p50Ms", percentile(sorted, 50) / 1e6)
-            addProperty("p95Ms", percentile(sorted, 95) / 1e6)
-            addProperty("p99Ms", percentile(sorted, 99) / 1e6)
-            addProperty("percentileSamples", size)
+            json.addProperty("avgMs", totalNanos / (count * 1e6))
+            json.addProperty("p50Ms", percentile(sorted, 50) / 1e6)
+            json.addProperty("p95Ms", percentile(sorted, 95) / 1e6)
+            json.addProperty("p99Ms", percentile(sorted, 99) / 1e6)
+            json.addProperty("percentileSamples", size)
+            return json
         }
 
         companion object {
