@@ -39,17 +39,17 @@ public abstract class ChunkMapMixin {
     @Shadow
     @Final
     @Mutable
-    private Int2ObjectMap<ChunkMap.TrackedEntity> entityMap = new ConcurrentIntObjectMap<>();
+    private Int2ObjectMap<ChunkMap.TrackedEntity> entityMap;
 
     @Shadow
     @Final
     @Mutable
-    private List<ChunkGenerationTask> pendingGenerationTasks = new CopyOnWriteArrayList<>();
+    private List<ChunkGenerationTask> pendingGenerationTasks;
 
     @Shadow
     @Final
     @Mutable
-    final LongSet toDrop = new ConcurrentLongSet();
+    LongSet toDrop;
 
     @Shadow
     @Final
@@ -76,6 +76,13 @@ public abstract class ChunkMapMixin {
 
     @Unique
     private final NearbyTrackers vanadium$nearbyTrackers = new NearbyTrackers();
+
+    @Inject(method = "<init>", at = @At("RETURN"))
+    private void installConcurrentCollections(CallbackInfo ci) {
+        entityMap = new ConcurrentIntObjectMap<>();
+        pendingGenerationTasks = new CopyOnWriteArrayList<>();
+        toDrop = new ConcurrentLongSet();
+    }
 
     @Inject(method = "setChunkUnsaved", at = @At("HEAD"), cancellable = true)
     private void queueDirtyChunk(ChunkPos pos, CallbackInfo ci) {
