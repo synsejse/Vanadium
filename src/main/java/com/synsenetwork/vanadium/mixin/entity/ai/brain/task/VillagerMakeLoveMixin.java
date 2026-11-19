@@ -20,7 +20,7 @@ public abstract class VillagerMakeLoveMixin {
     @WrapMethod(method = "tick(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/entity/npc/villager/Villager;J)V")
     private void vanadium$withPartner(ServerLevel level, Villager body, long time, Operation<Void> original) {
         Optional<AgeableMob> partner = Interactions.active ? body.getBrain().getMemory(MemoryModuleType.BREED_TARGET) : Optional.empty();
-        if (partner.isPresent() && Interactions.enterPair(partner.get(), Interactions.Kind.PAIR)) {
+        if (partner.isPresent() && Interactions.enterPair(partner.get(), Interactions.Write.PAIR)) {
             try {
                 if (body.getBrain().hasMemoryValue(MemoryModuleType.BREED_TARGET) && body.canBreed() && partner.get().canBreed()) {
                     original.call(level, body, time);

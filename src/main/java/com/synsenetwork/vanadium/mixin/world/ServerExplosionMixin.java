@@ -11,7 +11,7 @@ import org.spongepowered.asm.mixin.Mixin;
 public abstract class ServerExplosionMixin {
     @WrapMethod(method = "explode")
     private int vanadium$explode(Operation<Integer> original) {
-        boolean scoped = Interactions.active && Interactions.enterShared(Interactions.Kind.EXPLOSION);
+        boolean scoped = Interactions.active && Interactions.enterShared(Interactions.Write.EXPLOSION);
         try {
             return original.call();
         } finally {

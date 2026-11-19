@@ -204,7 +204,7 @@ class TickScheduler internal constructor(
             var busy = 0L
             runMeasured(stage, tasks = units, regions = 0, participants = participants, isolation = 0, recording = recording) { watch, waitRecorder ->
                 val wave = if (watch == null) tasks else watch.wrap(tasks)
-                Interactions.runWave { busy = pool.runWave(wave, waitRecorder, participants, homes) }
+                Interactions.runWave({ busy = pool.runWave(wave, waitRecorder, participants, homes) }, pool)
             }
             learn(flatNanosPerTask, stage.ordinal, busy, units)
         } finally {

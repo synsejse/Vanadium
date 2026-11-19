@@ -29,7 +29,7 @@ public abstract class MobMixin implements NavigationState {
     @WrapOperation(method = "aiStep", at = @At(value = "INVOKE",
             target = "Lnet/minecraft/world/entity/Mob;pickUpItem(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/entity/item/ItemEntity;)V"))
     private void vanadium$takeItemOnce(Mob mob, ServerLevel level, ItemEntity item, Operation<Void> original) {
-        if (Interactions.active && Interactions.enterPair(item, Interactions.Kind.PAIR)) {
+        if (Interactions.active && Interactions.enterPair(item, Interactions.Write.PAIR)) {
             try {
                 if (!item.isRemoved() && !item.getItem().isEmpty()) original.call(mob, level, item);
             } finally {

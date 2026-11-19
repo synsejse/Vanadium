@@ -74,7 +74,7 @@ public abstract class EntityMixin implements InteractionAccess, CrowdAccess {
             original.call(bb);
             return;
         }
-        boolean scoped = Interactions.active && Interactions.enter((Entity) (Object) this, Interactions.Kind.POSITION);
+        boolean scoped = Interactions.active && Interactions.enter((Entity) (Object) this, Interactions.Write.POSITION);
         try {
             vanadium$moveInCells(bb, original);
         } finally {
@@ -119,40 +119,31 @@ public abstract class EntityMixin implements InteractionAccess, CrowdAccess {
     /** Velocity, position and removal of another tick's entity wait for that tick. */
     @WrapMethod(method = "setDeltaMovement(Lnet/minecraft/world/phys/Vec3;)V")
     private void vanadium$setDeltaMovement(Vec3 movement, Operation<Void> original) {
-        if (Interactions.active && Interactions.enter((Entity) (Object) this, Interactions.Kind.VELOCITY)) {
-            try {
-                original.call(movement);
-            } finally {
-                Interactions.exit();
-            }
-        } else {
+        boolean scoped = Interactions.active && Interactions.enter((Entity) (Object) this, Interactions.Write.VELOCITY);
+        try {
             original.call(movement);
+        } finally {
+            if (scoped) Interactions.exit();
         }
     }
 
     @WrapMethod(method = "setPosRaw(DDD)V")
     private void vanadium$setPosRaw(double x, double y, double z, Operation<Void> original) {
-        if (Interactions.active && Interactions.enter((Entity) (Object) this, Interactions.Kind.POSITION)) {
-            try {
-                original.call(x, y, z);
-            } finally {
-                Interactions.exit();
-            }
-        } else {
+        boolean scoped = Interactions.active && Interactions.enter((Entity) (Object) this, Interactions.Write.POSITION);
+        try {
             original.call(x, y, z);
+        } finally {
+            if (scoped) Interactions.exit();
         }
     }
 
     @WrapMethod(method = "setRemoved")
     private void vanadium$setRemoved(Entity.RemovalReason reason, Operation<Void> original) {
-        if (Interactions.active && Interactions.enter((Entity) (Object) this, Interactions.Kind.REMOVE)) {
-            try {
-                original.call(reason);
-            } finally {
-                Interactions.exit();
-            }
-        } else {
+        boolean scoped = Interactions.active && Interactions.enter((Entity) (Object) this, Interactions.Write.REMOVE);
+        try {
             original.call(reason);
+        } finally {
+            if (scoped) Interactions.exit();
         }
     }
 
@@ -165,10 +156,10 @@ public abstract class EntityMixin implements InteractionAccess, CrowdAccess {
     @WrapMethod(method = "startRiding(Lnet/minecraft/world/entity/Entity;ZZ)Z")
     private boolean vanadium$startRiding(Entity vehicle, boolean force, boolean events, Operation<Boolean> original) {
         if (!Interactions.active) return original.call(vehicle, force, events);
-        boolean rider = Interactions.enter((Entity) (Object) this, Interactions.Kind.OTHER);
+        boolean rider = Interactions.enter((Entity) (Object) this, Interactions.Write.OTHER);
         boolean ridden = false;
         try {
-            ridden = Interactions.enter(vehicle, Interactions.Kind.OTHER);
+            ridden = Interactions.enter(vehicle, Interactions.Write.OTHER);
             return original.call(vehicle, force, events);
         } finally {
             if (ridden) Interactions.exit();

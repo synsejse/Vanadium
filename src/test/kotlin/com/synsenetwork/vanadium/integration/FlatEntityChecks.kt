@@ -3,8 +3,8 @@ package com.synsenetwork.vanadium.integration
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.concurrent.InteractionAccess
 import com.synsenetwork.vanadium.concurrent.Interactions
-import com.synsenetwork.vanadium.concurrent.Interactions.Kind
-import com.synsenetwork.vanadium.tick.EntityTickRules
+import com.synsenetwork.vanadium.concurrent.Interactions.Write
+import com.synsenetwork.vanadium.tick.EntityTickAccess
 import com.synsenetwork.vanadium.tick.WorkerPool
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
@@ -37,7 +37,8 @@ internal object FlatEntityChecks {
         check(Interactions.skipped == skipped + 3) { "failed ticks were not counted: ${Interactions.skipped - skipped}" }
         check(!Interactions.active) { "interaction hooks stayed active after the waves" }
         val tnt = EntityTypes.TNT.create(level, EntitySpawnReason.COMMAND)!!
-        check(EntityTickRules.requiresSerial(tnt) && !EntityTickRules.requiresSerial(zombie(level))) { "serial rules for flat ticking are wrong" }
+        val ticks = (level as EntityTickAccess).`vanadium$entityTicks`()
+        check(ticks.requiresSerial(tnt) && !ticks.requiresSerial(zombie(level))) { "serial rules for flat ticking are wrong" }
         println("FLAT_ENTITY_CHECKS_PASSED")
     }
 
@@ -45,7 +46,7 @@ internal object FlatEntityChecks {
 
     private fun wave(pool: WorkerPool, vararg ticks: Pair<Entity, (Entity) -> Unit>) {
         val tasks = ticks.map { (entity, body) -> Runnable { Interactions.tick(entity, Consumer(body)) } }
-        Interactions.runWave { pool.runWave(tasks) }
+        Interactions.runWave({ pool.runWave(tasks) }, pool)
     }
 
     /** Eight ticks push one bystander and each other at once: every impulse arrives exactly once. */
@@ -70,7 +71,7 @@ internal object FlatEntityChecks {
             check((pusher as InteractionAccess).`vanadium$impulse`().get() == null) { "an inbox was left full" }
         }
         val counts = Interactions.takeCounts()
-        check(counts[Kind.PUSH] == 1600L && counts[Kind.VELOCITY] == 0L) { "push counts: $counts" }
+        check(counts[Write.PUSH] == 1600L && counts[Write.VELOCITY] == 0L) { "push counts: $counts" }
     }
 
     /**
@@ -103,7 +104,7 @@ internal object FlatEntityChecks {
             val parallel = Interactions.parallelPushDrains - drainsBefore
             check(parallel == if (bystanders >= 128) 1L else 0L) { "$bystanders leftovers drained in $parallel parallel rounds" }
             val counts = Interactions.takeCounts()
-            check(counts[Kind.PUSH] == 4L * (bystanders + 1) && counts[Kind.VELOCITY] == 0L) { "leftover push counts: $counts" }
+            check(counts[Write.PUSH] == 4L * (bystanders + 1) && counts[Write.VELOCITY] == 0L) { "leftover push counts: $counts" }
         }
     }
 
@@ -132,7 +133,7 @@ internal object FlatEntityChecks {
             })
         check(healthAtEndOfOwnTick == full) { "damage landed in the middle of the victim's tick" }
         check(victim.health == full - 3f) { "damage was lost: ${victim.health}" }
-        check(Interactions.takeCounts()[Kind.HURT] == 1L) { "damage was not a single foreign write" }
+        check(Interactions.takeCounts()[Write.HURT] == 1L) { "damage was not a single foreign write" }
     }
 
     /** Two ticks damaging each other at the same moment both land, without waiting on each other forever. */
@@ -200,7 +201,7 @@ internal object FlatEntityChecks {
         level.setBlock(pos, Blocks.AIR.defaultBlockState(), 3)
         check(other.deltaMovement == Vec3(4.0, 5.0, 6.0) && other.x == 2.0 && other.health == 6f) { "foreign writes were lost" }
         val counts = Interactions.takeCounts()
-        check(counts[Kind.BLOCK] == 1L && counts[Kind.VELOCITY] == 1L && counts[Kind.POSITION]!! >= 1L && counts[Kind.DATA]!! >= 1L) {
+        check(counts[Write.BLOCK] == 1L && counts[Write.VELOCITY] == 1L && counts[Write.POSITION]!! >= 1L && counts[Write.DATA]!! >= 1L) {
             "foreign write counts: $counts"
         }
     }

@@ -30,51 +30,42 @@ public abstract class LivingEntityMixin extends Entity {
     /** Damage from another entity's tick waits for this entity's own tick, then runs whole. */
     @WrapMethod(method = "hurtServer")
     private boolean vanadium$hurtServer(ServerLevel level, DamageSource source, float damage, Operation<Boolean> original) {
-        if (Interactions.active && Interactions.enter(this, Interactions.Kind.HURT)) {
-            try {
-                return original.call(level, source, damage);
-            } finally {
-                Interactions.exit();
-            }
+        boolean scoped = Interactions.active && Interactions.enter(this, Interactions.Write.HURT);
+        try {
+            return original.call(level, source, damage);
+        } finally {
+            if (scoped) Interactions.exit();
         }
-        return original.call(level, source, damage);
     }
 
     /** Effects applied by another entity's tick (stings, auras) change this entity's effect map. */
     @WrapMethod(method = "addEffect(Lnet/minecraft/world/effect/MobEffectInstance;Lnet/minecraft/world/entity/Entity;)Z")
     private boolean vanadium$addEffect(MobEffectInstance effect, Entity source, Operation<Boolean> original) {
-        if (Interactions.active && Interactions.enter(this, Interactions.Kind.OTHER)) {
-            try {
-                return original.call(effect, source);
-            } finally {
-                Interactions.exit();
-            }
+        boolean scoped = Interactions.active && Interactions.enter(this, Interactions.Write.OTHER);
+        try {
+            return original.call(effect, source);
+        } finally {
+            if (scoped) Interactions.exit();
         }
-        return original.call(effect, source);
     }
 
     @WrapMethod(method = "forceAddEffect")
     private void vanadium$forceAddEffect(MobEffectInstance effect, Entity source, Operation<Void> original) {
-        if (Interactions.active && Interactions.enter(this, Interactions.Kind.OTHER)) {
-            try {
-                original.call(effect, source);
-            } finally {
-                Interactions.exit();
-            }
-        } else {
+        boolean scoped = Interactions.active && Interactions.enter(this, Interactions.Write.OTHER);
+        try {
             original.call(effect, source);
+        } finally {
+            if (scoped) Interactions.exit();
         }
     }
 
     @WrapMethod(method = "removeEffect")
     private boolean vanadium$removeEffect(Holder<MobEffect> effect, Operation<Boolean> original) {
-        if (Interactions.active && Interactions.enter(this, Interactions.Kind.OTHER)) {
-            try {
-                return original.call(effect);
-            } finally {
-                Interactions.exit();
-            }
+        boolean scoped = Interactions.active && Interactions.enter(this, Interactions.Write.OTHER);
+        try {
+            return original.call(effect);
+        } finally {
+            if (scoped) Interactions.exit();
         }
-        return original.call(effect);
     }
 }

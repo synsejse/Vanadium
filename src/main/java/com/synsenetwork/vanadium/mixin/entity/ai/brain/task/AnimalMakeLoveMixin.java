@@ -21,7 +21,7 @@ public abstract class AnimalMakeLoveMixin {
     @WrapMethod(method = "tick(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/entity/animal/Animal;J)V")
     private void vanadium$withPartner(ServerLevel level, Animal body, long time, Operation<Void> original) {
         Optional<AgeableMob> partner = Interactions.active ? body.getBrain().getMemory(MemoryModuleType.BREED_TARGET) : Optional.empty();
-        if (partner.isPresent() && Interactions.enterPair(partner.get(), Interactions.Kind.PAIR)) {
+        if (partner.isPresent() && Interactions.enterPair(partner.get(), Interactions.Write.PAIR)) {
             try {
                 if (body.getBrain().hasMemoryValue(MemoryModuleType.BREED_TARGET)) original.call(level, body, time);
             } finally {

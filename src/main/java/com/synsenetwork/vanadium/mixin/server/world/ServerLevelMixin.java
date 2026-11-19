@@ -132,7 +132,7 @@ public abstract class ServerLevelMixin implements NavigationAccess, EntityTickAc
             list.forEach(body);
             return;
         }
-        ticks.dispatch(Vanadium.scheduler, body, ((ServerLevel) (Object) this).tickRateManager().runsNormally());
+        ticks.dispatch(body, ((ServerLevel) (Object) this).tickRateManager().runsNormally());
     }
 
     @WrapMethod(method = "blockEvent")

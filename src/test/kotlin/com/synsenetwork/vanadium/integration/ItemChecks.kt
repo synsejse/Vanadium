@@ -28,7 +28,7 @@ internal object ItemChecks {
 
     private fun wave(pool: WorkerPool, ticks: List<Pair<Entity, (Entity) -> Unit>>) {
         val tasks = ticks.map { (entity, body) -> Runnable { Interactions.tick(entity, Consumer(body)) } }
-        Interactions.runWave { pool.runWave(tasks) }
+        Interactions.runWave({ pool.runWave(tasks) }, pool)
     }
 
     /** Every stack's tick merges with both neighbours while they do the same in reverse. */

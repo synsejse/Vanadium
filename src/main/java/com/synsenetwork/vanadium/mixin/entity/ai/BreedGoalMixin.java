@@ -25,7 +25,7 @@ public abstract class BreedGoalMixin {
     @WrapMethod(method = "breed")
     private void vanadium$breedOnce(Operation<Void> original) {
         Animal other = partner;
-        if (Interactions.active && other != null && Interactions.enterPair(other, Interactions.Kind.PAIR)) {
+        if (Interactions.active && other != null && Interactions.enterPair(other, Interactions.Write.PAIR)) {
             try {
                 if (animal.isInLove() && other.isInLove()) original.call();
             } finally {

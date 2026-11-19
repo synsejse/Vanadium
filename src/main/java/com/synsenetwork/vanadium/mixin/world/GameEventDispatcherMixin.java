@@ -17,7 +17,7 @@ import org.spongepowered.asm.mixin.Mixin;
 public abstract class GameEventDispatcherMixin {
     @WrapMethod(method = "handleGameEventMessagesInQueue")
     private void vanadium$deliver(List<GameEvent.ListenerInfo> messages, Operation<Void> original) {
-        boolean scoped = Interactions.active && Interactions.enterShared(Interactions.Kind.EVENT);
+        boolean scoped = Interactions.active && Interactions.enterShared(Interactions.Write.EVENT);
         try {
             original.call(messages);
         } finally {

@@ -208,7 +208,7 @@ holders and what each waits for; if it leads back to itself it proceeds without 
 it. Locks outside the protocol are invisible to that check, so every wait is also bounded (100 ms,
 `vanadium.interactionTimeoutMillis`).
 Either way one write runs unprotected instead of stalling the tick, and is reported. `Interactions`
-counts foreign writes by kind (`-Dvanadium.interactionLogWaves=N` logs them). The catalogue of whole
+counts foreign writes by what they changed (`Interactions.Write`; `-Dvanadium.interactionLogWaves=N` logs them). The catalogue of whole
 operations is vanilla's; a mod's own pairwise logic is covered only by the generic points.
 
 Wave order is a matter of balance only. A wave ends with its longest ticks, and in a crowd those are

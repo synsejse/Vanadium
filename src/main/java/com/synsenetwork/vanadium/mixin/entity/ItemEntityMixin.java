@@ -14,7 +14,7 @@ import org.spongepowered.asm.mixin.Mixin;
 public abstract class ItemEntityMixin {
     @WrapMethod(method = "tryToMerge")
     private void vanadium$mergeOnce(ItemEntity other, Operation<Void> original) {
-        if (Interactions.active && Interactions.enterPair(other, Interactions.Kind.PAIR)) {
+        if (Interactions.active && Interactions.enterPair(other, Interactions.Write.PAIR)) {
             try {
                 if (((ItemEntity) (Object) this).isMergable() && other.isMergable()) original.call(other);
             } finally {

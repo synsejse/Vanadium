@@ -11,50 +11,36 @@ import kotlin.math.ceil
 
 /**
  * One persistent task per member of a tick list, kept across ticks, so that dispatching an unchanged
- * list costs nothing per member. The list's owner reports membership changes ([changed]) and possible
+ * list costs nothing per member. The list ([TickList]) reports membership changes ([changed]) and possible
  * serial-rule changes ([reclassify]) from any thread; they take effect at the next [dispatch], which
  * runs on the server thread between waves. That matches vanilla's iteration over a snapshot: a member
  * added during a tick first ticks next tick, and one removed during a tick may still be visited by it
  * (vanilla's body returns early for removed entities).
  *
- * Classification is cached per task: the fixed part ([Rules.fixedSerial], which depends on the member's
- * type and on the rules identified by the `rulesKey` passed to [dispatch]) is recomputed when that key
- * changes; the changing part ([Rules.changingSerial]) is recomputed for members reported through
- * [reclassify], for each member and its owners up the [Rules.owner] chain, and every dispatch for members
- * that are serial only through it, so they return to the wave once it no longer holds.
+ * Classification is cached per task: the fixed part ([TickList.fixedSerial]) is recomputed when the
+ * `rulesKey` passed to [dispatch] changes; the changing part ([TickList.changingSerial]) for members reported
+ * through [reclassify] and their owners up the [TickList.owner] chain, and at every dispatch for members that
+ * are serial only through it, so they return to the wave once it no longer holds.
  *
- * The wave is ordered by expected cost, so that long ticks start early instead of being claimed last and
- * leaving the other participants waiting for them. What predicts a member's cost is its kind ([Rules.kind]:
- * the entity type), not its own recent ticks: a member's long ticks are sporadic, while the share of long
- * ticks per kind is stable. Kinds run in order of their costliest member ([Kind.longestNanos]), not of their
- * mean: one long tick (a villager's path search that exhausts its node budget) outlasts the rest of a wave,
- * so the kind that has them starts first even when another kind costs as much on average. Each kind runs in
- * member order (which keeps
- * neighbours together where membership is spatial), and the wave is a fixed list of [Group]s: consecutive
- * members of one kind sized to about the same expected cost, about [GROUPS_PER_PARTICIPANT] per participant,
- * so that the worker pool claims them one at a time and costly members run alone. Each group times itself;
- * that is the only measurement, and it updates its kind's cost after the wave. Groups are cut again, without
- * visiting members, only when a kind's ideal size drifts; members are reordered only when the list is rebuilt
- * or a kind becomes clearly costlier than one ahead of it. Correctness never depends on the order.
+ * The wave is ordered by expected cost: kinds ([TickList.kind]) run costliest member first ([Kind.longestNanos]),
+ * each in member order, cut into [Group]s of about equal expected cost, about [GROUPS_PER_PARTICIPANT] per
+ * participant. Groups time themselves; that is the only measurement. Groups are cut again, without visiting
+ * members, only when a kind's ideal size drifts; members are reordered only when the list is rebuilt or a kind
+ * becomes clearly costlier than one ahead of it. Correctness never depends on the order. With homes ([WaveHomes]),
+ * each kind is also cut into equal slices of member order, one per home. ARCHITECTURE.md ("Flat entity wave")
+ * explains why.
  *
- * The longest group of each wave also feeds [longestNanos], the wave's expected critical path: the caller
- * chooses the wave's participants from it ([Participants]), since a wave ends no sooner than its longest group.
- *
- * Each [dispatch] thus runs in three steps: assembly ([plan]: order and groups, from the learned costs), the wave,
- * whose groups time themselves ([Group]), and learning ([learn]: kind costs and [longestNanos], from those times).
- * Profile-only accounting ([recordLastWave]) reads the same times afterwards and feeds nothing back.
- *
- * With homes ([dispatch] with a home count, [WaveHomes]), each kind's members are cut into that many equal slices of
- * member order, groups never crossing a slice; slice h of every kind is home h, and each wave participant runs its
- * own homes first, so an entity ticks on the same thread from tick to tick while membership stays the same. Kinds
- * stay phases: every participant claims a kind out before starting the next.
+ * Each [dispatch] runs in three steps: assembly ([plan]: order and groups, from the learned costs), the wave, and
+ * learning ([learn]: kind costs and [longestNanos], from the groups' times). Profile-only accounting
+ * ([recordLastWave]) reads the same times afterwards and feeds nothing back.
  *
  * Not thread-safe apart from [changed] and [reclassify]; [dispatch] and [stop] belong to the server thread.
  */
-class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules<E>, private val clock: LongSupplier) {
-    constructor(rules: Rules<E>) : this(rules, LongSupplier(System::nanoTime))
+class PersistentTickTasks<E : Any> internal constructor(private val list: TickList<E>, private val clock: LongSupplier) {
+    constructor(list: TickList<E>) : this(list, LongSupplier(System::nanoTime))
 
-    interface Rules<E> {
+    /** The tick list the tasks serve: its members, their rules, and how its waves run. */
+    interface TickList<E> {
         /** Unique while the member exists. */
         fun id(item: E): Int
 
@@ -77,22 +63,21 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
 
         /** Runs one member's wave task with this tick's body. */
         fun tick(item: E, body: Consumer<E>)
-    }
 
-    /**
-     * Runs a wave's [groups], which tick [members] members between them, as one flat wave of [participants] threads;
-     * [homes] says which participant runs which groups, or is null.
-     */
-    fun interface WaveRunner {
-        fun run(groups: List<Runnable>, members: Int, participants: Int, homes: WaveHomes?)
-    }
+        /** Visits every current member: the rescan when tracking (re)starts. */
+        fun forEachMember(action: Consumer<E>)
 
-    /**
-     * The threads, the caller included, to run a wave of [members] members with: it sizes the groups. [longestNanos]
-     * is the wave's expected longest group ([PersistentTickTasks.longestNanos]), 0 before any was measured.
-     */
-    fun interface Participants {
+        /**
+         * The threads, the caller included, to run a wave of [members] members with: they size the groups.
+         * [longestNanos] is the wave's expected longest group ([PersistentTickTasks.longestNanos]), 0 before any was measured.
+         */
         fun participants(members: Int, longestNanos: Double): Int
+
+        /**
+         * Runs a wave's [groups], which tick [members] members between them, as one flat wave of [participants] threads;
+         * [homes] says which participant runs which groups, or is null. [groups] stays unchanged until the next dispatch.
+         */
+        fun runWave(groups: List<Runnable>, members: Int, participants: Int, homes: WaveHomes?)
     }
 
     inner class Task internal constructor(@JvmField val item: E, internal val kind: Kind) : Runnable {
@@ -101,13 +86,20 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
         internal var serial = false
         private var named: Runnable? = null
 
-        override fun run() = rules.tick(item, body!!)
+        override fun run() = list.tick(item, checkNotNull(body) { "member task outside a dispatch" })
 
-        internal fun waveTask(labels: Boolean): Runnable =
-            if (!labels) this else named ?: WaveDiagnostics.NamedTask(rules.label(item), this).also { named = it }
+        internal fun waveTask(labels: Boolean): Runnable {
+            if (!labels) return this
+            var task = named
+            if (task == null) {
+                task = WaveDiagnostics.NamedTask(list.label(item), this)
+                named = task
+            }
+            return task
+        }
     }
 
-    /** Members sharing a [Rules.kind]: their place in [order] and their measured cost. Server thread only. */
+    /** Members sharing a [TickList.kind]: their place in [order] and their measured cost. Server thread only. */
     internal class Kind(val key: Any) {
         /** Smoothed wall time per member tick; 0 until measured. */
         var nanosPerTask = 0.0
@@ -150,7 +142,7 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
                 }
             }
             timed(index, began, clock.asLong)
-            failure?.let { throw it }
+            if (failure != null) throw failure
         }
     }
 
@@ -247,25 +239,18 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
     }
 
     /**
-     * Brings the tasks up to date, runs serial members through [body] on the calling thread in list order,
-     * then passes the wave's groups, its member count and its participants to [runWave]. The list passed stays
-     * unchanged until the next call. [scan] visits every current member; it is used when tracking (re)starts.
-     * [participants] chooses the threads the wave has, the caller included; they size the groups.
+     * Brings the tasks up to date, runs serial members through [body] on the calling thread in list order, then
+     * runs the rest as one wave ([TickList.runWave]) on the threads [TickList.participants] chooses.
+     *
+     * With [homes] homes ([WaveHomes]; 0 or 1 for none) each participant runs the same slice of every kind from wave
+     * to wave, with kinds still claimed costliest first. Only a wave that gets [homes] participants has homes. One
+     * with fewer is bounded by its longest group; there homes measured 5% slower in a 600-mob fight and changed no
+     * cache traffic, and slots would own a varying number of homes.
      */
-    fun dispatch(rulesKey: Any?, labels: Boolean, participants: Participants, body: Consumer<E>, scan: (Consumer<E>) -> Unit,
-                 runWave: WaveRunner) = dispatch(rulesKey, labels, 0, participants, body, scan, runWave)
-
-    /**
-     * [dispatch] with [homes] homes ([WaveHomes]; 0 or 1 for none): each participant then runs the same slice of
-     * every kind from wave to wave, with kinds still claimed costliest first. Only a wave that gets [homes]
-     * participants has homes. One with fewer is bounded by its longest group ([Participants]); there homes measured
-     * 5% slower in a 600-mob fight and changed no cache traffic, and slots would own a varying number of homes.
-     */
-    fun dispatch(rulesKey: Any?, labels: Boolean, homes: Int, participants: Participants, body: Consumer<E>,
-                 scan: (Consumer<E>) -> Unit, runWave: WaveRunner) {
-        update(rulesKey, labels, scan)
+    fun dispatch(rulesKey: Any?, labels: Boolean, homes: Int, body: Consumer<E>) {
+        update(rulesKey, labels)
         // Assembly: participants from the expected longest group, then order and groups from the learned costs.
-        val threads = if (waveSize == 0) 1 else maxOf(1, participants.participants(waveSize, longestNanos))
+        val threads = if (waveSize == 0) 1 else maxOf(1, list.participants(waveSize, longestNanos))
         val homeCount = if (homes > 1 && threads >= homes) homes else 0
         if (homeCount != this.homeCount) {
             this.homeCount = homeCount
@@ -278,7 +263,7 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
             caller = Thread.currentThread()
             waveStarted = clock.asLong
             callerDone = waveStarted
-            runWave.run(wave, waveSize, threads, if (homeCount > 0 && wave.isNotEmpty()) this.homes else null)
+            list.runWave(wave, waveSize, threads, if (homeCount > 0 && wave.isNotEmpty()) this.homes else null)
             learn()
         } finally {
             this.body = null
@@ -293,19 +278,19 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
         clear()
     }
 
-    internal fun update(rulesKey: Any?, labels: Boolean, scan: (Consumer<E>) -> Unit) {
+    private fun update(rulesKey: Any?, labels: Boolean) {
         if (!tracking) {
             // Tracking first, so a change during the scan is queued and applied after it.
             clear()
             tracking = true
-            scan(Consumer { sync(it) })
+            list.forEachMember { sync(it) }
         }
         drain(changes) { sync(it) }
         if (rulesKey !== this.rulesKey) {
             this.rulesKey = rulesKey
             for (i in 0 until size) {
                 val task = taskAt(i) ?: continue
-                task.fixed = rules.fixedSerial(task.item)
+                task.fixed = list.fixedSerial(task.item)
                 classify(task)
             }
         }
@@ -313,9 +298,9 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
             var current: E? = item
             var depth = 0
             while (current != null && depth++ < MAX_OWNER_DEPTH) {
-                val task = byId.get(rules.id(current))
+                val task = byId.get(list.id(current))
                 if (task != null && task.item === current) classify(task)
-                current = rules.owner(current)
+                current = list.owner(current)
             }
         }
         for (i in serialTasks.indices) {
@@ -338,9 +323,9 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
     }
 
     private fun sync(item: E) {
-        val id = rules.id(item)
+        val id = list.id(item)
         val task = byId.get(id)
-        if (rules.isMember(item)) {
+        if (list.isMember(item)) {
             if (task != null && task.item === item) return
             if (task != null) remove(task)
             add(item, id)
@@ -350,10 +335,10 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
     }
 
     private fun add(item: E, id: Int) {
-        val key = rules.kind(item)
+        val key = list.kind(item)
         val task = Task(item, kinds.getOrPut(key) { Kind(key) })
-        task.fixed = rules.fixedSerial(item)
-        task.serial = task.fixed || rules.changingSerial(item)
+        task.fixed = list.fixedSerial(item)
+        task.serial = task.fixed || list.changingSerial(item)
         if (size == all.size) all = all.copyOf(size * 2)
         task.slot = size
         all[size++] = task
@@ -364,12 +349,12 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
     private fun remove(task: Task) {
         all[task.slot] = null
         task.slot = -1
-        byId.remove(rules.id(task.item))
+        byId.remove(list.id(task.item))
         rebuild = true
     }
 
     private fun classify(task: Task) {
-        val serial = task.fixed || rules.changingSerial(task.item)
+        val serial = task.fixed || list.changingSerial(task.item)
         if (serial != task.serial) {
             task.serial = serial
             rebuild = true
@@ -644,7 +629,11 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
     val memberCount: Int get() = byId.size
 
     /** Whether [item] has a task and it is serial (true), in the wave (false) or absent (null). For checks. */
-    fun isSerial(item: E): Boolean? = byId.get(rules.id(item))?.takeIf { it.item === item }?.serial
+    fun isSerial(item: E): Boolean? {
+        val task = byId.get(list.id(item))
+        if (task == null || task.item !== item) return null
+        return task.serial
+    }
 
     /** The wave's current members (or labelled wrappers) in wave order, for checks. */
     internal val waveTasks: List<Runnable> get() = List(waveSize) { order[it]!! }
@@ -662,9 +651,9 @@ class PersistentTickTasks<E : Any> internal constructor(private val rules: Rules
         const val MAX_OWNER_DEPTH = 64
 
         /**
-         * Expected-cost share of a group: the wave's expected cost over this many groups per participant. In a
-         * replay of a 600-mob fight at 24 and 48 workers, 10 (with sizes rounded down) balanced as well as claiming
-         * every member alone, while a wave of thousands of cheap members needs only about 10 claims per participant.
+         * Expected-cost share of a group: the wave's expected cost over this many groups per participant. With sizes
+         * rounded down, 10 balanced a replayed 600-mob fight as well as claiming every member alone, while a wave of
+         * thousands of cheap members needs only about 10 claims per participant.
          */
         const val GROUPS_PER_PARTICIPANT = 10
 

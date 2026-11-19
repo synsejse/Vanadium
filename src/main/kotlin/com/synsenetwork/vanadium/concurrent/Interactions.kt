@@ -23,11 +23,12 @@ import java.util.function.Consumer
  * it next owns itself, or the wave's end does ([drainImpulses]). Reads of other entities take no lock, as between
  * regions.
  *
- * Outside the flat wave [active] is false and every hook is a no-op.
+ * Mixins open a scope as `boolean scoped = Interactions.active && Interactions.enter(…); try { … } finally
+ * { if (scoped) Interactions.exit(); }`. Outside the flat wave [active] is false and every hook is a no-op.
  */
 object Interactions {
     /** What a foreign write changed; indexes [counts]. */
-    enum class Kind { PUSH, VELOCITY, POSITION, REMOVE, DATA, HURT, MEMORY, PAIR, BLOCK, EXPLOSION, EVENT, OTHER }
+    enum class Write { PUSH, VELOCITY, POSITION, REMOVE, DATA, HURT, MEMORY, PAIR, BLOCK, EXPLOSION, EVENT, OTHER }
 
     /** True on every thread while a flat entity wave runs. */
     @JvmField
@@ -36,24 +37,22 @@ object Interactions {
 
     private val locks = OwnerLocks(TimeUnit.MILLISECONDS.toNanos(DeveloperProperties.long("vanadium.interactionTimeoutMillis", 100, 1L..60_000L)))
 
-    /**
-     * The pool that applies a large wave's leftover pushes in parallel; null applies them on the server thread.
-     * Set for each server lifecycle, to the pool that runs its waves.
-     */
-    @JvmField
-    @Volatile
-    var drainPool: WorkerPool? = null
-
+    /** The server thread while it runs a wave ([runWave]); it uses [callerContext]. */
     @Volatile
     private var caller: Thread? = null
 
     /** Targets whose inbox each thread filled first (one entry per empty-to-full change). */
     private val impulses = DeferredQueue<Entity>()
     private val callerContext = Context(impulses.register(null))
+
+    /** The pool of the drain in progress, read by [runDrainWave]; server thread only. */
+    private var drainingPool: WorkerPool? = null
     private val applyInline = Consumer<Entity> { if (!it.isRemoved) applyImpulse(it) }
     private val applyOwned = Consumer<Entity>(::applyOwned)
-    private val runDrainWave = Consumer<List<Runnable>> { slices -> runDrainWave(slices) }
-    private val counts = Array(Kind.entries.size) { LongAdder() }
+    private val runDrainWave = Consumer<List<Runnable>>(::runDrainWave)
+    private val parallelDrains = LongAdder()
+
+    private val counts = Array(Write.entries.size) { LongAdder() }
     private val reportedTimeouts = AtomicLong()
     private val lastTimeoutWarning = AtomicLong()
     private val lastSkipWarning = AtomicLong()
@@ -64,7 +63,7 @@ object Interactions {
     private val LOG_EVERY_WAVES = DeveloperProperties.long("vanadium.interactionLogWaves", 0, 0L..1_000_000L)
     private var waves = 0L
 
-    class Context(internal val pushed: DeferredQueue.Local<Entity>) : OwnerLocks.Context() {
+    private class Context(val pushed: DeferredQueue.Local<Entity>) : OwnerLocks.Context() {
         /** The entity whose wave task runs on this thread, and the vehicle tree it owns. */
         @JvmField var self: Entity? = null
         @JvmField var root: Entity? = null
@@ -72,10 +71,9 @@ object Interactions {
 
     /**
      * Server thread: runs [wave], whose tasks call [tick], then applies pushes nobody consumed before returning,
-     * so nothing after the wave reads a velocity without them. Many leftovers apply as a wave on [pool].
+     * so nothing after the wave reads a velocity without them. Many leftovers apply as a wave on [pool]; null
+     * applies them all on the server thread.
      */
-    fun runWave(wave: Runnable) = runWave(wave, drainPool)
-
     fun runWave(wave: Runnable, pool: WorkerPool?) {
         caller = Thread.currentThread()
         active = true
@@ -108,21 +106,15 @@ object Interactions {
             body.accept(entity)
             return
         }
-        val root = entity.rootVehicle
-        context.self = entity
-        context.root = root
-        locks.beginOwn(context, lock(root))
-        try {
-            applyImpulse(entity)
-            body.accept(entity)
-            val access = entity as InteractionAccess
-            if (access.`vanadium$failedTicks`() != 0) access.`vanadium$setFailedTicks`(0)
-        } catch (e: Exception) {
-            survive(entity, e)
-        } finally {
-            locks.endOwn(context)
-            context.self = null
-            context.root = null
+        owning(context, entity) {
+            try {
+                applyImpulse(entity)
+                body.accept(entity)
+                val access = entity as InteractionAccess
+                if (access.`vanadium$failedTicks`() != 0) access.`vanadium$setFailedTicks`(0)
+            } catch (e: Exception) {
+                survive(entity, e)
+            }
         }
     }
 
@@ -133,7 +125,7 @@ object Interactions {
      * for threads not ticking an entity.
      */
     @JvmStatic
-    fun enter(target: Entity, kind: Kind): Boolean {
+    fun enter(target: Entity, write: Write): Boolean {
         val context = context() ?: return false
         val root = context.root ?: return false
         val targetRoot = if (target === context.self) root else target.rootVehicle
@@ -146,7 +138,7 @@ object Interactions {
         }
         val lock = lock(targetRoot)
         if (context.depth > 0 && lock.isHeldByCurrentThread) return false
-        counts[kind.ordinal].increment()
+        counts[write.ordinal].increment()
         locks.enterForeign(context, lock)
         return true
     }
@@ -158,20 +150,20 @@ object Interactions {
      * second sees what the first did; the caller rechecks the operation's condition inside.
      */
     @JvmStatic
-    fun enterPair(other: Entity, kind: Kind): Boolean {
+    fun enterPair(other: Entity, write: Write): Boolean {
         val context = context() ?: return false
         val root = context.root ?: return false
         val own = context.ownLock ?: return false
         val otherRoot = if (other === context.self) root else other.rootVehicle
         if (otherRoot === root) return false
-        counts[kind.ordinal].increment()
+        counts[write.ordinal].increment()
         locks.enterPair(context, lock(otherRoot), root.id < otherRoot.id)
         return true
     }
 
     @JvmStatic
     fun exitPair() {
-        val context = context()!!
+        val context = checkNotNull(context()) { "exit without a scope" }
         locks.exitForeign(context)
         locks.exitForeign(context)
     }
@@ -181,16 +173,19 @@ object Interactions {
      * one at a time. Pair with [exit] when true.
      */
     @JvmStatic
-    fun enterShared(kind: Kind): Boolean {
+    fun enterShared(write: Write): Boolean {
         val context = context() ?: return false
         if (context.root == null) return false
-        counts[kind.ordinal].increment()
+        counts[write.ordinal].increment()
         locks.enterForeign(context, null)
         return true
     }
 
     @JvmStatic
-    fun exit() = locks.exitForeign(context()!!)
+    fun exit() {
+        val context = checkNotNull(context()) { "exit without a scope" }
+        locks.exitForeign(context)
+    }
 
     /**
      * A push on [target] from another entity's tick: true when it was added to the target's inbox instead of
@@ -213,7 +208,7 @@ object Interactions {
                 break
             }
         }
-        counts[Kind.PUSH.ordinal].increment()
+        counts[Write.PUSH.ordinal].increment()
         return true
     }
 
@@ -243,6 +238,21 @@ object Interactions {
     /** Entity ticks skipped after an error since the server started. */
     val skipped: Long get() = skippedTicks.sum()
 
+    /** Runs [block] as the owner of [entity]'s vehicle tree, as [entity]'s own tick does. */
+    private inline fun owning(context: Context, entity: Entity, block: () -> Unit) {
+        val root = entity.rootVehicle
+        context.self = entity
+        context.root = root
+        locks.beginOwn(context, lock(root))
+        try {
+            block()
+        } finally {
+            locks.endOwn(context)
+            context.self = null
+            context.root = null
+        }
+    }
+
     private fun applyImpulse(entity: Entity) {
         val inbox = (entity as InteractionAccess).`vanadium$impulse`()
         if (inbox.get() == null) return
@@ -266,11 +276,8 @@ object Interactions {
         }
     }
 
-    /** The pool of the drain in progress; server thread only. */
-    private var drainingPool: WorkerPool? = null
-
     private fun runDrainWave(slices: List<Runnable>) {
-        val pool = drainingPool!!
+        val pool = checkNotNull(drainingPool) { "drain wave outside a drain" }
         active = true
         try {
             pool.runWave(slices)
@@ -282,37 +289,38 @@ object Interactions {
     private fun applyOwned(entity: Entity) {
         val inbox = (entity as InteractionAccess).`vanadium$impulse`()
         if (entity.isRemoved || inbox.get() == null) return
-        val context = context() ?: return applyImpulse(entity)
-        val root = entity.rootVehicle
-        context.self = entity
-        context.root = root
-        locks.beginOwn(context, lock(root))
-        try {
+        val context = context()
+        if (context == null) {
             applyImpulse(entity)
-        } finally {
-            locks.endOwn(context)
-            context.self = null
-            context.root = null
+            return
         }
+        owning(context, entity) { applyImpulse(entity) }
     }
-
-    private val parallelDrains = LongAdder()
 
     /** Parallel rounds of leftover pushes since the server started; for diagnostics and live checks. */
     val parallelPushDrains: Long get() = parallelDrains.sum()
 
     private fun lock(root: Entity) = (root as InteractionAccess).`vanadium$tickLock`()
 
+    /**
+     * This thread's context: a pool thread keeps its own on the thread object (no thread-local lookup), and the
+     * server thread uses [callerContext] while it runs a wave. Other threads have none: their writes take no scope.
+     */
     private fun context(): Context? {
         val thread = Thread.currentThread()
         if (thread is TickThread) {
-            return thread.context as Context? ?: Context(impulses.register(thread)).also { thread.context = it }
+            val context = thread.context
+            if (context != null) return context as Context
+            val created = Context(impulses.register(thread))
+            thread.context = created
+            return created
         }
-        return if (thread === caller) callerContext else null
+        if (thread === caller) return callerContext
+        return null
     }
 
-    /** Foreign writes since the last call, by kind, and lock timeouts; for reports and live checks. */
-    fun takeCounts(): Map<Kind, Long> = Kind.entries.associateWith { counts[it.ordinal].sumThenReset() }
+    /** Foreign writes since the last call, by what they changed; for reports and live checks. */
+    fun takeCounts(): Map<Write, Long> = Write.entries.associateWith { counts[it.ordinal].sumThenReset() }
 
     /** Waits given up after the hard limit; each ran one write unprotected. */
     val timeouts: Long get() = locks.timeouts.get()

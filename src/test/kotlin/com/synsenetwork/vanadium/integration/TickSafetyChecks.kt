@@ -2,7 +2,7 @@ package com.synsenetwork.vanadium.integration
 
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.concurrent.PerThreadRandomSource
-import com.synsenetwork.vanadium.tick.EntityTickRules
+import com.synsenetwork.vanadium.tick.EntityTickAccess
 import com.synsenetwork.vanadium.tick.TickScheduler
 import com.synsenetwork.vanadium.tick.WorkerPool
 import net.minecraft.core.BlockPos
@@ -108,6 +108,7 @@ internal object TickSafetyChecks {
     private fun checkPassengers(level: ServerLevel) {
         val previous = Vanadium.config.serialEntityTypes
         try {
+            val ticks = (level as EntityTickAccess).`vanadium$entityTicks`()
             val root = Pig(EntityTypes.PIG, level)
             val middle = Pig(EntityTypes.PIG, level)
             val passenger = ArmorStand(level, 0.0, 100.0, 0.0)
@@ -115,12 +116,12 @@ internal object TickSafetyChecks {
             check(passenger.startRiding(middle, true, false), "fixture could not mount nested passenger")
             Vanadium.config.serialEntityTypes = mutableListOf()
             Vanadium.config.refreshSerialRules()
-            check(!EntityTickRules.requiresSerial(root), "ordinary tree unexpectedly serial")
+            check(!ticks.requiresSerial(root), "ordinary tree unexpectedly serial")
             Vanadium.config.serialEntityTypes = mutableListOf("minecraft:armor_stand")
             Vanadium.config.refreshSerialRules()
-            check(EntityTickRules.requiresSerial(root), "restricted passenger did not serialize root")
+            check(ticks.requiresSerial(root), "restricted passenger did not serialize root")
             middle.stopRiding()
-            check(!EntityTickRules.requiresSerial(root), "dismount did not release root")
+            check(!ticks.requiresSerial(root), "dismount did not release root")
         } finally {
             Vanadium.config.serialEntityTypes = previous
             Vanadium.config.refreshSerialRules()

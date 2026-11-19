@@ -35,9 +35,9 @@ internal object LockBench {
             // Each arm's route: the wave takes a pair scope for every merge attempt, the serial ticks none.
             Interactions.takeCounts()
             Interactions.runWave(wave, null)
-            val scoped = Interactions.takeCounts()[Interactions.Kind.PAIR]
+            val scoped = Interactions.takeCounts()[Interactions.Write.PAIR]
             ticks.forEach(Runnable::run)
-            val serial = Interactions.takeCounts()[Interactions.Kind.PAIR]
+            val serial = Interactions.takeCounts()[Interactions.Write.PAIR]
             check(scoped == ticks.size * 128L && serial == 0L) {
                 "$name: ${ticks.size * 128} merges took $scoped pair scopes in the wave and $serial serially"
             }

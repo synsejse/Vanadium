@@ -30,42 +30,33 @@ public abstract class BrainMixin<E extends LivingEntity> {
     @WrapMethod(method = "setMemoryInternal(Lnet/minecraft/world/entity/ai/memory/MemoryModuleType;Ljava/lang/Object;)V")
     private <U> void vanadium$setMemory(MemoryModuleType<U> type, U value, Operation<Void> original) {
         LivingEntity owner = vanadium$owner;
-        if (Interactions.active && owner != null && Interactions.enter(owner, Interactions.Kind.MEMORY)) {
-            try {
-                original.call(type, value);
-            } finally {
-                Interactions.exit();
-            }
-        } else {
+        boolean scoped = Interactions.active && owner != null && Interactions.enter(owner, Interactions.Write.MEMORY);
+        try {
             original.call(type, value);
+        } finally {
+            if (scoped) Interactions.exit();
         }
     }
 
     @WrapMethod(method = "setMemoryInternal(Lnet/minecraft/world/entity/ai/memory/MemoryModuleType;Ljava/lang/Object;J)V")
     private <U> void vanadium$setMemory(MemoryModuleType<U> type, U value, long timeToLive, Operation<Void> original) {
         LivingEntity owner = vanadium$owner;
-        if (Interactions.active && owner != null && Interactions.enter(owner, Interactions.Kind.MEMORY)) {
-            try {
-                original.call(type, value, timeToLive);
-            } finally {
-                Interactions.exit();
-            }
-        } else {
+        boolean scoped = Interactions.active && owner != null && Interactions.enter(owner, Interactions.Write.MEMORY);
+        try {
             original.call(type, value, timeToLive);
+        } finally {
+            if (scoped) Interactions.exit();
         }
     }
 
     @WrapMethod(method = "eraseMemory")
     private <U> void vanadium$eraseMemory(MemoryModuleType<U> type, Operation<Void> original) {
         LivingEntity owner = vanadium$owner;
-        if (Interactions.active && owner != null && Interactions.enter(owner, Interactions.Kind.MEMORY)) {
-            try {
-                original.call(type);
-            } finally {
-                Interactions.exit();
-            }
-        } else {
+        boolean scoped = Interactions.active && owner != null && Interactions.enter(owner, Interactions.Write.MEMORY);
+        try {
             original.call(type);
+        } finally {
+            if (scoped) Interactions.exit();
         }
     }
 }

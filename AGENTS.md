@@ -101,7 +101,7 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - Entities tick in one flat wave with no regions: any two entity ticks may overlap,
   however close. A tick owns its vehicle tree; pushes go to the target's inbox; every other write to
   another tree, to blocks or to listeners must run inside an `Interactions` scope (`enter`/`enterShared`
-  … `exit`). When adding or auditing entity code, look for writes to an entity that is not `this` and
+  with the `Interactions.Write` it makes … `exit` in a `finally`). When adding or auditing entity code, look for writes to an entity that is not `this` and
   for pairwise check-then-act (both sides run the same logic in one tick): give the whole operation a
   pair scope (`enterPair`) and recheck its condition inside. Avoid reaching a scope while holding
   another lock or monitor that a scope's body can take: such a deadlock is only broken by the 100 ms

@@ -13,7 +13,7 @@ import org.spongepowered.asm.mixin.Mixin;
 public class RaiderMixin {
     @WrapMethod(method = "pickUpItem")
     private void vanadium$takeBannerOnce(ServerLevel level, ItemEntity item, Operation<Void> original) {
-        if (Interactions.active && Interactions.enterPair(item, Interactions.Kind.PAIR)) {
+        if (Interactions.active && Interactions.enterPair(item, Interactions.Write.PAIR)) {
             try {
                 if (!item.isRemoved() && !item.getItem().isEmpty()) original.call(level, item);
             } finally {

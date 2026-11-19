@@ -26,7 +26,14 @@ class PersistentTickTasksTest {
         val members: MutableSet<Item> = ConcurrentHashMap.newKeySet()
         var fixedChecks = 0
         var changingChecks = 0
-        val rules = object : PersistentTickTasks.Rules<Item> {
+
+        /** What the next dispatch's [PersistentTickTasks.TickList.participants] returns; set by [dispatch]. */
+        var chooseParticipants: (members: Int, longestNanos: Double) -> Int = { _, _ -> 4 }
+
+        /** What the next dispatch's wave does; set by [dispatch]. */
+        var waveRunner: (groups: List<Runnable>, members: Int, participants: Int, homes: WaveHomes?) -> Unit = { _, _, _, _ -> }
+
+        val list = object : PersistentTickTasks.TickList<Item> {
             override fun id(item: Item) = item.id
             override fun isMember(item: Item) = item in members
             override fun fixedSerial(item: Item): Boolean {
@@ -41,12 +48,26 @@ class PersistentTickTasksTest {
             override fun label(item: Item) = "item${item.id}"
             override fun kind(item: Item) = item.kind
             override fun tick(item: Item, body: Consumer<Item>) = body.accept(item)
+            override fun forEachMember(action: Consumer<Item>) = members.sortedBy { it.id }.forEach(action::accept)
+            override fun participants(members: Int, longestNanos: Double) = chooseParticipants(members, longestNanos)
+            override fun runWave(groups: List<Runnable>, members: Int, participants: Int, homes: WaveHomes?) =
+                waveRunner(groups, members, participants, homes)
         }
 
         /** Advanced by each member's [Item.cost] as it ticks, so group times are exact. */
         val clock = AtomicLong()
-        val tasks = PersistentTickTasks(rules, LongSupplier(clock::get))
+        val tasks = PersistentTickTasks(list, LongSupplier(clock::get))
         var rulesKey: Any = Any()
+
+        /** One dispatch with these [participants] and this wave runner. */
+        fun dispatch(
+            participants: (members: Int, longestNanos: Double) -> Int, body: Consumer<Item>, homes: Int = 0, labels: Boolean = false,
+            runWave: (groups: List<Runnable>, members: Int, participants: Int, homes: WaveHomes?) -> Unit,
+        ) {
+            chooseParticipants = participants
+            waveRunner = runWave
+            tasks.dispatch(rulesKey, labels, homes, body)
+        }
 
         fun add(item: Item) {
             members.add(item)
@@ -71,11 +92,11 @@ class PersistentTickTasksTest {
             var inWave = false
             groups.clear()
             cells.clear()
-            tasks.dispatch(rulesKey, labels, homes, { _, _ -> participants }, { item ->
+            dispatch({ _, _ -> participants }, { item ->
                 (if (inWave) wave else serial).add(item.id)
                 clock.addAndGet(item.cost)
                 during(item)
-            }, { visit -> members.sortedBy { it.id }.forEach(visit::accept) }) { list, units, _, layout ->
+            }, homes, labels) { list, units, _, layout ->
                 assertEquals(homes > 1 && participants >= homes, layout != null)
                 inWave = true
                 if (layout != null) {
@@ -246,11 +267,11 @@ class PersistentTickTasksTest {
         items.take(1000).forEach(f::add)
         f.tick()
         WorkerPool(4).use { pool ->
-            f.tasks.dispatch(f.rulesKey, false, { _, _ -> 5 }, { item ->
+            f.dispatch({ _, _ -> 5 }, { item ->
                 // Each member adds one new item and removes every other old one, as spawns and deaths do from workers.
                 f.add(items[1000 + item.id])
                 if (item.id % 2 == 0) f.remove(item)
-            }, { }) { list, _, _, _ -> pool.runWave(list) }
+            }) { list, _, _, _ -> pool.runWave(list) }
         }
         val (_, wave) = f.tick()
         val expected = (0 until 2000).filter { it >= 1000 || it % 2 == 1 }
@@ -345,10 +366,10 @@ class PersistentTickTasksTest {
         val group = f.tasks.waveGroups.first()
         val ticked = ArrayList<Int>()
         val failure = assertFailsWith<IllegalStateException> {
-            f.tasks.dispatch(f.rulesKey, false, { _, _ -> 1 }, { item ->
+            f.dispatch({ _, _ -> 1 }, { item ->
                 ticked.add(item.id)
                 check(item.id != 0 && item.id != 1) { "member ${item.id}" }
-            }, { }) { list, _, _, _ -> list.first().run() }
+            }) { list, _, _, _ -> list.first().run() }
         }
         assertEquals("member 0", failure.message)
         assertSame(group, f.tasks.waveGroups.first())
@@ -445,7 +466,7 @@ class PersistentTickTasksTest {
         listOf(Item(0, "a", 1_000), Item(1, "a", 1_000), Item(2, "a", 1_000), Item(3, "a", 1_000)).forEach(f::add)
         fun wave(onCaller: Int): Double {
             val profile = TickProfile()
-            f.tasks.dispatch(f.rulesKey, false, { _, _ -> 4 }, { f.clock.addAndGet(it.cost) }, { }) { list, _, _, _ ->
+            f.dispatch({ _, _ -> 4 }, { f.clock.addAndGet(it.cost) }) { list, _, _, _ ->
                 assertEquals(4, list.size)
                 // The caller runs the first groups; another thread runs the rest after it, so they end after the caller's last.
                 list.take(onCaller).forEach(Runnable::run)
@@ -482,11 +503,11 @@ class PersistentTickTasksTest {
         items.forEach(f::add)
         val seen = ArrayList<Double>()
         fun tick() {
-            f.tasks.dispatch(f.rulesKey, false, { members, longest ->
+            f.dispatch({ members, longest ->
                 assertEquals(30, members)
                 seen.add(longest)
                 4
-            }, { f.clock.addAndGet(it.cost) }, { }) { list, _, participants, _ ->
+            }, { f.clock.addAndGet(it.cost) }) { list, _, participants, _ ->
                 assertEquals(4, participants)
                 list.forEach(Runnable::run)
             }
@@ -579,10 +600,10 @@ class PersistentTickTasksTest {
         f.tick(participants = 3, homes = 3)
         val seen = ArrayList<Double>()
         repeat(5) {
-            f.tasks.dispatch(f.rulesKey, false, 3, { _, longest ->
+            f.dispatch({ _, longest ->
                 seen.add(longest)
                 3
-            }, { f.clock.addAndGet(it.cost) }, { }) { list, _, _, homes ->
+            }, { f.clock.addAndGet(it.cost) }, homes = 3) { list, _, _, homes ->
                 assertEquals(3, homes!!.homes)
                 list.forEach(Runnable::run)
             }

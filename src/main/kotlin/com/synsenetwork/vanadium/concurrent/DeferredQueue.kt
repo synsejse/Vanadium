@@ -116,7 +116,7 @@ class DeferredQueue<T : Any>(
         var apply: Consumer<T>? = null
 
         override fun run() {
-            val apply = apply!!
+            val apply = apply!! // Set by slice() before the slice joins a wave.
             for (i in from until to) apply.accept(items[i])
         }
     }
