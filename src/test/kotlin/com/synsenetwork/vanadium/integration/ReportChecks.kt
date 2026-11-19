@@ -4,6 +4,7 @@ import com.mojang.serialization.JsonOps
 import com.synsenetwork.vanadium.diagnostics.TickBenchmark
 import com.synsenetwork.vanadium.diagnostics.TickProfiler
 import com.synsenetwork.vanadium.live.runCommand
+import java.nio.file.Files
 import net.minecraft.locale.Language
 import net.minecraft.network.chat.ComponentSerialization
 import net.minecraft.server.MinecraftServer
@@ -13,7 +14,7 @@ internal object ReportChecks {
 
     fun schedule(server: MinecraftServer, ticked: TickedChecks) {
         ticked.then("start command reports") { start(server) }
-        ticked.then("command reports complete and retain their interactions") { finish(server) }
+        ticked.then("command reports complete with their result files") { finish(server) }
         ticked.await("vanilla sprint report only outside the benchmark", 20) { sprintReportsChecked() }
     }
 
@@ -35,19 +36,20 @@ internal object ReportChecks {
 
     private fun finish(server: MinecraftServer) {
         check(server.runCommand("vanadium profile stop") == 1)
-        for (command in listOf("profile report", "profile report stages", "profile report worlds", "profile report details",
-            "benchmark report", "benchmark report details")) {
-            check(server.runCommand("vanadium $command") == 1)
-        }
+        check(server.runCommand("vanadium profile report") == 1)
+        check(server.runCommand("vanadium benchmark report") == 1)
         check(!TickBenchmark.isActive)
-        for (component in listOf(TickProfiler.lastReport(), TickBenchmark.lastReport())) {
-            val encoded = ComponentSerialization.CODEC.encodeStart(JsonOps.INSTANCE, component).getOrThrow()
+        for ((kind, summary) in listOf("profile" to TickProfiler.lastReport(), "benchmark" to TickBenchmark.lastReport())) {
+            val encoded = ComponentSerialization.CODEC.encodeStart(JsonOps.INSTANCE, summary).getOrThrow()
             val json = encoded.toString()
-            check("run_command" in json && "show_text" in json && "copy_to_clipboard" in json) {
-                "Report interactions did not survive component encoding: $json"
-            }
-            val decoded = ComponentSerialization.CODEC.parse(JsonOps.INSTANCE, encoded).getOrThrow()
-            check(decoded.string == component.string)
+            check("copy_to_clipboard" in json && "show_text" in json) { "The $kind summary's path lost its interactions: $json" }
+            val text = ComponentSerialization.CODEC.parse(JsonOps.INSTANCE, encoded).getOrThrow().string
+            check(text == summary.string && text.startsWith("Vanadium $kind · ")) { "Unexpected $kind summary: $text" }
+            // The summary is short and ends with the path of the result it wrote.
+            val path = text.lines().last().removePrefix("Result: ")
+            check(text.lines().size <= 3 && path.endsWith(".json")) { "Unexpected $kind summary: $text" }
+            val result = server.serverDirectory.resolve(path)
+            check(Files.isRegularFile(result) && "\"kind\": \"$kind\"" in Files.readString(result)) { "$kind result missing at $result" }
         }
         checkNotNull(sprintReports).mark("end")
         println("REPORT_CHECKS_PASSED")

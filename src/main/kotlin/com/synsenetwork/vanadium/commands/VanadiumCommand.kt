@@ -3,12 +3,10 @@ package com.synsenetwork.vanadium.commands
 import com.mojang.brigadier.CommandDispatcher
 import com.mojang.brigadier.arguments.IntegerArgumentType
 import com.mojang.brigadier.arguments.StringArgumentType
-import com.mojang.brigadier.builder.LiteralArgumentBuilder
 import com.mojang.brigadier.context.CommandContext
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.config.LiveOptions
 import com.synsenetwork.vanadium.config.VanadiumConfig
-import com.synsenetwork.vanadium.diagnostics.PerformanceReport
 import com.synsenetwork.vanadium.diagnostics.TickBenchmark
 import com.synsenetwork.vanadium.diagnostics.TickProfiler
 import java.lang.reflect.Modifier
@@ -41,7 +39,10 @@ object VanadiumCommand {
                     .then(literal("stop").executes {
                         if (TickProfiler.stop()) SUCCESS else fail(it, "no profile is running")
                     })
-                    .then(reportRoute("profile", TickProfiler::lastReport)))
+                    .then(literal("report").executes {
+                        it.source.sendSuccess(TickProfiler::lastReport, false)
+                        SUCCESS
+                    }))
                 .then(literal("set").requires(operator)
                     .then(argument("option", StringArgumentType.word())
                         .suggests { _, builder -> SharedSuggestionProvider.suggest(LiveOptions.names, builder) }
@@ -55,7 +56,10 @@ object VanadiumCommand {
                 .then(literal("reload").requires(operator).executes(::reload))
                 .then(literal("benchmark").requires(operator)
                     .executes { benchmark(it, TickBenchmark.DEFAULT_SECONDS) }
-                    .then(reportRoute("benchmark", TickBenchmark::lastReport))
+                    .then(literal("report").executes {
+                        it.source.sendSuccess(TickBenchmark::lastReport, false)
+                        SUCCESS
+                    })
                     .then(argument("seconds", IntegerArgumentType.integer(5, 300))
                         .executes { benchmark(it, IntegerArgumentType.getInteger(it, "seconds")) })))
     }
@@ -124,18 +128,6 @@ object VanadiumCommand {
     private fun profile(ctx: CommandContext<CommandSourceStack>, seconds: Int): Int {
         if (!TickProfiler.start(ctx.source, seconds)) return fail(ctx, "a profile is already running")
         feedback(ctx, "profiling for ${seconds}s · tick rate unchanged")
-        return SUCCESS
-    }
-
-    /** `report` and one subcommand per further view of the last [kind] report ([PerformanceReport.sections]). */
-    private fun reportRoute(kind: String, lastReport: (String) -> Component): LiteralArgumentBuilder<CommandSourceStack> {
-        val route = literal("report").executes { report(it, "summary", lastReport) }
-        for (section in PerformanceReport.sections(kind).drop(1)) route.then(literal(section).executes { report(it, section, lastReport) })
-        return route
-    }
-
-    private fun report(ctx: CommandContext<CommandSourceStack>, section: String, lastReport: (String) -> Component): Int {
-        ctx.source.sendSuccess({ lastReport(section) }, false)
         return SUCCESS
     }
 
