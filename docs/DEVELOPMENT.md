@@ -5,17 +5,37 @@ URL/checksum and Loom/JCTools versions are pinned in `gradle.properties`; Kotlin
 in `build.gradle.kts` and Gradle by the wrapper. Use `nix-shell` or `nix develop` and the checked-in `./gradlew`.
 Initial dependency resolution needs network access.
 
-Player-facing settings and commands are in [configuration](CONFIGURATION.md).
+Player-facing settings, JVM properties and commands are in [configuration](CONFIGURATION.md).
+Contributor rules (concurrency invariants, hot-path and validation discipline) are in
+[AGENTS.md](../AGENTS.md); this page holds the commands and what they check.
+
+## Tasks
+
+| Task | What it does |
+|---|---|
+| `./gradlew build` | Compile, validate the access widener, run unit tests and `checkModDependencies`, produce release/source jars ([below](#build-and-unit-tests)) |
+| `./gradlew test --tests '<pattern>'` | Focused unit tests, e.g. `'com.synsenetwork.vanadium.tick.*'`; add `--rerun-tasks` to really rerun them when checking concurrency behaviour |
+| `./gradlew -p buildSrc check` | Build-logic tests: verified downloads, fixture property parsing, launch values and output verification |
+| `./gradlew genSources` | Generate Minecraft sources for reviewing injection targets |
+| `./gradlew prepareRuntimeMods` | Download and SHA-512-verify the pinned C2ME and Lithium into `.vanadium/mods/` (its parts `prepareC2me` and `prepareLithium` run alone too; [live tests](#live-server-integration-tests)) |
+| `./gradlew setupRuntimeMods` | Install those jars into the interactive run's `mods/` ([interactive development](#interactive-development)) |
+| `./gradlew runServer`, `runClient` | Interactive development server or client |
+| `./gradlew runIntegration` | Live server integration suite in a fresh run directory ([live tests](#live-server-integration-tests)) |
+| `./gradlew runFeatureBench` | Paired on/off fixture benchmarks in a fresh server ([benchmarks](#benchmarks-and-profiling)) |
+| `./gradlew runMixedBench` | Manual whole-server benchmark ([profiling](PROFILING.md#mixed-whole-server-benchmark)) |
+| `./gradlew runColdExplosion` | Manual first-explosion fixture ([profiling](PROFILING.md#cold-first-use-explosion)) |
+| `./gradlew benchScheduler` | Synthetic scheduler overhead and allocation |
+| `./gradlew benchWorkerPool` | Small/large, balanced/uneven wave timing and allocation, wake latency |
+| `./gradlew benchAreaMap` | Tracking-index movement, resize and teleport |
+| `./gradlew benchSectionIndex` | Entity section box queries, column index against the previous two-map layout |
+| `./gradlew benchCrowdQueries` | Push-sized queries in sections of 10/50/200 entities, full scan against cells, with movers |
+| `nix flake check` | Check the Nix development files; does not build Minecraft |
+
+Routine correctness validation is `./gradlew build runIntegration`, then `git diff --check`. The
+`bench*` and `run*Bench`/`runColdExplosion` tasks are opt-in measurements in Gradle's `benchmark`
+group, never part of `build` or `runIntegration`.
 
 ## Build and unit tests
-
-```sh
-./gradlew build
-./gradlew test --tests 'com.synsenetwork.vanadium.tick.*' --rerun-tasks
-./gradlew genSources
-nix flake check
-git diff --check
-```
 
 `build` compiles Kotlin/Java, validates the access widener, runs JUnit 5 tests, and produces
 release/source jars in `build/libs/`. Its `checkModDependencies` step fails when a hand-written
@@ -42,19 +62,17 @@ Corresponding unit tests live in the same packages; live Fabric scenarios remain
 Package moves change class names in stack traces; the `vanadium.*` JFR event names, enum labels,
 JSON fields and command paths remain stable.
 
-Run `./gradlew -p buildSrc check` for the build-logic tests; they validate verified downloads
-and rejection of corrupt artifacts without accessing the network, fixture property parsing, launch
-values and output verification.
+The build-logic tests (`./gradlew -p buildSrc check`) validate verified downloads and rejection of
+corrupt artifacts without accessing the network, fixture property parsing, launch values and output
+verification.
 
 Unit tests inspect vanilla bindings without booting Minecraft or applying mixins.
 They are necessary but insufficient to validate a port.
 
 ## Live server integration tests
 
-For routine correctness checks, use `./gradlew build runIntegration`. Benchmarks are separate,
-opt-in measurements, not a prerequisite for testing every change; Gradle lists them in the
-`benchmark` group. Keep the deterministic concurrency, mixin-binding and collection-contract tests:
-the current unit suite takes seconds, and removing them would not shorten long benchmark campaigns.
+Keep the deterministic concurrency, mixin-binding and collection-contract tests: the current unit
+suite takes seconds, and removing them would not shorten long benchmark campaigns.
 
 Read the [Minecraft EULA](https://aka.ms/MinecraftEULA). If accepted, create
 `.vanadium/eula.txt` containing `eula=true`, or copy your existing accepted file.
@@ -110,7 +128,7 @@ packaged only in `build/test-mods/integration-checks.jar`, never the release jar
 The live suite covers two-player joins, chunk delivery and acknowledgements, entity tracking,
 movement across a chunk boundary, a client block-break request observed by the other player,
 disconnect cleanup, block update packets, dirty-chunk notifications, loaded chunk
-publication/replacement/unload, both load-lock policies and disabled mode, scheduled ticks,
+publication/replacement/unload, real loads under the per-chunk load locks, disabled mode, scheduled ticks,
 passengers, events, navigation invalidation, tracking diffs, spawn-count reduction,
 item conservation and chunk packet encoding/sending. The JFR option records monitor/park
 events at 100µs plus execution/allocation samples into the run's `live.jfr`.
@@ -131,11 +149,6 @@ world-safety or performance claim.
 ## Benchmarks and profiling
 
 ```sh
-./gradlew benchScheduler
-./gradlew benchWorkerPool
-./gradlew benchAreaMap
-./gradlew benchSectionIndex
-./gradlew benchCrowdQueries
 ./gradlew runFeatureBench
 ./gradlew runFeatureBench -Pbench.filter='spawn-.*' -Pbench.rounds=2 -Pbench.scale=0.1 -Pbench.jfr=false
 ./gradlew runMixedBench -Pmixed.mode=enabled
@@ -143,6 +156,8 @@ world-safety or performance claim.
 ./gradlew runColdExplosion -Pcold.arm=sham
 ./gradlew runColdExplosion -Pcold.arm=warmup
 ```
+
+Run one live server at a time: the live fixtures and `runIntegration` must never overlap.
 
 `runFeatureBench` uses another fresh isolated server and a test-only mod. It runs paired
 on/off workloads with warmup and alternating order, writing CSV and optional per-arm JFR
@@ -170,10 +185,10 @@ identical arenas on a fixed tick schedule, with one arm per invocation (`sham`, 
 to read the arms. It is never part of `build` or `runIntegration`.
 
 For whole-server measurements use `/vanadium benchmark`, `/vanadium profile`, and the
-JDK's `jcmd`/`jfr` tools; see [profiling](PROFILING.md). Old exploratory harnesses and 26.2 reports have been removed; current chart evidence is
-in [performance](PERFORMANCE.md).
+JDK's `jcmd`/`jfr` tools; see [profiling](PROFILING.md). Old exploratory harnesses and 26.2 reports
+have been removed; current chart evidence is in [performance](PERFORMANCE.md).
 Record hardware, worker/isolation/C2ME settings, heap, flags, mod versions and workload whenever
-publishing new measurements. Stage and world profile intervals overlap; do not add them.
+publishing new measurements.
 
 ## Interactive development
 

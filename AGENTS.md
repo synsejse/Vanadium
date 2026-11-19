@@ -14,67 +14,61 @@ Do not upgrade Minecraft, mappings, Loom, Gradle, Kotlin, or runtime mods as inc
   The shell supplies Java 25, nixfmt, common CLI tools, and Linux client runtime libraries.
   `nix-shell --run './gradlew runClient'` launches the interactive client.
 - Always use `./gradlew`, not a system Gradle. Kotlin and Java compile with a Java 25 toolchain.
-- `./gradlew genSources`: generate Minecraft sources for reviewing injection targets.
-- `./gradlew build`: compile, validate the access widener, test, check `fabric.mod.json` dependency minima
-  against the pins (`checkModDependencies`: a pin change updates the manifest too), and produce distributable jars.
-- `./gradlew -p buildSrc check`: validate build logic and checksum/download task tests.
-- `./gradlew test --tests 'com.synsenetwork.vanadium.tick.*'`: focused scheduler tests.
-- `./gradlew test --rerun-tasks`: actually rerun tests when checking concurrency behavior.
-- `./gradlew benchScheduler`: synthetic scheduler overhead/allocation benchmark.
-- `./gradlew benchWorkerPool`: small/large, balanced/uneven wave timing and allocation benchmark.
-- `./gradlew benchAreaMap`: tracking-index movement, resize, and teleport microbenchmark.
-- `./gradlew benchSectionIndex`: entity section box queries, column index against the previous two-map layout.
-- `./gradlew benchCrowdQueries`: push-sized queries in sections of 10/50/200 entities, full scan against cells, with movers.
-- `./gradlew prepareRuntimeMods`: download and verify pinned C2ME and Lithium into `.vanadium/mods`.
-- `./gradlew setupRuntimeMods`: install those jars into the interactive run's `mods/`, preserving other mods
-  and rejecting conflicts. `runClient`/`runServer` depend on it; `-PvanadiumRunDir=...` selects their shared directory.
-- `./gradlew runIntegration`: live Kotlin/Java tests plus startup/tick/save/shutdown in a fresh
-  `.vanadium/runs/` directory. Requires accepted `.vanadium/eula.txt`; never touches personal `run/`.
-  Scenarios sprint within a shared 500-tick budget (`-Plive.ticks=N`); async readiness waits are paced.
-  Use `-Plive.sprint=false` for normal pacing. Includes real server players with mocked transport.
-  Live runs require configuration caching off (the repository default); use `--no-configuration-cache` if overriding it.
-- `./gradlew runFeatureBench`: paired on/off fixture benchmarks in a fresh server JVM;
-  `-Pbench.filter=...`, `-Pbench.rounds=...`, `-Pbench.scale=...` configure cases; the task verifies the samples
-  and recordings it expects. Fixture `-P` values (`buildSrc` `LiveLaunch`) are parsed only by their own run.
-- `./gradlew runIntegration -Plive.jfr=true`: include a JFR capture with 100µs monitor thresholds.
-- `./gradlew runMixedBench -Pmixed.mode=enabled|serial`: manual realistic whole-server benchmark (players,
-  mobs, natural spawning, furnaces/hoppers/redstone) in fixed-tick windows; one mode per fresh run.
-  `mixed.*` properties and outputs are in `docs/PROFILING.md`. Never run two live servers at once.
-- `./gradlew runColdExplosion -Pcold.arm=sham|warmup|load`: manual first-explosion (cold first use) fixture:
-  creeper blasts on a fixed schedule in a fresh JVM, one arm per run; see `docs/PROFILING.md`.
-- `nix flake check`: checks Nix development files; does **not** build Minecraft.
+  The first build needs network access for Gradle, Minecraft, and Maven artifacts.
+- Every task, what it checks and its `-P` properties are in [DEVELOPMENT.md](docs/DEVELOPMENT.md#tasks)
+  (live fixtures' properties and outputs in [PROFILING.md](docs/PROFILING.md)). The ones you need most:
+  - `./gradlew build`: compile, access widener, unit tests, `checkModDependencies` (a pin change in
+    `gradle.properties` updates the `fabric.mod.json` minimum in the same commit), jars.
+  - `./gradlew test --tests '<package>.*' --rerun-tasks`: focused tests; `--rerun-tasks` really reruns
+    them when checking concurrency behaviour.
+  - `./gradlew -p buildSrc check`: build-logic tests, when `buildSrc/` changes.
+  - `./gradlew runIntegration` (`-Plive.jfr=true` adds a JFR capture with 100µs monitor thresholds):
+    the live suite in a fresh `.vanadium/runs/` directory.
+  - `./gradlew genSources`: Minecraft sources for reviewing injection targets.
+- Live runs (`runIntegration`, `runFeatureBench`, `runMixedBench`, `runColdExplosion`) need an accepted
+  `.vanadium/eula.txt`, never touch personal `run/`, and require configuration caching off (the
+  repository default; `--no-configuration-cache` if overriding it). Never run two live servers at once.
+- Benchmarks (`bench*`, `runFeatureBench`, `runMixedBench`, `runColdExplosion`) are opt-in performance
+  investigations, never part of routine validation. Routine correctness validation is
+  `./gradlew build runIntegration`.
+- `nix flake check` checks Nix development files; it does **not** build Minecraft.
 
 MixinTargetsTest checks vanilla member bindings without initializing Minecraft; live tests
 are still required to validate injection points and callback signatures.
-Routine correctness validation is `./gradlew build runIntegration`. Benchmarks are separate,
-opt-in performance investigations, not part of every test run.
-
-The first Gradle build needs network access for Gradle, Minecraft, and Maven artifacts.
 C2ME stays a release jar in the run directory's `mods/`; its nested mods are intentionally
 not flattened into Gradle's development classpath. Fabric API and Cloth Config are Gradle-managed.
 
 ## Source map
 
 Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/` (logic) or
-`src/main/java/` (mixins and the bootstrap-time classes listed below).
+`src/main/java/` (mixins, duck interfaces and the bootstrap-time classes listed below).
+[ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how the parts work; the rules below are the invariants.
 
 - **Kotlin vs. Java:** Mixin classes must be Java. So are the duck interfaces they implement
   (`vanadium$`-prefixed methods: `NavigationAccess`, `NavigationState`, `InteractionAccess`,
   `PoiDistanceAccess`, `PoiTicketAccess`, `PoiSectionAccess`, `SectionStorageAccess`, `EntityTickAccess`, `ChunkTickAccess`, `ScheduledTickAccess`, `CrowdAccess`, `CrowdSlotAccess`,
   `CrowdedSectionsAccess`) and code that runs during Mixin
   bootstrap (`mixin/SynchronisePlugin.java`, `compat/C2ME.java`, `compat/Lithium.java`). Everything else is Kotlin.
-  Kotlin APIs called from mixins use `@JvmField`/`@JvmStatic` (`Vanadium.config`, `Vanadium.scheduler`);
-  call `vanadium$` methods from Kotlin with backticks. Keep collection adapters on fastutil's
-  `Abstract*` bases and override every method that would read unused superclass storage.
+  Kotlin APIs called from mixins are static on the JVM: `@JvmField`/`@JvmStatic`, or a `lateinit`
+  property of an `object` (`Vanadium.config`, `Vanadium.scheduler`); call `vanadium$` methods from
+  Kotlin with backticks.
+- **Collection adapters:** an adapter for a field typed by a fastutil interface extends fastutil's
+  `Abstract*` base. A field typed by a concrete fastutil class needs a subclass of that class
+  (`ConcurrentLongSet` for vanilla's `LongLinkedOpenHashSet` fields, `ConcurrentLongObjectOpenHashMap`
+  for Lithium's `Long2ObjectOpenHashMap` POI column index, `SynchronizedLong2ReferenceOpenHashMap` for
+  Lithium's per-world callback map): override every method that would read the unused superclass
+  storage, or, where the superclass storage is kept, guard every access to it.
 - `Vanadium.kt`: config, server lifecycle ownership of the shared scheduler/pool, command registration.
 - `tick/`: adaptive region planning (`RegionGrid`), claim and dataflow waves, batched stage collection,
   stage scheduler, caller-participating spin-then-park worker pool.
 - `entity/`: lock-free entity section index; `CrowdedSection` cell grids prefilter box queries in crowded
   sections (every write to an entity's box or section must keep them in step: see its invariant).
-- `chunk/`: chunk manager/cache and per-position loading locks.
-- `collections/`: fastutil-compatible adapters over JDK/JCTools collections.
-- `concurrent/`: entity ownership for the flat entity wave (`Interactions`, `OwnerLocks`), striped
-  locks and per-thread random sources.
+- `chunk/`: chunk cache (`ParallelChunkCache`), server-thread load routing and per-position loading
+  locks, block-entity neighbourhoods, chunk packet preparation.
+- `collections/`: fastutil-compatible adapters over JDK/JCTools collections, including the concrete
+  subtypes above and `PackedPositionKeys` (hash encoding for packed-position keys).
+- `concurrent/`: entity ownership for the flat entity wave (`Interactions`, `OwnerLocks`, `DeferredQueue`
+  inboxes, `StableDistance`), POI claims (`PoiClaims`), striped locks and per-thread random sources.
 - `tracking/`: area maps and nearby-player indexing for entity tracking.
 - `navigation/`: navigation invalidation index, path-type cache, and Java navigation duck interfaces.
 - `spawning/`: spawn counting, lazy count state, and deferrable per-chunk spawning tasks.
@@ -83,10 +77,14 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - Remaining `mixin/` packages: synchronization and concurrent collection replacements.
 - `mixin/SynchronisePlugin.java`: ASM synchronization applied to `SyncAllMixin` targets.
 - `compat/C2ME.java`: MixinSquared cancellation of two C2ME thread-detection mixins.
-- `compat/LithiumCompat.kt`, `compat/Lithium.java` (MixinSquared canceller), `mixin/compat/lithium/`:
-  Lithium support (required, compiled against the pinned jar); `lithium:options` in `fabric.mod.json`
-  disables the Lithium options whose job Vanadium does itself.
-- `config/`, `commands/`: TOML config, live options, and Brigadier command registration.
+- `compat/LithiumCompat.kt` (POI section-storage and column-index replacement), `compat/Lithium.java`
+  (MixinSquared canceller), `mixin/compat/lithium/`: Lithium support (required, compiled against the
+  pinned jar); `lithium:options` in `fabric.mod.json` disables the Lithium options whose job Vanadium
+  does itself.
+- `mixin/compat/c2me/`: C2ME POI-unload veto.
+- `config/`, `commands/`: TOML config (and its retired-key warnings), live options, validated
+  `-Dvanadium.*` properties (`DeveloperProperties`), and Brigadier command registration. Every option,
+  property and command is documented once in [CONFIGURATION.md](docs/CONFIGURATION.md).
 - `src/main/resources/vanadium.mixins.json`: required mixin registration.
 - `src/main/resources/vanadium.accesswidener`: access required by mixins.
 - `src/test/kotlin/`: JUnit 5 unit tests (`kotlin.test`), benchmarks, and the live test mods
