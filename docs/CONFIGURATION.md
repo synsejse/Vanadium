@@ -135,12 +135,11 @@ setting, and logs a warning naming it as removed and ignored.
 | `/vanadium` or `/vanadium status` | everyone | Version, enabled state, workers (with restart-pending detection), isolation, all stage flags |
 | `/vanadium set <option> <value>` | op (2) | Change a boolean (`on`/`off` or `true`/`false`), integer or `idleWorkers` option live (not `workers`); not saved, `/vanadium reload` restores the file |
 | `/vanadium reload` | op (2) | Re-read `vanadium.toml` and apply live |
-| `/vanadium benchmark [seconds]` | op (2) | Unlock TPS (via vanilla tick-sprint; default 30s, range 5–300s) and report ticks run, average and peak TPS |
-| `/vanadium profile [seconds]` | op (2) | Capture tick/stage timings at the current tick rate; default 30s, range 1–300s |
+| `/vanadium benchmark [seconds]` | op (2) | Unlock TPS (via vanilla tick-sprint; default 30s, range 5–300s), then summarize ticks run, average TPS and best window and save the result |
+| `/vanadium profile [seconds]` | op (2) | Capture tick/stage timings at the current tick rate (default 30s, range 1–300s), then summarize them and save the result |
 | `/vanadium profile stop` | op (2) | Finish the current capture early |
-| `/vanadium profile report` | op (2) | Show the last completed capture for this server |
-| `/vanadium profile report stages\|worlds\|details` | op (2) | Open one part of the last profile; also available by clicking its buttons |
-| `/vanadium benchmark report [details]` | op (2) | Show the last benchmark summary or its details |
+| `/vanadium profile report` | op (2) | Repeat the last profile's summary and result path for this server |
+| `/vanadium benchmark report` | op (2) | Repeat the last benchmark's summary and result path for this server |
 
 `/vanadium set` is meant for A/B runs in one JVM: for example `/vanadium set parallelTracking off`,
 `/vanadium benchmark`, then `/vanadium reload`. Keep configuration and workload fixed when comparing
@@ -148,25 +147,26 @@ captures.
 
 ### Reports
 
-Reports are compact by default. Profile summaries show average/p95 tick work and the three
-most expensive queued stages, measured in **ms per server tick** across all dimensions.
-Hover a timing for percentiles, task/region counts, utilization and measurement definitions.
-Click **Stages**, **Worlds** or **Details** to print just that view; **Summary** returns to
-the short view. World rows have their phase breakdowns on hover. Click **JSON path** to
-copy the server-relative result-file path. Each capture replaces the previous report of
-its kind; buttons show that server's latest capture. Reports reset when the server stops.
-Console/RCON users can type the report subcommands directly; hover and click actions require an
-in-game chat client.
+A finished capture sends a short summary to whoever started it, and logs it:
 
-Green/gold/red tick timings indicate proximity to the 50ms budget at 20 TPS, not a
-comparison with another capture. Benchmark TPS is uncapped processing capacity;
-its elapsed time per tick is not profiled MSPT. The best-window count is approximately
-one second and is not normalized TPS.
+- a profile: ticks captured, average and p95 tick work, and the three slowest queued stages in
+  **ms per server tick** across all dimensions;
+- a benchmark: average TPS, ticks run and the best window, a count of ticks in about one second
+  (not normalized TPS). Benchmark TPS is uncapped processing capacity, not the gameplay tick rate.
 
-Profiles report average/p50/p95/p99 tick work and queued stage execution, caller tail-wait
-time, region/task counts, and average/maximum tasks per region. They split tick work into stage
+Its last line is the result file's server-relative path; in game, click it to copy. Everything
+else is in that file. `/vanadium profile report` and `/vanadium benchmark report` repeat the
+latest summary of their kind; each capture replaces the previous one, and both reset when the
+server stops.
+
+Every result is published as JSON: one `VANADIUM_RESULT {...}` log line, for scripts that read the
+console, and a file under `vanadium/results/` in the server directory. Each result records the
+active configuration, worker count, isolation, CPU count, heap and mod versions it was measured with.
+
+A profile result holds average/p50/p95/p99 tick work and queued stage execution, caller tail-wait
+time, region/task counts, and average/maximum tasks per region. It splits tick work into stage
 waves, preparation waves and the serial remainder, which bounds what more workers can gain,
-and give each stage's participant utilization (region time over wave time × participants). Stage
+and gives each stage's participant utilization (region time over wave time × participants). Stage
 measurements exclude collection and serial fallbacks; whole-tick measurements include them but
 exclude idle time between ticks. Per-world entries also report preparation (collection plus inline
 fallbacks), stage execution, and whole-world time. Region execution percentiles expose uneven work
@@ -175,10 +175,6 @@ World totals include stage work, so these overlapping measurements must not be a
 Region durations include any lock waits, and caller tail wait is not a measure of lock contention;
 use JFR ([profiling](PROFILING.md#flight-recorder)) to distinguish waiting from CPU work. Profiling
 adds measurement overhead and does not unlock TPS.
-
-Benchmarks and profiles are also published as JSON: one `VANADIUM_RESULT {...}` log line and a
-file under `vanadium/results/` in the server directory. Each result records the active
-configuration, worker count, isolation, CPU count, heap and mod versions it was measured with.
 
 ### Stall diagnostics
 
@@ -194,3 +190,24 @@ tasks show their runnable class. It adds wrappers and per-task progress updates.
 mode tracks progress once per region; disabled mode starts no watchdog thread. Diagnostics
 never cancel, retry, or interrupt tick work. Set `slowWaveMillis = 0` and reload after
 investigating; inline serial fallbacks outside scheduler waves are not monitored.
+
+### Watchdog crash reports
+
+When vanilla's watchdog (`max-tick-time` in `server.properties`) gives up on a hung tick, the crash
+report it writes under `crash-reports/` has a `-- Vanadium --` section after vanilla's thread dump,
+which stops at eight frames per thread:
+
+- **Scheduler**: workers and isolation.
+- **Wave**: with `slowWaveMillis` above 0, the watched wave's stage, dimension, isolation, elapsed time
+  and active participants. Otherwise the dimension being ticked, and `stage=ENTITY` during an entity
+  wave; region stages are then not named.
+- **Latest parallel wave**: tasks finished, unclaimed and participants of the last wave handed to the
+  workers. Waves that run inline on the server thread are not counted, so a finished wave here means
+  the hang is elsewhere. A participant counts its tasks as finished only when it runs out of work, and
+  a region wave's tasks are its participants' loops over regions.
+- **Busy workers**: each worker running anything outside the pool, with its thread state, its region and
+  (with `detailedTickDiagnostics`) task when the wave is watched, and 32 stack frames.
+- **Idle workers**: those spinning, parked or claiming in the pool.
+
+The section is built only when the watchdog fires, from state the tick keeps anyway; it costs
+nothing before then. C2ME adds its own thread-state section to the same report.
