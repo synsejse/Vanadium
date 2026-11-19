@@ -319,3 +319,34 @@ class TickScheduler internal constructor(
         const val SPAWN_PARTICIPANTS_PROPERTY = "vanadium.spawnParticipants"
     }
 }
+
+/** The sequential parts of a world tick, in vanilla order. */
+enum class Stage {
+    SCHEDULED_TICK,
+    SPAWNING,
+    CHUNK,
+    TRACKING,
+    ENTITY,
+    BLOCK_ENTITY,
+}
+
+/** Independent jobs run through [TickScheduler.prepare], named for profiles and JFR events. */
+enum class PreparationKind {
+    /** Entity stage collection: chunk keys and tasks for large entity lists. */
+    ENTITY_BATCH,
+
+    /** Random-tick collection: ticking chunk keys and tasks. */
+    CHUNK_BATCH,
+
+    /** Natural spawn counts over entity slices. */
+    SPAWN_COUNTS,
+
+    /** Tracker movement scans before the area map is updated. */
+    TRACKING_MOVES,
+
+    /** Per-player tracking visibility diffs. */
+    TRACKING_DIFFS,
+
+    /** Chunk section serialization for a player's chunk batch. */
+    CHUNK_PACKETS,
+}
