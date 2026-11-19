@@ -44,6 +44,7 @@ public abstract class ConnectionMixin {
     @Unique
     private volatile boolean vanadium$closing = false;
 
+    /** A redirect allocates nothing; a WrapOperation here would build a varargs array per call when not consolidating. */
     @Redirect(method = "tick", at = @At(value = "INVOKE",
             target = "Lio/netty/channel/Channel;flush()Lio/netty/channel/Channel;", remap = false))
     private Channel vanadium$skipMidTickFlush(Channel instance) {
