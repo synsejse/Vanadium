@@ -85,5 +85,5 @@
   "injectors": {
     "defaultRequire": 1
   },
-  "plugin": "com.synsenetwork.vanadium.mixin.SynchronisePlugin"
+  "plugin": "com.synsenetwork.vanadium.mixin.VanadiumMixinPlugin"
 }

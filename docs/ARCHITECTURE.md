@@ -359,7 +359,7 @@ bits and the type), so lookups take no lock and stores allocate nothing.
   from asynchronous disk writes. Never hold that monitor across `saveAndJoin` or close waits.
 - Immutable path-type entries prevent torn key/type reads. POI and simulation levels use
   the byte-map adapter. Per-thread random streams avoid a shared world-random monitor, and
-  `Level.randValue`, the random-tick position LCG, is per-thread: `SynchronisePlugin` rewrites
+  `Level.randValue`, the random-tick position LCG, is per-thread: `VanadiumMixinPlugin` rewrites
   every access in `Level` and `ServerLevel` after all mixins, covering Lithium's shortcuts too.
 
 Isolation does not protect arbitrary cross-region interactions. Shared world monitors and
@@ -380,7 +380,7 @@ change re-evaluates its section's village-centre level in the distance graph
 2. A section's monitor (`SyncAllMixin`): its record map and structural changes (`add`, `remove`,
    `release`, `refresh`), point reads and Lithium's merged queries, which run status tests and
    callers' position predicates inside it. `getRecords` only builds a lazy stream over the
-   concurrent per-type sets, so it is left unsynchronized (`SynchronisePlugin`).
+   concurrent per-type sets, so it is left unsynchronized (`VanadiumMixinPlugin`).
 3. The graph's monitor (`DynamicGraphMinFixedPoint` methods, synchronized): terminal. Inside it only
    the graph's own state, the concurrent section map (`get`, which never loads), the concurrent
    per-type sets and ticket counts are read. It never waits for another monitor, for disk IO or for a
@@ -410,7 +410,7 @@ the terminal graph). Removal, refresh and `pack` are synchronized section method
 before or after a claim; no caller predicate and no load runs under that monitor. `take` (breeding beds, and
 job sites when Lithium's `ai.poi.tasks` is off) skips a candidate that fails the commit and searches on, as if
 that change had come first (`PoiManagerMixin`); Lithium's exact-position `takeAt` returns empty
-(`PoiTakeAtMixin`, one optional hook that `SynchronisePlugin` requires wherever `takeAt` exists). `AcquirePoi`
+(`PoiTakeAtMixin`, one optional hook that `VanadiumMixinPlugin` requires wherever `takeAt` exists). `AcquirePoi`
 stores the job-site memory, sends its event, clears its retry cache and updates debug info only after a claim of
 its target (`AcquirePoiMixin`); a lost claim changes nothing, and the next scheduled attempt searches again.
 Each ticket therefore goes to one claimant, on the record that is saved, and only a claimant that took one
@@ -429,7 +429,7 @@ is in the flushed data and reloads with the column. On the server thread itself,
 unload pumped by its own search fails the commit. A vetoed column stays loaded, as in vanilla, until C2ME asks
 again on a later downgrade of that chunk; the request is not queued or replayed, since nothing records whether the
 chunk was loaded again in between. The hook is optional (absent without C2ME's chunk-system rewrite) and
-`SynchronisePlugin` requires it wherever the method exists.
+`VanadiumMixinPlugin` requires it wherever the method exists.
 
 Saving reads ticket counts after the dirty mark: a ticket changes before its column is marked dirty
 (concurrent set), and a write removes the mark before packing, so it either includes the change or the

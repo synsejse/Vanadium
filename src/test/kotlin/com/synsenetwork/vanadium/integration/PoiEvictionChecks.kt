@@ -140,7 +140,7 @@ internal object PoiEvictionChecks {
 
             /**
              * Fails, rather than skipping, when the run lacks what default pinned runs have: C2ME's merged methods,
-             * POI unloading on, and Vanadium's veto merged (SynchronisePlugin fails the transformation when the method
+             * POI unloading on, and Vanadium's veto merged (VanadiumMixinPlugin fails the transformation when the method
              * exists without a call to it, so present here means bound).
              */
             fun require(poi: PoiManager): C2meUnload {

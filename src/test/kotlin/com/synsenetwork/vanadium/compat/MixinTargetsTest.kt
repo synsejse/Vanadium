@@ -75,7 +75,7 @@ class MixinTargetsTest {
     /**
      * Methods the pinned C2ME release merges, by target internal name, as read from its nested
      * `c2me-fabric-rewrites-chunk-system` jar (`MixinPointOfInterestStorage`). Hooks into them are optional and
-     * `SynchronisePlugin` fails the transformation if one exists but its hook did not bind; live POI checks call them.
+     * `VanadiumMixinPlugin` fails the transformation if one exists but its hook did not bind; live POI checks call them.
      */
     private val c2meMerged: Map<String, List<Pair<String, String>>> = mapOf(
         "net/minecraft/world/entity/ai/village/poi/PoiManager" to listOf("c2me\$shouldUnloadPoi" to "(Lnet/minecraft/world/level/ChunkPos;)Z"))
