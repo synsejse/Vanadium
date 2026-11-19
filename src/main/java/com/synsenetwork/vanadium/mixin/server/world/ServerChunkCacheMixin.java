@@ -152,12 +152,6 @@ public abstract class ServerChunkCacheMixin implements ChunkTickAccess {
         return Thread.currentThread();
     }
 
-    @Redirect(method = "getChunk(IILnet/minecraft/world/level/chunk/status/ChunkStatus;Z)Lnet/minecraft/world/level/chunk/ChunkAccess;", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/profiling/ProfilerFiller;incrementCounter(Ljava/lang/String;)V"))
-    private void overwriteProfilerVisit(ProfilerFiller instance, String s) {
-        if (Vanadium.config.parallelChunkLoads) return;
-        instance.incrementCounter("getChunkCacheMiss");
-    }
-
     @WrapMethod(method = "storeInCache")
     private synchronized void syncPutInCache(long pos, ChunkAccess chunk, ChunkStatus status, Operation<Void> original) {
         original.call(pos, chunk, status);

@@ -48,7 +48,7 @@ class ChunkLoadRouterTest {
             chunk
         }
 
-        val router = ChunkLoadRouter(ChunkLockTable(), Any()) { Thread.currentThread() === server }
+        val router = ChunkLoadRouter(ChunkLockTable()) { Thread.currentThread() === server }
 
         /** Whether the worker's lookup is in flight: queued for the caller, or (before the fix) loading itself. */
         fun workerAsked(): Boolean = WorkerPool.callerHasRequests() || loadingOffServer.count == 0L
@@ -56,25 +56,23 @@ class ChunkLoadRouterTest {
 
     @Test
     fun workerAndServerThreadLoadTheSameChunkInOneWave() {
-        for (perChunk in listOf(true, false)) {
-            val system = ServerOnlyChunk()
-            val results = ConcurrentHashMap<String, Any>()
-            val start = CyclicBarrier(2)
-            // Two tasks on two threads: the worker asks first, then the server thread asks for the same chunk.
-            val task = Runnable {
-                start.await(STUCK_SECONDS, TimeUnit.SECONDS)
-                if (WorkerPool.isWorkerThread()) {
-                    results["worker"] = system.router.load(POS, perChunk, system.load)
-                } else {
-                    awaitTrue("the worker's lookup") { system.workerAsked() }
-                    results["server"] = system.router.load(POS, perChunk, system.load)
-                }
+        val system = ServerOnlyChunk()
+        val results = ConcurrentHashMap<String, Any>()
+        val start = CyclicBarrier(2)
+        // Two tasks on two threads: the worker asks first, then the server thread asks for the same chunk.
+        val task = Runnable {
+            start.await(STUCK_SECONDS, TimeUnit.SECONDS)
+            if (WorkerPool.isWorkerThread()) {
+                results["worker"] = system.router.load(POS, system.load)
+            } else {
+                awaitTrue("the worker's lookup") { system.workerAsked() }
+                results["server"] = system.router.load(POS, system.load)
             }
-            runOnServerThread(system) { pool -> pool.runWave(listOf(task, task)) }
-            assertSame(system.chunk, results["worker"], "perChunk=$perChunk")
-            assertSame(system.chunk, results["server"], "perChunk=$perChunk")
-            assertTrue(system.loads.all { it === system.server }, "a load ran off the server thread: ${system.loads}")
         }
+        runOnServerThread(system) { pool -> pool.runWave(listOf(task, task)) }
+        assertSame(system.chunk, results["worker"])
+        assertSame(system.chunk, results["server"])
+        assertTrue(system.loads.all { it === system.server }, "a load ran off the server thread: ${system.loads}")
     }
 
     @Test
@@ -85,7 +83,7 @@ class ChunkLoadRouterTest {
         val task = Runnable {
             start.await(STUCK_SECONDS, TimeUnit.SECONDS)
             // The caller's own task ends at once: nothing it does would load for the worker.
-            if (WorkerPool.isWorkerThread()) result.set(system.router.load(POS, true, system.load) === system.chunk)
+            if (WorkerPool.isWorkerThread()) result.set(system.router.load(POS, system.load) === system.chunk)
         }
         runOnServerThread(system) { pool -> pool.runWave(listOf(task, task)) }
         assertTrue(result.get())
@@ -106,7 +104,7 @@ class ChunkLoadRouterTest {
             if (claims.getAndIncrement() < 2) start.await(STUCK_SECONDS, TimeUnit.SECONDS)
             if (WorkerPool.isWorkerThread()) {
                 if (workerAsked.compareAndSet(false, true)) {
-                    system.router.load(POS, true, system.load)
+                    system.router.load(POS, system.load)
                 } else {
                     // Leave the remaining tasks to the caller until it has run its second one.
                     callerSecond.await(STUCK_SECONDS, TimeUnit.SECONDS)

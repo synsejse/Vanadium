@@ -10,10 +10,10 @@ import kotlin.test.assertTrue
 class LiveOptionsTest {
     @Test
     fun offersBooleanAndIntegerOptionsExceptWorkers() {
-        for (name in listOf("enabled", "parallelTracking", "parallelChunkLoads", "isolation", "slowWaveMillis")) {
+        for (name in listOf("enabled", "parallelTracking", "isolation", "slowWaveMillis")) {
             assertTrue(name in LiveOptions.names, name)
         }
-        for (name in listOf("workers", "cellSize", "chunkCache", "serialEntityTypes", "serialBlockEntityTypes")) {
+        for (name in listOf("workers", "cellSize", "chunkCache", "parallelChunkLoads", "serialEntityTypes", "serialBlockEntityTypes")) {
             assertFalse(name in LiveOptions.names, name)
         }
         assertTrue(LiveOptions.isBoolean("parallelTracking"))
@@ -57,7 +57,7 @@ class LiveOptionsTest {
             listOf(
                 "enabled", "isolation", "parallelEntities", "skipFailedEntityTicks", "parallelBlockEntities",
                 "parallelChunkTicks", "parallelScheduledTicks", "parallelSpawning", "parallelTracking",
-                "parallelChunkPackets", "consolidateFlushes", "parallelChunkLoads", "crowdedSectionIndex",
+                "parallelChunkPackets", "consolidateFlushes", "crowdedSectionIndex",
                 "idleWorkers", "slowWaveMillis", "detailedTickDiagnostics",
             ),
             LiveOptions.names.toList(),

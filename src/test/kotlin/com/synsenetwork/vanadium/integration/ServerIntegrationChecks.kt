@@ -79,8 +79,7 @@ class ServerIntegrationChecks : ModInitializer {
             ticked.phase("PlayerChecks")
             PlayerChecks.schedule(level, ticked)
             ticked.phase("ReportChecks")
-            ticked.then("start command reports") { ReportChecks.start(server) }
-            ticked.then("command reports complete and retain their interactions") { ReportChecks.finish(server) }
+            ReportChecks.schedule(server, ticked)
             ticked.start { com.synsenetwork.vanadium.live.LiveServer.finish(server, "integration", settleTicks = 2) }
         }
     }

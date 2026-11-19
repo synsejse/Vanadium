@@ -11,8 +11,9 @@ import java.util.function.Supplier
  *
  * Only the server thread can finish such a lookup (with C2ME, new holders, ticket updates and FULL promotion
  * happen there), and only the server thread takes load locks:
- * - On the server thread, the load runs under the chunk's lock in [locks], or [monitor] with per-chunk locks
- *   off. No other thread holds either, so taking them never waits.
+ * - On the server thread, the load runs under the chunk's reentrant lock in [locks]. No other thread holds one,
+ *   so taking it never waits, and a load started inside another (a load callback asking for a neighbour, or for
+ *   the same chunk) takes its lock in place.
  * - On a wave helper, the load runs on the wave's caller, the server thread, through
  *   [WorkerPool.callOnWaveCaller]: the caller serves it between its own tasks or while it waits for the wave's
  *   tail. The helper holds no load lock while it waits.
@@ -20,25 +21,22 @@ import java.util.function.Supplier
  */
 internal class ChunkLoadRouter(
     private val locks: ChunkLockTable,
-    private val monitor: Any,
     private val isServerThread: BooleanSupplier,
 ) {
     /**
-     * Runs [work], a lookup of packed chunk [pos], where it can complete, per the class comment. [perChunk] selects per-chunk
-     * locks over [monitor]; [stalled] runs once on a helper whose request waits too long (see
-     * [WorkerPool.callOnWaveCaller]).
+     * Runs [work], a lookup of packed chunk [pos], where it can complete, per the class comment. [stalled] runs once
+     * on a helper whose request waits too long (see [WorkerPool.callOnWaveCaller]).
      */
-    fun <T> load(pos: Long, perChunk: Boolean, work: Supplier<T>, stalled: Runnable? = null): T {
-        if (isServerThread.asBoolean) return underLoadLock(pos, perChunk, work)
+    fun <T> load(pos: Long, work: Supplier<T>, stalled: Runnable? = null): T {
+        if (isServerThread.asBoolean) return underLoadLock(pos, work)
         if (WorkerPool.isWorkerThread()) {
             // The caller reruns this routing, so the work runs under its load lock if the caller is the server thread.
-            return WorkerPool.callOnWaveCaller({ load(pos, perChunk, work) }, stalled)
+            return WorkerPool.callOnWaveCaller({ load(pos, work) }, stalled)
         }
         return work.get()
     }
 
-    private fun <T> underLoadLock(pos: Long, perChunk: Boolean, work: Supplier<T>): T {
-        if (!perChunk) synchronized(monitor) { return work.get() }
+    private fun <T> underLoadLock(pos: Long, work: Supplier<T>): T {
         val held = locks.lock(pos)
         try {
             return work.get()

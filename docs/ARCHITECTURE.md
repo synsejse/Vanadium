@@ -286,9 +286,10 @@ bits and the type), so lookups take no lock and stores allocate nothing.
   publishes/removes entries; a private publication monitor protects identity-conditional
   removal so an old unload cannot remove a replacement. Reads stay outside that monitor.
 - Misses/status requests stay with vanilla/C2ME. On the server thread they run under per-position
-  reentrant load locks (or the cache monitor with parallel loading disabled); FULL publication is
-  rechecked after acquiring the load lock. Never publish null or non-FULL results. Minecraft's
-  own background workers bounce synchronous loading to the server thread.
+  reentrant load locks, so a load started inside another (a load callback asking for a neighbour)
+  takes its lock in place; FULL publication is rechecked after acquiring the load lock. Never
+  publish null or non-FULL results. Minecraft's own background workers bounce synchronous loading
+  to the server thread.
 - Only the server thread takes load locks (`ChunkLoadRouter`). Only it can finish a miss (C2ME
   adds new holders, ticket updates and FULL promotion there), so a lock held by any other thread
   would be held while waiting for the server thread, and the server thread asking for the same

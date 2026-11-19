@@ -179,7 +179,8 @@ class WorkerPool internal constructor(
      * Server thread, at the end of a tick: [nanosUntilNextTick] is how long the server will sleep before the
      * next one (zero or less when it is behind). With slack, idle workers park at once, except in
      * [IdleWorkers.HOT], where they spin until just after it is due. A tick that ran nothing in parallel (an idle
-     * or frozen server) keeps nobody spinning. Under pressure workers spin through the gap.
+     * or frozen server) keeps nobody spinning. Under pressure (sprinting, or the next tick due within the long
+     * spin) workers keep their long spin budget across the gap ([SpinPolicy.Gap.PRESSURE]).
      */
     fun tickEnded(nanosUntilNextTick: Long, sprinting: Boolean) {
         spin.tickEnded(nanosUntilNextTick, sprinting, HOT_GRACE_NANOS, ranParallel = tickPeakHelpers > 0)

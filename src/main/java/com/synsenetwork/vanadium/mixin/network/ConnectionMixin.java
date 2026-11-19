@@ -22,11 +22,12 @@ import org.spongepowered.asm.mixin.injection.Redirect;
  *
  * <p><b>Flush consolidation</b> — vanilla already marks play-phase sends made on the server
  * thread during the tick as no-flush and flushes each connection once per tick (the
- * disableFlush/enableFlush cycle in tickWorlds), but it still wakes the Netty event loop
- * once per packet and runs a redundant mid-tick flush per connection from
- * ClientConnection.tick(). No-flush sends are enqueued with lazyExecute (no selector
- * wakeup) and the tick() flush is dropped; the end-of-tick enableFlush wakes the loop once,
- * after all of the tick's write tasks, so the whole tick's packets go out in one flush.
+ * suspendFlushing/resumeFlushing cycle around MinecraftServer.tickChildren), but it still wakes
+ * the Netty event loop once per packet and runs a redundant mid-tick flush per connection from
+ * Connection.tick(), which tickChildren reaches through tickConnection. No-flush sends are
+ * enqueued with lazyExecute (no selector wakeup) and the tick() flush is dropped; the
+ * end-of-tick resumeFlushing (Connection.flushChannel) wakes the loop once, after all of the
+ * tick's write tasks, so the whole tick's packets go out in one flush.
  *
  * <p><b>Non-blocking disconnect</b> — vanilla's disconnect blocks the calling thread on
  * channel-close (awaitUninterruptibly) purely so isOpen() reads false afterwards. Under
@@ -43,6 +44,7 @@ public abstract class ConnectionMixin {
     @Unique
     private volatile boolean vanadium$closing = false;
 
+    /** A redirect allocates nothing; a WrapOperation here would build a varargs array per call when not consolidating. */
     @Redirect(method = "tick", at = @At(value = "INVOKE",
             target = "Lio/netty/channel/Channel;flush()Lio/netty/channel/Channel;", remap = false))
     private Channel vanadium$skipMidTickFlush(Channel instance) {

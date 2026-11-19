@@ -27,6 +27,9 @@ public abstract class ProfilerMixin {
     }
 
     /**
+     * An overwrite, not an early cancellable inject: that would allocate a {@code CallbackInfoReturnable} on every
+     * call, worker or not (checked in the transformed 26.3 class), and this runs several times per mob per tick.
+     *
      * @author Vanadium
      * @reason Same result without a thread-local lookup on worker threads.
      */
