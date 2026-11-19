@@ -36,6 +36,38 @@ internal object DeveloperProperties {
         return default
     }
 
+    /**
+     * [name] as a finite number that [valid] accepts, which [expected] describes for the warning; absent is [default],
+     * and anything else (malformed, NaN, infinite or rejected) warns and is [default] too.
+     */
+    fun double(
+        name: String,
+        default: Double,
+        expected: String,
+        text: String? = System.getProperty(name),
+        warn: (String) -> Unit = LOGGER::warn,
+        valid: (Double) -> Boolean,
+    ): Double {
+        if (text == null) return default
+        val value = text.trim().toDoubleOrNull()
+        if (value != null && value.isFinite() && valid(value)) return value
+        warn("Ignoring -D$name=$text: expected $expected; using the default $default")
+        return default
+    }
+
+    /** [name] as `true` or `false` (any case); absent is [default], and anything else warns and is [default] too. */
+    fun boolean(name: String, default: Boolean, text: String? = System.getProperty(name), warn: (String) -> Unit = LOGGER::warn): Boolean {
+        if (text == null) return default
+        return when (text.trim().lowercase()) {
+            "true" -> true
+            "false" -> false
+            else -> {
+                warn("Ignoring -D$name=$text: expected true or false; using the default $default")
+                default
+            }
+        }
+    }
+
     /** Warns once for each [RETIRED] property that is set: it was removed and is ignored. */
     fun warnRetired(value: (String) -> String? = System::getProperty, warn: (String) -> Unit = LOGGER::warn) {
         for ((name, instead) in RETIRED) {

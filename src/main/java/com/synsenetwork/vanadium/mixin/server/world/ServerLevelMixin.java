@@ -122,6 +122,7 @@ public abstract class ServerLevelMixin implements NavigationAccess, EntityTickAc
      * Runs vanilla's complete per-entity body (removal and frozen checks, despawn check, ticking-range
      * lookup, vehicle handling, tick) as persistent per-entity tasks in one flat wave. Serial-rule entities
      * run the body inline first, as before the wave. Changes to the tick list apply at the next dispatch.
+     * A frozen game (not stepping) runs the body serially, as vanilla: it ticks only players and their vehicles.
      */
     @Redirect(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/entity/EntityTickList;forEach(Ljava/util/function/Consumer;)V"))
     private void dispatchEntityTicks(EntityTickList list, Consumer<Entity> body) {
@@ -131,7 +132,7 @@ public abstract class ServerLevelMixin implements NavigationAccess, EntityTickAc
             list.forEach(body);
             return;
         }
-        ticks.dispatch(Vanadium.scheduler, body);
+        ticks.dispatch(Vanadium.scheduler, body, ((ServerLevel) (Object) this).tickRateManager().runsNormally());
     }
 
     @WrapMethod(method = "blockEvent")

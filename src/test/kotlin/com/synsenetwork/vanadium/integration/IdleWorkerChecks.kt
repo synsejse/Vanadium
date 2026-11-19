@@ -1,6 +1,8 @@
 package com.synsenetwork.vanadium.integration
 
 import com.synsenetwork.vanadium.Vanadium
+import com.synsenetwork.vanadium.live.TestPlayer
+import com.synsenetwork.vanadium.live.runCommand
 import com.synsenetwork.vanadium.tick.IdleWorkers
 import com.synsenetwork.vanadium.tick.ServerSpin
 import net.minecraft.core.BlockPos
@@ -9,13 +11,15 @@ import net.minecraft.world.entity.EntitySpawnReason
 import net.minecraft.world.entity.EntityTypes
 import net.minecraft.world.entity.Mob
 import net.minecraft.world.level.block.Blocks
+import net.minecraft.world.phys.Vec3
 
 /**
  * `idleWorkers` against the real server at 20 TPS: `/vanadium set` switches between all three modes, and from the
  * next tick the pool parks its workers between ticks (`lean`, `balanced`) or keeps them spinning (`hot`), and arms
- * the server thread's spin for the next tick (`balanced`, `hot`) or not (`lean`). A frozen server keeps ticking;
- * with serial entities and tracking it runs nothing in parallel, so even `hot` parks everything and leaves the
- * server thread unarmed. Worker threads are observed only by their state: spinning is runnable, parked is waiting.
+ * the server thread's spin for the next tick (`balanced`, `hot`) or not (`lean`). A frozen server keeps ticking, but
+ * as vanilla it ticks only players and the vehicles carrying them, serially: with tracking serial too it runs nothing
+ * in parallel, so even `hot` parks everything and leaves the server thread unarmed, until `/tick step` runs the entity
+ * wave again. Worker threads are observed only by their state: spinning is runnable, parked is waiting.
  */
 internal object IdleWorkerChecks {
     private const val CHUNK_X = 40
@@ -76,32 +80,59 @@ internal object IdleWorkerChecks {
                 }
             }
         }
-        val entities = Vanadium.config.parallelEntities
         val tracking = Vanadium.config.parallelTracking
+        var rider: TestPlayer? = null
+        // Ticks of the ridden pig and of every other pig since the game froze, and frozen ticks since then.
+        val frozenAt = HashMap<Mob, Int>()
         var frozenTicks = -1
+        fun pigTicks(mob: Mob) = mob.tickCount - frozenAt.getValue(mob)
+        checks.then("idle workers: a player rides one pig") {
+            val player = TestPlayer(level, "IdleRider", Vec3.atBottomCenterOf(center)).also { rider = it }.player
+            check(player.startRiding(mobs[0], true, false)) { "the player could not ride ${mobs[0]}" }
+        }
         checks.awaitAsync("idle workers: a frozen hot server keeps ticking", 100) {
-            // Frozen here, in a paced step: ending a sprint restores the frozen state it began with. Frozen entities
-            // are still dispatched (each only checks it is frozen) and tracking still runs, so with many entities a
-            // frozen tick may run parallel waves and keep hot workers spinning.
+            // Frozen here, in a paced step: ending a sprint restores the frozen state it began with. The game stops
+            // running normally from the next tick.
             if (frozenTicks < 0) server.tickRateManager().setFrozen(true)
             check(server.tickRateManager().isFrozen) { "the server unfroze" }
-            ++frozenTicks >= 3
+            if (++frozenTicks == 1) mobs.forEach { frozenAt[it] = it.tickCount }
+            frozenTicks >= 3
         }
-        checks.awaitAsync("idle workers: a frozen hot server without parallel work keeps nobody spinning", 100) {
+        var parkedTicks = 0
+        checks.awaitAsync("idle workers: a frozen hot server ticks only the ridden pig, and nothing in parallel", 100) {
             check(server.tickRateManager().isFrozen) { "the server unfroze" }
-            if (Vanadium.config.parallelEntities || Vanadium.config.parallelTracking) {
-                Vanadium.config.parallelEntities = false
+            frozenTicks++
+            // Frozen pigs never tick; the one carrying a player does, every tick, as in vanilla.
+            check(mobs.drop(1).all { pigTicks(it) == 0 }) { "a frozen pig ticked" }
+            check(pigTicks(mobs[0]) == frozenTicks - 1) { "the ridden pig ticked ${pigTicks(mobs[0])} of ${frozenTicks - 1} frozen ticks" }
+            // Entities no longer wake workers while frozen; tracking (vanilla's work too) is made serial so nothing else does.
+            if (Vanadium.config.parallelTracking) {
                 Vanadium.config.parallelTracking = false
-                frozenTicks = 0
                 return@awaitAsync false
             }
+            check(Vanadium.config.parallelEntities) { "the entity wave must stay enabled for this check" }
             // Three ticks in a row with nothing armed and every worker parked.
-            if (ServerSpin.armedWindowNanos == 0L && allParkWithin(workers)) ++frozenTicks >= 3 else { frozenTicks = 0; false }
+            if (ServerSpin.armedWindowNanos == 0L && allParkWithin(workers)) ++parkedTicks >= 3 else { parkedTicks = 0; false }
+        }
+        var steppedParallel = false
+        // Paced like the frozen steps: an unpaced step sprints, which unfreezes the game until the sprint ends.
+        checks.awaitAsync("idle workers: step two ticks", 1) {
+            check(server.runCommand("tick step 2") == 1) { "/tick step 2 failed" }
+            mobs.forEach { frozenAt[it] = it.tickCount }
+            true
+        }
+        checks.awaitAsync("idle workers: stepped ticks run the entity wave on hot workers", 20) {
+            // A stepped tick runs normally: every pig ticks, and the wave makes it a parallel one.
+            if (ServerSpin.armedWindowNanos == Long.MAX_VALUE) steppedParallel = true
+            if (server.tickRateManager().isSteppingForward || mobs.any { pigTicks(it) < 2 }) return@awaitAsync false
+            check(mobs.all { pigTicks(it) == 2 }) { "pigs ticked ${mobs.map(::pigTicks).toSet()} times over two stepped ticks" }
+            check(steppedParallel) { "no stepped tick ran in parallel" }
+            true
         }
         checks.then("idle workers: unfreeze and restore") {
             server.tickRateManager().setFrozen(false)
-            Vanadium.config.parallelEntities = entities
             Vanadium.config.parallelTracking = tracking
+            rider?.close()
             mobs.forEach { it.discard() }
             mobs.clear()
             set(IdleWorkers.parse(original)!!)

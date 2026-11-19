@@ -74,8 +74,9 @@ host's power states, so check your own machine with `/vanadium profile` at 20 TP
   `lean` otherwise.
 
 After a tick without parallel work (an empty world) nothing spins in any mode, and a server paused
-when empty (`pause-when-empty-seconds`) never spins. A `/tick freeze` world still tracks its
-entities and checks each one in parallel waves, so with many entities `hot` keeps spinning.
+when empty (`pause-when-empty-seconds`) never spins. A `/tick freeze` world ticks only players and
+their vehicles, serially as vanilla does, so it spins only while tracking (which still runs) has
+parallel work.
 
 `/vanadium set idleWorkers hot` switches live for a comparison; `/vanadium reload` restores the
 file's value. The option is the only control: the former JVM overrides `-Dvanadium.idleWorkers`,

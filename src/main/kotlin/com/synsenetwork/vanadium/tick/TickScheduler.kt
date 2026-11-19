@@ -1,6 +1,7 @@
 package com.synsenetwork.vanadium.tick
 
 import com.synsenetwork.vanadium.concurrent.Interactions
+import com.synsenetwork.vanadium.config.DeveloperProperties
 import com.synsenetwork.vanadium.diagnostics.PreparationEvent
 import com.synsenetwork.vanadium.diagnostics.TickProfile
 import com.synsenetwork.vanadium.diagnostics.WaveDiagnostics
@@ -277,18 +278,23 @@ class TickScheduler internal constructor(
         private const val CLAIM_MIN_REGION_NANOS = 100_000.0
 
         /**
-         * Default cost of involving one more thread in a wave, in nanoseconds (`vanadium.participantCostNanos`).
-         * See [participants] and the wake-latency cases of WorkerPoolBench.
+         * Default cost of involving one more thread in a wave, in nanoseconds (`vanadium.participantCostNanos`, 0 to
+         * 1,000,000; 0 always uses every worker). See [participants] and the wake-latency cases of WorkerPoolBench.
          */
-        private val PARTICIPANT_COST_NANOS = java.lang.Long.getLong("vanadium.participantCostNanos", 2_000).toDouble()
+        private val PARTICIPANT_COST_NANOS =
+            DeveloperProperties.long("vanadium.participantCostNanos", 2_000, 0L..1_000_000L).toDouble()
 
         private const val COST_SMOOTHING = 0.2
 
         /**
          * Default [flatParticipants] share (`vanadium.criticalPathShare`): the other threads finish within this share
          * of the longest task's expected time, leaving room for its late start and for estimates that run short.
+         * Valid values are above 0 and at most 1 (beyond 1 the bound would knowingly lengthen the wave past its longest
+         * task), or exactly 0, which turns the bound off: the measured "cap disabled" comparison.
          */
-        private val CRITICAL_PATH_SHARE = (System.getProperty("vanadium.criticalPathShare") ?: "0.8").toDouble()
+        private val CRITICAL_PATH_SHARE = DeveloperProperties.double(
+            "vanadium.criticalPathShare", 0.8, "0 (no bound) or a number above 0 and at most 1",
+        ) { it >= 0.0 && it <= 1.0 }
 
         /** JVM property for [spawnParticipants]; read at server start ([spawnParticipantsProperty]). */
         const val SPAWN_PARTICIPANTS_PROPERTY = "vanadium.spawnParticipants"

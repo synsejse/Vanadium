@@ -19,73 +19,91 @@ internal class PerformanceReport(
     private val tickCount get() = profile.getAsJsonObject("ticks").number("count").coerceAtLeast(1.0)
     private val prefix get() = "/vanadium $kind report"
 
+    /** The chat view of [section], one of [sections] for this report's kind; anything else shows the details. */
     fun view(section: String = "summary"): Component {
         val out = Component.empty().append(text("Vanadium $kind", ChatFormatting.AQUA))
             .append(text(" · ${format(result.number("seconds"), 1)}s", ChatFormatting.GRAY))
         when {
-            section == "summary" && kind == "profile" -> {
-                val ticks = profile.getAsJsonObject("ticks")
-                if (ticks.number("count") == 0.0) out.append("\nNo ticks captured.")
-                else out.append("\nTick ").append(metric(ticks.number("avgMs"), "avg", sampleDetails(ticks)))
-                        .append(text(" · ", ChatFormatting.DARK_GRAY))
-                        .append(metric(ticks.number("p95Ms"), "p95", "95% of measured ticks were at or below this duration.\n${sampleDetails(ticks)}"))
-                val stages = stages().take(3)
-                if (stages.isNotEmpty()) {
-                    out.append("\n")
-                    for ((index, entry) in stages.withIndex()) {
-                        if (index > 0) out.append(text(" · ", ChatFormatting.DARK_GRAY))
-                        out.append(stage(entry.key, entry.value.asJsonObject))
-                    }
-                }
-            }
-            section == "summary" -> out.append("\n")
-                .append(hover(text("${format(result.number("avgTps"), 1)} TPS", when {
-                    result.number("avgTps") >= 25 -> ChatFormatting.GREEN
-                    result.number("avgTps") >= 20 -> ChatFormatting.GOLD
-                    else -> ChatFormatting.RED
-                }),
-                    "Uncapped processing capacity, not the gameplay tick rate.\n${benchmarkDetails()}"))
-                .append(text(" average · ${result.number("ticks").toLong()} ticks", ChatFormatting.GRAY))
-            section == "stages" -> {
-                out.append(text("\nAverage ms per server tick · all dimensions", ChatFormatting.GRAY))
-                val stages = stages()
-                for (entry in stages) out.append("\n").append(stage(entry.key, entry.value.asJsonObject))
-                if (stages.isEmpty()) out.append("\nNo queued stage work.")
-            }
-            section == "worlds" -> {
-                out.append(text("\nAverage world time per server tick", ChatFormatting.GRAY))
-                val phases = profile.getAsJsonObject("phases")
-                val worlds = phases.entrySet().filter { it.key.endsWith(" / world total") }
-                    .sortedByDescending { it.value.asJsonObject.number("totalMs") }
-                for ((name, value) in worlds) {
-                    val world = name.removeSuffix(" / world total")
-                    val details = phases.entrySet().filter { it.key.startsWith("$world / ") && it.key != name }
-                        .sortedByDescending { it.value.asJsonObject.number("totalMs") }
-                        .joinToString("\n") { "${it.key.substringAfter(" / ")}: ${format(it.value.asJsonObject.number("totalMs") / tickCount)} ms/tick" }
-                    out.append("\n").append(hover(text("$world · ${format(value.asJsonObject.number("totalMs") / tickCount)} ms", ChatFormatting.WHITE),
-                        "$details\nWorld totals include stages; do not add overlapping rows."))
-                }
-                if (worlds.isEmpty()) out.append("\nNo world timings recorded.")
-            }
+            section == "summary" && kind == "profile" -> profileSummary(out)
+            section == "summary" -> benchmarkSummary(out)
+            section == "stages" -> stagesView(out)
+            section == "worlds" -> worldsView(out)
             kind == "benchmark" -> out.append("\n").append(benchmarkDetails())
-            else -> {
-                val split = profile.getAsJsonObject("split")
-                out.append(text("\n$configuration", ChatFormatting.GRAY))
-                out.append("\n").append(hover(text("Tick split", ChatFormatting.WHITE),
-                    "Stages include planning/dispatch/waits. Preparation is independent worker jobs.\nThe remainder includes collection and inline work; it is not CPU-only time."))
-                    .append(": stages ${format(split.number("stageWaves") * 100, 1)}% · preparation ${format(split.number("preparation") * 100, 1)}% · remainder ${format(split.number("serial") * 100, 1)}%")
-                for ((name, value) in profile.getAsJsonObject("preparations").entrySet()) {
-                    val jobs = value.asJsonObject
-                    val duration = jobs.getAsJsonObject("duration")
-                    out.append("\n").append(hover(text("$name · ${format(duration.number("totalMs") / tickCount)} ms/tick", ChatFormatting.WHITE),
-                        "${jobs.number("jobs").toLong()} jobs across ${duration.number("count").toLong()} calls.\n${sampleDetails(duration)}\nAlready included in tick time; do not add again."))
-                }
-                out.append(text("\nIdle time excluded; profiling adds overhead.", ChatFormatting.GRAY))
-            }
+            else -> profileDetails(out)
         }
         out.append("\n")
-        val sections = if (kind == "profile") listOf("summary", "stages", "worlds", "details") else listOf("summary", "details")
-        for (part in sections) {
+        navigation(out, section)
+        return out
+    }
+
+    private fun profileSummary(out: MutableComponent) {
+        val ticks = profile.getAsJsonObject("ticks")
+        if (ticks.number("count") == 0.0) out.append("\nNo ticks captured.")
+        else out.append("\nTick ").append(metric(ticks.number("avgMs"), "avg", sampleDetails(ticks)))
+                .append(text(" · ", ChatFormatting.DARK_GRAY))
+                .append(metric(ticks.number("p95Ms"), "p95", "95% of measured ticks were at or below this duration.\n${sampleDetails(ticks)}"))
+        val stages = stages().take(3)
+        if (stages.isNotEmpty()) {
+            out.append("\n")
+            for ((index, entry) in stages.withIndex()) {
+                if (index > 0) out.append(text(" · ", ChatFormatting.DARK_GRAY))
+                out.append(stage(entry.key, entry.value.asJsonObject))
+            }
+        }
+    }
+
+    private fun benchmarkSummary(out: MutableComponent) {
+        out.append("\n")
+            .append(hover(text("${format(result.number("avgTps"), 1)} TPS", when {
+                result.number("avgTps") >= 25 -> ChatFormatting.GREEN
+                result.number("avgTps") >= 20 -> ChatFormatting.GOLD
+                else -> ChatFormatting.RED
+            }),
+                "Uncapped processing capacity, not the gameplay tick rate.\n${benchmarkDetails()}"))
+            .append(text(" average · ${result.number("ticks").toLong()} ticks", ChatFormatting.GRAY))
+    }
+
+    private fun stagesView(out: MutableComponent) {
+        out.append(text("\nAverage ms per server tick · all dimensions", ChatFormatting.GRAY))
+        val stages = stages()
+        for (entry in stages) out.append("\n").append(stage(entry.key, entry.value.asJsonObject))
+        if (stages.isEmpty()) out.append("\nNo queued stage work.")
+    }
+
+    private fun worldsView(out: MutableComponent) {
+        out.append(text("\nAverage world time per server tick", ChatFormatting.GRAY))
+        val phases = profile.getAsJsonObject("phases")
+        val worlds = phases.entrySet().filter { it.key.endsWith(" / world total") }
+            .sortedByDescending { it.value.asJsonObject.number("totalMs") }
+        for ((name, value) in worlds) {
+            val world = name.removeSuffix(" / world total")
+            val details = phases.entrySet().filter { it.key.startsWith("$world / ") && it.key != name }
+                .sortedByDescending { it.value.asJsonObject.number("totalMs") }
+                .joinToString("\n") { "${it.key.substringAfter(" / ")}: ${format(it.value.asJsonObject.number("totalMs") / tickCount)} ms/tick" }
+            out.append("\n").append(hover(text("$world · ${format(value.asJsonObject.number("totalMs") / tickCount)} ms", ChatFormatting.WHITE),
+                "$details\nWorld totals include stages; do not add overlapping rows."))
+        }
+        if (worlds.isEmpty()) out.append("\nNo world timings recorded.")
+    }
+
+    private fun profileDetails(out: MutableComponent) {
+        val split = profile.getAsJsonObject("split")
+        out.append(text("\n$configuration", ChatFormatting.GRAY))
+        out.append("\n").append(hover(text("Tick split", ChatFormatting.WHITE),
+            "Stages include planning/dispatch/waits. Preparation is independent worker jobs.\nThe remainder includes collection and inline work; it is not CPU-only time."))
+            .append(": stages ${format(split.number("stageWaves") * 100, 1)}% · preparation ${format(split.number("preparation") * 100, 1)}% · remainder ${format(split.number("serial") * 100, 1)}%")
+        for ((name, value) in profile.getAsJsonObject("preparations").entrySet()) {
+            val jobs = value.asJsonObject
+            val duration = jobs.getAsJsonObject("duration")
+            out.append("\n").append(hover(text("$name · ${format(duration.number("totalMs") / tickCount)} ms/tick", ChatFormatting.WHITE),
+                "${jobs.number("jobs").toLong()} jobs across ${duration.number("count").toLong()} calls.\n${sampleDetails(duration)}\nAlready included in tick time; do not add again."))
+        }
+        out.append(text("\nIdle time excluded; profiling adds overhead.", ChatFormatting.GRAY))
+    }
+
+    /** Buttons for the other views, then the result file's path (or why there is none). */
+    private fun navigation(out: MutableComponent, section: String) {
+        for (part in sections(kind)) {
             if (part == section) continue
             val command = if (part == "summary") prefix else "$prefix $part"
             out.append(hover(text("[${part.replaceFirstChar(Char::uppercase)}] ", ChatFormatting.AQUA), "Show $part · $prefix ${if (part == "summary") "" else part}")
@@ -94,7 +112,6 @@ internal class PerformanceReport(
         out.append(hover(text(if (file == null) "[Not saved]" else "[JSON path]", if (file == null) ChatFormatting.YELLOW else ChatFormatting.GRAY),
             file?.let { "$it\nClick to copy this server-relative path; the full capture is in this file." } ?: "Could not save the result file; the full JSON is in the server log.")
             .withStyle { if (file == null) it else it.withClickEvent(ClickEvent.CopyToClipboard(file)) })
-        return out
     }
 
     private fun stages() = profile.getAsJsonObject("stages").entrySet()
@@ -154,4 +171,12 @@ internal class PerformanceReport(
     private fun format(value: Double, decimals: Int = 2) = String.format(Locale.ROOT, "%.${decimals}f", value)
 
     private fun JsonObject.number(key: String): Double = get(key)?.asDouble ?: 0.0
+
+    companion object {
+        /** The views of a report of [kind] (`profile` or `benchmark`), summary first: its `report` subcommands. */
+        fun sections(kind: String): List<String> = if (kind == "profile") PROFILE_SECTIONS else BENCHMARK_SECTIONS
+
+        private val PROFILE_SECTIONS = listOf("summary", "stages", "worlds", "details")
+        private val BENCHMARK_SECTIONS = listOf("summary", "details")
+    }
 }
