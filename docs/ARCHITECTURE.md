@@ -14,7 +14,7 @@ server-owned scheduler and worker pool; it is not a server-per-region engine.
 | `tracking` | Nearby-player ranges and tracker diffs |
 | `navigation` | Navigation invalidation index and path-type cache |
 | `spawning` | Mob counting, lazy count state and deferrable spawning tasks |
-| `diagnostics` | Tick profiles, JFR events, wave watchdog, benchmarks, reports and result files |
+| `diagnostics` | Tick profiles, JFR events, wave watchdog, crash-report section, benchmarks, summaries and result files |
 | `collections` | Fastutil-compatible adapters over JDK/JCTools collections |
 | `compat` | Lithium's section-storage replacement; C2ME and Lithium mixin cancellation (Java) |
 | `commands`, `config` | Brigadier commands, TOML configuration, live options, serial-type rules and JVM properties |

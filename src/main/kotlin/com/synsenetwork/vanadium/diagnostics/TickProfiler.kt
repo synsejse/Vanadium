@@ -14,13 +14,11 @@ object TickProfiler {
         val profile = TickProfile()
         val startedAt = System.nanoTime()
         val deadline = startedAt + requestedSeconds * 1_000_000_000L
-        val configuration = "workers=${Vanadium.scheduler.workerCount}, isolation=${Vanadium.scheduler.isolation}; " +
-            "keep configuration fixed during capture"
     }
 
     private var active: Capture? = null
     private var tickStart = 0L
-    private var completed: PerformanceReport? = null
+    private var completed: Component? = null
 
     fun start(commandSource: CommandSourceStack, seconds: Int): Boolean {
         if (active != null) return false
@@ -53,14 +51,11 @@ object TickProfiler {
         result.addProperty("requestedSeconds", capture.requestedSeconds)
         result.addProperty("seconds", (System.nanoTime() - capture.startedAt) / 1e9)
         result.add("profile", capture.profile.toJson())
-        completed = PerformanceResults.report(capture.source, "profile", result, capture.configuration)
+        completed = PerformanceResults.report(capture.source, "profile", result)
         return true
     }
 
-    fun lastReport(section: String = "summary"): Component {
-        val report = completed ?: return Component.literal("Vanadium: no completed profile for this server")
-        return report.view(section)
-    }
+    fun lastReport(): Component = completed ?: Component.literal("Vanadium: no completed profile for this server")
 
     fun onServerStopped() {
         if (active != null) Vanadium.scheduler.profile = null

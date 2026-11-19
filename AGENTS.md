@@ -72,7 +72,7 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - `tracking/`: area maps and nearby-player indexing for entity tracking.
 - `navigation/`: navigation invalidation index, path-type cache, and Java navigation duck interfaces.
 - `spawning/`: spawn counting, lazy count state, and deferrable per-chunk spawning tasks.
-- `diagnostics/`: tick profiles, JFR events, wave watchdog, benchmark capture, reports, and result files.
+- `diagnostics/`: tick profiles, JFR events, wave watchdog, crash-report section, benchmark capture, summaries, and result files.
 - `mixin/server/world/`, `mixin/world/`: stage injection points and vanilla world access changes.
 - Remaining `mixin/` packages: synchronization and concurrent collection replacements.
 - `mixin/VanadiumMixinPlugin.java`: the Mixin config plugin: ASM synchronization of `SyncAllMixin` targets, the

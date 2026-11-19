@@ -55,7 +55,7 @@ Build and verification configuration is separated:
 
 Production packages follow responsibilities: `tick/` owns wave scheduling and dispatch;
 `navigation/` owns path invalidation and path-type caching; `spawning/` owns counting and
-deferral; `diagnostics/` owns profiling, JFR events, the watchdog and performance reports.
+deferral; `diagnostics/` owns profiling, JFR events, the slow-wave watchdog, the crash-report section and capture summaries.
 `commands/VanadiumCommand.kt` registers the command tree and calls those components.
 Corresponding unit tests live in the same packages; live Fabric scenarios remain in `integration/`.
 `PreparationKind` labels independent jobs, and `PerformanceResults` publishes their captures.

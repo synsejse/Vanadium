@@ -9,10 +9,29 @@ it is not a no-Vanadium control.
 
 - `/vanadium benchmark 30` measures uncapped whole-server throughput using tick sprint.
 - `/vanadium profile 30` captures tick/stage distributions at the current tick rate.
-- `/vanadium profile report` shows the last completed capture.
+- `/vanadium profile report` repeats the last profile's summary.
 
-What the reports contain, how their measurements overlap and where the `VANADIUM_RESULT` JSON goes
-are in [configuration and commands](CONFIGURATION.md#reports).
+Each prints a short summary and the path of its JSON result file. What the results contain, how
+their measurements overlap and where the `VANADIUM_RESULT` JSON goes are in
+[configuration and commands](CONFIGURATION.md#reports). A hung tick's crash report carries
+Vanadium's wave state ([watchdog crash reports](CONFIGURATION.md#watchdog-crash-reports)).
+
+## spark
+
+[spark](https://spark.lucko.me/) samples CPU stacks, which Vanadium's captures do not. Its profiler
+samples only the server thread by default, and most tick work runs on the workers. They are named
+`Vanadium-Worker-1` to `Vanadium-Worker-N`, and spark's default grouping strips the trailing
+number, so they appear together as one `Vanadium-Worker` pool. To sample the server thread and the
+workers:
+
+```
+/spark profiler start --thread Server.thread --thread Vanadium-Worker-.* --regex
+/spark profiler stop
+```
+
+Add `--not-combined` for one entry per worker, or `--only-ticks-over 50` to keep only slow ticks.
+`--thread *` samples every thread, C2ME's and the JVM's included. Sampling cannot tie a stack to one
+wave or stage; use the [Flight Recorder](#flight-recorder) events for that.
 
 ## Flight Recorder
 

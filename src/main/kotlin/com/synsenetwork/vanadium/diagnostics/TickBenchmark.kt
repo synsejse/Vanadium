@@ -1,7 +1,6 @@
 package com.synsenetwork.vanadium.diagnostics
 
 import com.google.gson.JsonObject
-import com.synsenetwork.vanadium.Vanadium
 import net.minecraft.commands.CommandSourceStack
 import net.minecraft.network.chat.Component
 import net.minecraft.server.MinecraftServer
@@ -21,7 +20,7 @@ object TickBenchmark {
     }
 
     private var active: Run? = null
-    private var completed: PerformanceReport? = null
+    private var completed: Component? = null
 
     /** True while a benchmark runs; ServerTickRateManagerMixin mutes vanilla's sprint report then. */
     @JvmStatic
@@ -41,10 +40,7 @@ object TickBenchmark {
         completed = null
     }
 
-    fun lastReport(section: String = "summary"): Component {
-        val report = completed ?: return Component.literal("Vanadium: no completed benchmark for this server")
-        return report.view(section)
-    }
+    fun lastReport(): Component = completed ?: Component.literal("Vanadium: no completed benchmark for this server")
 
     fun onTickEnd(server: MinecraftServer) {
         val run = active ?: return
@@ -69,8 +65,6 @@ object TickBenchmark {
         result.addProperty("ticks", run.totalTicks)
         result.addProperty("avgTps", run.totalTicks / seconds)
         result.addProperty("peakTps", maxOf(run.peakWindowTicks, run.windowTicks))
-        val configuration =
-            "${Vanadium.scheduler.workerCount} helpers + server thread · isolation ${Vanadium.scheduler.isolation}"
-        completed = PerformanceResults.report(run.source, "benchmark", result, configuration)
+        completed = PerformanceResults.report(run.source, "benchmark", result)
     }
 }
