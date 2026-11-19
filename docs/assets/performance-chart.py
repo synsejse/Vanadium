@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Worker-scaling chart for the README: three small multiples, one per workload, light and dark.
 
-Usage: make_chart.py SAMPLES.csv OUT_DIR
+Usage: performance-chart.py SAMPLES.csv OUT_DIR
 CSV columns: workload,arm,workers,jvm,sprint_window,tps  (arm: vanadium | lithium)
 """
-import csv, math, sys
+import csv, sys
 from collections import defaultdict
 
 THEMES = {
@@ -40,11 +40,12 @@ def fmt(value):
 def load(path):
     data = defaultdict(lambda: defaultdict(list))
     base = defaultdict(list)
-    for row in csv.DictReader(open(path)):
-        if row["arm"] == "lithium":
-            base[row["workload"]].append(float(row["tps"]))
-        else:
-            data[row["workload"]][int(row["workers"])].append(float(row["tps"]))
+    with open(path, newline="", encoding="utf-8") as samples:
+        for row in csv.DictReader(samples):
+            if row["arm"] == "lithium":
+                base[row["workload"]].append(float(row["tps"]))
+            else:
+                data[row["workload"]][int(row["workers"])].append(float(row["tps"]))
     return data, base
 
 
@@ -111,4 +112,5 @@ def render(theme, data, base):
 if __name__ == "__main__":
     data, base = load(sys.argv[1])
     for theme in THEMES:
-        open(f"{sys.argv[2]}/performance-{theme}.svg", "w").write(render(theme, data, base))
+        with open(f"{sys.argv[2]}/performance-{theme}.svg", "w", encoding="utf-8") as svg:
+            svg.write(render(theme, data, base))
