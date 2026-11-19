@@ -169,3 +169,31 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
   Existing `run/` contains personal development state: do not overwrite or delete it.
   Automated runs use fresh `.vanadium/runs/` directories and retain evidence on failure.
 - Check `git diff --check` and report actual validation results and any blockers.
+
+## Code style
+
+Behaviour and performance are settled; new and changed code must also read well. In priority order:
+
+- **No unnecessary abstractions (the first rule).** Don't wrap a call or an obvious operation in its own function,
+  and don't add interfaces, classes or holders with one user or for hypothetical needs. Keep one concern's logic
+  in one place, even if a function grows. Extract only for real complexity, reuse or a distinct responsibility; a
+  seam that lets logic be unit-tested without Minecraft counts, and its KDoc says so.
+- **Explicit control flow.** Guard clauses and early returns, `when` for several cases of one value, shallow
+  nesting. Don't compress a decision into one expression: no `?.let { return it }`, chained Elvis fallbacks, or
+  `let`/`run`/`also`/`apply`/`takeIf` chains where plain statements read better.
+- **Names** are conventional and descriptive, not long. No variable that is only returned on the next line.
+- **Kotlin features when they help:** collection operations off tick paths, `data class` for real data, `sealed`
+  types for genuinely distinct states.
+- **Types.** Nullable only where absence is a real outcome. Throw on violated rules. Avoid `!!`; prefer
+  `checkNotNull(x) { "why" }` or a restructure. Trust data that is already validated.
+- **Errors.** Let unexpected errors propagate; catch only where you recover, log or report. Never catch just to
+  rethrow or turn a failure into a silent `null`/`false`. Use `try`/`finally` for cleanup.
+- **Comments say why:** invariants, constraints, unusual decisions, and measurements with their build and date.
+  No narration, no KDoc that restates the signature, no description of a removed design.
+- `val` by default; mutable state only in the component that owns it. Named constants for thresholds.
+- Minimal, targeted changes that preserve behaviour; moves in their own commit. Test critical behaviour, not getters.
+- **Hot-path override.** On tick paths the concurrency and Kotlin hot-path rules above win: no capturing lambdas,
+  boxing or per-item allocation. Keep primitive and indexed loops, `!!` on dense arrays whose slots are known to be
+  filled, and JIT-motivated splits that a comment explains (`WorkerPool`'s single `runTask` call site, the
+  `phase`/`drain` methods). A readability change that alters tick-path bytecode needs a `javap -c` check and an
+  A/B benchmark ([PROFILING.md](docs/PROFILING.md)); comments, renames and moving unchanged code do not.

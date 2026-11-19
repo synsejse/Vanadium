@@ -63,7 +63,7 @@ object PerformanceResults {
         addProperty("maxHeapMiB", Runtime.getRuntime().maxMemory() / (1024 * 1024))
         addProperty("activeWorkers", Vanadium.scheduler.workerCount)
         addProperty("isolation", Vanadium.scheduler.isolation)
-        addProperty("spawnParticipants", Vanadium.scheduler.spawnParticipants.label)
+        addProperty("spawnParticipants", Vanadium.scheduler.spawnParticipantsLabel)
         add("config", COMPACT.toJsonTree(Vanadium.config))
     }
 }

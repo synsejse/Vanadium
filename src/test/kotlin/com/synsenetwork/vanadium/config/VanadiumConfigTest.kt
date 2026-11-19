@@ -78,7 +78,7 @@ class VanadiumConfigTest {
         config.validatePostLoad()
         assertEquals(IdleWorkers.HOT, config.idleWorkersMode())
         config.idleWorkers = "lean"
-        assertEquals(IdleWorkers.LEAN, config.idleWorkersMode(), "a changed value is reparsed")
+        assertEquals(IdleWorkers.LEAN, config.idleWorkersMode())
         config.idleWorkers = "warm"
         assertFailsWith<me.shedaniel.autoconfig.ConfigData.ValidationException> { config.validatePostLoad() }
         assertFailsWith<IllegalArgumentException> { config.idleWorkersMode() }

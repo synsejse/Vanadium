@@ -34,11 +34,20 @@ class TickScheduler internal constructor(
     private val participantCostNanos: Double,
     /** Share of a flat wave's longest task within which the other threads should finish ([flatParticipants]); 0 never bounds. */
     private val criticalPathShare: Double = CRITICAL_PATH_SHARE,
-    /** Most participants of a spawning wave, the caller included, on top of [participants]; experimental. */
-    val spawnParticipants: ParticipantCeiling = ParticipantCeiling.AUTO,
+    /**
+     * Most participants of a spawning wave, the caller included, on top of [participants]; null adds no bound.
+     * Experimental: 1 runs the spawning regions inline on the caller, in plan order.
+     */
+    val spawnParticipants: Int? = null,
 ) {
-    constructor(pool: WorkerPool, isolation: Int, spawnParticipants: ParticipantCeiling = ParticipantCeiling.AUTO) :
+    constructor(pool: WorkerPool, isolation: Int, spawnParticipants: Int? = null) :
         this(pool, isolation, PARTICIPANT_COST_NANOS, CRITICAL_PATH_SHARE, spawnParticipants)
+
+    init {
+        require(spawnParticipants == null || spawnParticipants >= 1) {
+            "a spawning wave has at least 1 participant (the caller), not $spawnParticipants"
+        }
+    }
 
     private val grids = EnumMap<Stage, RegionGrid>(Stage::class.java).apply {
         Stage.entries.forEach { if (it != Stage.ENTITY) put(it, RegionGrid()) }
@@ -66,6 +75,9 @@ class TickScheduler internal constructor(
     var diagnostics: WaveDiagnostics? = null
 
     val workerCount: Int get() = pool.workerCount
+
+    /** [spawnParticipants] as results and benchmark arms record it: the limit, or `auto`. */
+    val spawnParticipantsLabel: String get() = spawnParticipants?.toString() ?: "auto"
 
     val detailedDiagnostics: Boolean get() = diagnostics?.detailed == true
 
@@ -106,7 +118,8 @@ class TickScheduler internal constructor(
     /** [participants] for a region wave of [stage], within that stage's ceiling (only spawning has one). */
     internal fun regionParticipants(stage: Stage, regions: Int, estimatedNanos: Double): Int {
         val estimated = participants(regions, estimatedNanos)
-        return if (stage == Stage.SPAWNING) spawnParticipants.apply(estimated) else estimated
+        val limit = spawnParticipants
+        return if (stage == Stage.SPAWNING && limit != null) minOf(estimated, limit) else estimated
     }
 
     /**
@@ -296,12 +309,7 @@ class TickScheduler internal constructor(
             "vanadium.criticalPathShare", 0.8, "0 (no bound) or a number above 0 and at most 1",
         ) { it >= 0.0 && it <= 1.0 }
 
-        /** JVM property for [spawnParticipants]; read at server start ([spawnParticipantsProperty]). */
+        /** JVM property for [spawnParticipants], read at server start ([DeveloperProperties.participantLimit]). */
         const val SPAWN_PARTICIPANTS_PROPERTY = "vanadium.spawnParticipants"
-
-        /** The validated `-Dvanadium.spawnParticipants` ceiling; fails on an invalid value instead of guessing. */
-        @JvmStatic
-        fun spawnParticipantsProperty(): ParticipantCeiling =
-            ParticipantCeiling.parse(SPAWN_PARTICIPANTS_PROPERTY, System.getProperty(SPAWN_PARTICIPANTS_PROPERTY))
     }
 }

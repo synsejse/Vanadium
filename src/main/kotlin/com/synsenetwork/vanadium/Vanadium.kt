@@ -80,21 +80,24 @@ object Vanadium : ModInitializer {
 
     private fun onServerStarting(server: MinecraftServer) {
         // Validated before any thread starts: a mistyped experiment fails the launch instead of measuring `auto`.
-        val spawnParticipants = TickScheduler.spawnParticipantsProperty()
+        val spawnParticipants = DeveloperProperties.participantLimit(TickScheduler.SPAWN_PARTICIPANTS_PROPERTY)
         val workers = VanadiumConfig.resolveWorkers()
         if (config.workers <= 0) {
             LOGGER.info("Will use {} threads, isolation {} chunks ({})", workers, config.isolation, VanadiumConfig.describeAutoWorkers())
         } else {
             LOGGER.info("Will use {} threads, isolation {} chunks", workers, config.isolation)
         }
-        val pool = WorkerPool(workers).also { pool = it }
+        val pool = WorkerPool(workers)
+        this.pool = pool
         Interactions.drainPool = pool
         scheduler = TickScheduler(pool, config.isolation, spawnParticipants)
-        if (!spawnParticipants.isAuto) {
+        if (spawnParticipants != null) {
             LOGGER.warn("Experimental: natural spawn attempts use at most {} of {} threads (-D{})",
-                spawnParticipants.label, workers + 1, TickScheduler.SPAWN_PARTICIPANTS_PROPERTY)
+                spawnParticipants, workers + 1, TickScheduler.SPAWN_PARTICIPANTS_PROPERTY)
         }
-        diagnostics = WaveDiagnostics(LOGGER::warn).also { scheduler.diagnostics = it }
+        val diagnostics = WaveDiagnostics(LOGGER::warn)
+        this.diagnostics = diagnostics
+        scheduler.diagnostics = diagnostics
     }
 
     private fun onTickStart(server: MinecraftServer) {
