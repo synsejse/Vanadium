@@ -183,7 +183,8 @@ class NearbyTrackers {
             staging.removeFirstLong()
             val chunk = tracker.entity.chunkPosition()
             areaMap.add(tracker, chunk.x(), chunk.z(), tracker.radius)
-            trackingTasks[tracker]!!.indexedChunk = chunk.pack()
+            val task = checkNotNull(trackingTasks[tracker]) { "staged tracker without a task" }
+            task.indexedChunk = chunk.pack()
         }
     }
 
@@ -194,7 +195,7 @@ class NearbyTrackers {
     private fun tickStaging(players: List<ServerPlayer>, tickets: DistanceManager, scanned: Boolean) {
         for (tracker in staging.keys) {
             val entity = tracker.entity
-            val task = trackingTasks[tracker]!!
+            val task = checkNotNull(trackingTasks[tracker]) { "staged tracker without a task" }
             val moved = if (scanned) task.moved else entity.position() !== task.previousPosition
             val shouldTick = moved || entity.needsSync || tickets.inEntityTickingRange(entity.chunkPosition().pack())
             enqueue(tracker) {
@@ -246,12 +247,13 @@ class NearbyTrackers {
                 val tracker = iterator.next()
                 if (tracker !in current) {
                     iterator.remove()
-                    actions[trackingTasks[tracker]!!.slot] = REMOVE.toByte()
+                    val task = checkNotNull(trackingTasks[tracker]) { "known tracker without a task" }
+                    actions[task.slot] = REMOVE.toByte()
                 }
             }
             for (tracker in current) {
                 val fresh = known.add(tracker)
-                val task = trackingTasks[tracker]!!
+                val task = checkNotNull(trackingTasks[tracker]) { "indexed tracker without a task" }
                 val entity = tracker.entity
                 val send = entity.needsSync || tickets.inEntityTickingRange(entity.chunkPosition().pack())
                 val update = fresh || playerMoved || task.moved
@@ -276,8 +278,9 @@ class NearbyTrackers {
 
         override fun run() {
             var sent = false
+            val diffs = checkNotNull(diffs) { "tracking task enqueued without player diffs" }
             try {
-                for (diff in diffs!!) {
+                for (diff in diffs) {
                     val action = diff.actions[slot].toInt()
                     if (action and REMOVE != 0) {
                         tracker.removePlayer(diff.player)
@@ -290,7 +293,7 @@ class NearbyTrackers {
                     if (action and UPDATE != 0) tracker.updatePlayer(diff.player)
                 }
             } finally {
-                diffs = null
+                this.diffs = null
             }
         }
     }
