@@ -62,6 +62,14 @@ class WaveDiagnostics internal constructor(
         return watch
     }
 
+    /** The wave being watched, or null when none runs or monitoring is off; any thread may read it. */
+    internal val watched: Watch?
+        get() {
+            val watch = current
+            if (watch == null || watch.closed) return null
+            return watch
+        }
+
     /** Called only by the watchdog (or by deterministic tests using an injected clock). */
     internal fun poll() {
         val watch = current ?: return
@@ -117,21 +125,30 @@ class WaveDiagnostics internal constructor(
         }
 
         internal fun describe(now: Long): String = buildString {
-            append(String.format(Locale.ROOT,
-                "Vanadium slow wave: stage=%s dimension=%s isolation=%d chunks elapsed=%.0fms; active participants=%d",
-                stage, dimension, isolation, (now - started) / 1e6, running.size))
-            for ((shown, entry) in running.entries.withIndex()) {
+            append("Vanadium slow wave: ").append(summary(now))
+            for ((shown, thread) in running.keys.withIndex()) {
                 if (shown == MAX_STACKS) {
                     append("\nAdditional participant stacks omitted (limit ").append(MAX_STACKS).append(")")
                     break
                 }
-                val (thread, progress) = entry
-                append("\n").append(thread.name).append(" [").append(thread.state).append("] ")
-                val region = progress.region
-                if (region != null) append("region=").append(region)
-                val task = progress.task
-                if (task != null) append(" task=").append(task)
+                append("\n").append(thread.name).append(" [").append(thread.state).append("] ").append(activity(thread))
                 for (frame in thread.stackTrace.take(MAX_FRAMES)) append("\n  at ").append(frame)
+            }
+        }
+
+        /** Stage, dimension, isolation, time since the wave started and participants running its tasks. */
+        internal fun summary(now: Long = clock.asLong): String = String.format(Locale.ROOT,
+            "stage=%s dimension=%s isolation=%d chunks elapsed=%.0fms; active participants=%d",
+            stage, dimension, isolation, (now - started) / 1e6, running.size)
+
+        /** What [thread] runs of this wave: its region and, with detailed labels, its task; empty if it runs none. */
+        internal fun activity(thread: Thread): String {
+            val progress = running[thread] ?: return ""
+            val region = progress.region
+            val task = progress.task
+            return buildString {
+                if (region != null) append("region=").append(region)
+                if (task != null) append(" task=").append(task)
             }
         }
 
