@@ -38,7 +38,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  * column that is removed therefore holds no source, and removing it changes no level in the graph.
  * <p>
  * The method comes from C2ME's chunk-system rewrite: {@code require = 0} for a C2ME without it (then nothing unloads
- * POI), and {@code SynchronisePlugin} fails the transformation if it exists but this did not bind. Priority above
+ * POI), and {@code VanadiumMixinPlugin} fails the transformation if it exists but this did not bind. Priority above
  * C2ME's default, which merges it.
  */
 @Mixin(value = PoiManager.class, priority = 1100)

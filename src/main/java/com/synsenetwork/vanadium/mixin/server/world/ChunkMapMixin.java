@@ -39,40 +39,21 @@ public abstract class ChunkMapMixin {
     @Shadow
     @Final
     @Mutable
-    private Int2ObjectMap<ChunkMap.TrackedEntity> entityMap = new ConcurrentIntObjectMap<>();
-
-
-    @Shadow
-    @Final
-    @Mutable
-    private List<ChunkGenerationTask> pendingGenerationTasks = new CopyOnWriteArrayList<>();
+    private Int2ObjectMap<ChunkMap.TrackedEntity> entityMap;
 
     @Shadow
     @Final
     @Mutable
-    final LongSet toDrop = new ConcurrentLongSet();
+    private List<ChunkGenerationTask> pendingGenerationTasks;
+
+    @Shadow
+    @Final
+    @Mutable
+    LongSet toDrop;
 
     @Shadow
     @Final
     private LongSet chunksToEagerlySave;
-
-    @Unique
-    private final ConcurrentLinkedQueue<ChunkPos> vanadium$dirtyChunks = new ConcurrentLinkedQueue<>();
-
-    @Inject(method = "setChunkUnsaved", at = @At("HEAD"), cancellable = true)
-    private void queueDirtyChunk(ChunkPos pos, CallbackInfo ci) {
-        vanadium$dirtyChunks.add(pos);
-        ci.cancel();
-    }
-
-    /** Only the server thread touches vanilla's ordered save set; workers never wait for saving. */
-    @Inject(method = {"tick(Ljava/util/function/BooleanSupplier;)V", "saveChunksEagerly"}, at = @At("HEAD"))
-    private void collectDirtyChunks(BooleanSupplier haveTime, CallbackInfo ci) {
-        ChunkPos pos;
-        while ((pos = vanadium$dirtyChunks.poll()) != null) {
-            chunksToEagerlySave.add(pos.pack());
-        }
-    }
 
     @Shadow
     @Final
@@ -91,15 +72,40 @@ public abstract class ChunkMapMixin {
     }
 
     @Unique
+    private final ConcurrentLinkedQueue<ChunkPos> vanadium$dirtyChunks = new ConcurrentLinkedQueue<>();
+
+    @Unique
     private final NearbyTrackers vanadium$nearbyTrackers = new NearbyTrackers();
 
+    @Inject(method = "<init>", at = @At("RETURN"))
+    private void installConcurrentCollections(CallbackInfo ci) {
+        entityMap = new ConcurrentIntObjectMap<>();
+        pendingGenerationTasks = new CopyOnWriteArrayList<>();
+        toDrop = new ConcurrentLongSet();
+    }
+
+    @Inject(method = "setChunkUnsaved", at = @At("HEAD"), cancellable = true)
+    private void queueDirtyChunk(ChunkPos pos, CallbackInfo ci) {
+        vanadium$dirtyChunks.add(pos);
+        ci.cancel();
+    }
+
+    /** Only the server thread touches vanilla's ordered save set; workers never wait for saving. */
+    @Inject(method = {"tick(Ljava/util/function/BooleanSupplier;)V", "saveChunksEagerly"}, at = @At("HEAD"))
+    private void collectDirtyChunks(BooleanSupplier haveTime, CallbackInfo ci) {
+        ChunkPos pos;
+        while ((pos = vanadium$dirtyChunks.poll()) != null) {
+            chunksToEagerlySave.add(pos.pack());
+        }
+    }
+
     @WrapMethod(method = "addEntity")
-    private synchronized void loadEntity(Entity entity, Operation<Void> original) {
+    private synchronized void synchronizeAddEntity(Entity entity, Operation<Void> original) {
         original.call(entity);
     }
 
     @WrapMethod(method = "removeEntity")
-    private synchronized void unloadEntity(Entity entity, Operation<Void> original) {
+    private synchronized void synchronizeRemoveEntity(Entity entity, Operation<Void> original) {
         original.call(entity);
     }
 
@@ -156,5 +162,4 @@ public abstract class ChunkMapMixin {
         }
         return instance.values();
     }
-
 }

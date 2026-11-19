@@ -48,7 +48,7 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
   (`vanadium$`-prefixed methods: `NavigationAccess`, `NavigationState`, `InteractionAccess`,
   `PoiDistanceAccess`, `PoiTicketAccess`, `PoiSectionAccess`, `SectionStorageAccess`, `EntityTickAccess`, `ChunkTickAccess`, `ScheduledTickAccess`, `CrowdAccess`, `CrowdSlotAccess`,
   `CrowdedSectionsAccess`) and code that runs during Mixin
-  bootstrap (`mixin/SynchronisePlugin.java`, `compat/C2ME.java`, `compat/Lithium.java`). Everything else is Kotlin.
+  bootstrap (`mixin/VanadiumMixinPlugin.java`, `compat/C2ME.java`, `compat/Lithium.java`). Everything else is Kotlin.
   Kotlin APIs called from mixins are static on the JVM: `@JvmField`/`@JvmStatic`, or a `lateinit`
   property of an `object` (`Vanadium.config`, `Vanadium.scheduler`); call `vanadium$` methods from
   Kotlin with backticks.
@@ -75,7 +75,8 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - `diagnostics/`: tick profiles, JFR events, wave watchdog, benchmark capture, reports, and result files.
 - `mixin/server/world/`, `mixin/world/`: stage injection points and vanilla world access changes.
 - Remaining `mixin/` packages: synchronization and concurrent collection replacements.
-- `mixin/SynchronisePlugin.java`: ASM synchronization applied to `SyncAllMixin` targets.
+- `mixin/VanadiumMixinPlugin.java`: the Mixin config plugin: ASM synchronization of `SyncAllMixin` targets, the
+  per-thread `randValue` rewrite (`RandValueMixin`) and the optional POI hook checks; it matches mixins by name.
 - `compat/C2ME.java`: MixinSquared cancellation of two C2ME thread-detection mixins.
 - `compat/LithiumCompat.kt` (POI section-storage and column-index replacement), `compat/Lithium.java`
   (MixinSquared canceller), `mixin/compat/lithium/`: Lithium support (required, compiled against the
@@ -150,6 +151,10 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
   during a wave; prefer `WorkerPool.runDeferrable`, or queue callbacks with `runAfterParallelWave`.
 - Do not rely on `@Shadow` field initializers to replace vanilla collections: once a mixin adds other
   initialized fields, Mixin may drop them. Install replacements explicitly at `<init>` RETURN.
+  The initializers still in `ServerChunkCacheMixin`, `DistanceManagerMixin`, `LevelTicksMixin`,
+  `SimulationChunkTrackerMixin`, `SavedDataStorageMixin` and `PoiDistanceTrackerMixin` are safe today: classes
+  exported from a live run (2026-11-19, Mixin 0.8.7) place each right after vanilla's own empty collection,
+  before any use, because Mixin inserts initializers after the constructor's last write to a field they set.
 
 ## Change and validation discipline
 

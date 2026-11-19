@@ -27,12 +27,12 @@ public abstract class EntityLookupMixin<T extends EntityAccess> {
     @Shadow
     @Final
     @Mutable
-    private Map<UUID, T> byUuid = new ConcurrentHashMap<>();
+    private Map<UUID, T> byUuid;
 
-    @Inject(method = "<init>",at = @At("TAIL"))
-    private void replaceConVars(CallbackInfo ci)
-    {
+    @Inject(method = "<init>", at = @At("RETURN"))
+    private void installConcurrentMaps(CallbackInfo ci) {
         byId = new ConcurrentIntObjectMap<>();
+        byUuid = new ConcurrentHashMap<>();
     }
 
     /** Keep the visible entity view read-only while exposing its size for spawn preparation. */

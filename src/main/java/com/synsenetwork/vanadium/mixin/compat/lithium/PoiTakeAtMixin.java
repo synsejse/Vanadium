@@ -24,7 +24,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  * call is never reached.
  * <p>
  * One injector, so it binds or not as a whole. {@code require = 0} because the method is absent with
- * {@code ai.poi} disabled; when it is present, {@code SynchronisePlugin} fails the transformation unless this bound.
+ * {@code ai.poi} disabled; when it is present, {@code VanadiumMixinPlugin} fails the transformation unless this bound.
  */
 @Mixin(value = PoiManager.class, priority = 1100) // After Lithium: injects into a method it merges.
 public abstract class PoiTakeAtMixin {
