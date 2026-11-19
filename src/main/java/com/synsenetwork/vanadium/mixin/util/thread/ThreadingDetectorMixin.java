@@ -7,9 +7,13 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Mutable;
 import org.spongepowered.asm.mixin.Shadow;
 
+/**
+ * Vanilla gives each detector (every {@code PalettedContainer} and {@code LegacyRandomSource} has one) a single
+ * permit and crashes when a second thread acquires it, which assumes one server thread. 255 permits let parallel
+ * workers hold one container at once.
+ */
 @Mixin(ThreadingDetector.class)
 public abstract class ThreadingDetectorMixin {
-
     @Shadow
     @Final
     @Mutable

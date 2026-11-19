@@ -12,9 +12,8 @@ import org.spongepowered.asm.mixin.Shadow;
 
 @Mixin(ChunkAccess.class)
 public abstract class ChunkAccessMixin {
-
     @Shadow
     @Final
     @Mutable
-    protected Map<BlockPos, BlockEntity> blockEntities =  new ConcurrentHashMap<>();
+    protected Map<BlockPos, BlockEntity> blockEntities = new ConcurrentHashMap<>();
 }
