@@ -30,6 +30,40 @@ class DeveloperPropertiesTest {
         }
     }
 
+    private fun share(text: String?): Pair<Double, List<String>> {
+        val warnings = ArrayList<String>()
+        return DeveloperProperties.double("vanadium.share", 0.8, "a share", text, warnings::add) { it >= 0.0 && it <= 1.0 } to warnings
+    }
+
+    @Test
+    fun doublesApplyOnlyWhenFiniteAndAccepted() {
+        assertEquals(0.8 to emptyList(), share(null))
+        assertEquals(0.5 to emptyList(), share(" 0.5 "))
+        assertEquals(0.0 to emptyList(), share("0"))
+        assertEquals(1.0 to emptyList(), share("1"))
+        assertEquals(0.25 to emptyList(), share("2.5e-1"))
+        for (text in listOf("", "fast", "NaN", "-NaN", "Infinity", "-Infinity", "-0.1", "1.01", "1e400")) {
+            val (value, warnings) = share(text)
+            assertEquals(0.8, value, "'$text'")
+            assertEquals(1, warnings.size, "'$text'")
+            assertTrue("vanadium.share" in warnings[0] && "0.8" in warnings[0], warnings[0])
+        }
+    }
+
+    @Test
+    fun booleansAcceptOnlyTrueOrFalse() {
+        val warnings = ArrayList<String>()
+        fun parse(text: String?) = DeveloperProperties.boolean("vanadium.flag", true, text, warnings::add)
+        assertEquals(true, parse(null))
+        assertEquals(false, parse("false"))
+        assertEquals(false, parse(" FALSE "))
+        assertEquals(true, parse("True"))
+        assertEquals(emptyList(), warnings)
+        for (text in listOf("", "no", "0", "off", "yes")) assertEquals(true, parse(text), "'$text'")
+        assertEquals(5, warnings.size, warnings.toString())
+        assertTrue(warnings.all { "vanadium.flag" in it && "true or false" in it }, warnings.toString())
+    }
+
     @Test
     fun eachRetiredPropertySetWarnsOnce() {
         val set = mapOf("vanadium.prewakeLeadMicros" to "2000", "vanadium.idleWorkers" to "hot", "vanadium.workerSlackSpinMicros" to "250")

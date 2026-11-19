@@ -104,7 +104,9 @@ run inline. A flat wave also knows its expected longest task L (the entity wave'
 group, smoothed: up a tenth, down half per wave). It cannot end before L does, so it gets no
 more than 1 + (W − L) / (0.8 L) threads (`vanadium.criticalPathShare`, 0.8; 0 disables): the
 others finish the rest within 80% of L. In a 600-mob fight at 36 workers that is ~29
-participants instead of 37; more would only spin through the tail.
+participants instead of 37; more would only spin through the tail. Both are measurement inputs:
+`participantCostNanos` accepts 0 to 1,000,000 ns, `criticalPathShare` 0 or a number above 0 and
+at most 1, and any other value (malformed, NaN, infinite) logs a warning and uses the default.
 
 Idle spinning follows the tick (`SpinPolicy`). Under pressure (sprinting, or the next tick due
 within 2 ms of the end of this one) workers spin 2 ms through every gap. With slack they spin
@@ -231,7 +233,8 @@ In a spread-out world at 36 workers that cut remote-socket cache transfers about
 its longest tick (`flatParticipants`, a fight) is as long as that tick, ran slower with homes and is
 claimed in list order. Ordering each type by position (a Z-order curve) measured no different from
 tick-list order, and pinning workers to cores, socket by socket, cut cross-socket transfers further
-but not tick time; neither is kept. `-Dvanadium.entityHomes=false` claims every wave in list order.
+but not tick time; neither is kept. `-Dvanadium.entityHomes=false` claims every wave in list order; a value other than `true` or
+`false` logs a warning and keeps homes on.
 
 All waves run their tasks through one call site in `WorkerPool`. A claim loop whose call site sees
 only entity groups gets the whole entity tick inlined by the JIT; every rare branch in it then

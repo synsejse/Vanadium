@@ -2,6 +2,7 @@ package com.synsenetwork.vanadium.tick
 
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.concurrent.Interactions
+import com.synsenetwork.vanadium.config.DeveloperProperties
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.level.entity.EntityTickList
@@ -53,6 +54,6 @@ class EntityTickTasks(private val list: EntityTickList, private val active: Int2
 
     private companion object {
         /** Whether the entity wave has homes ([WaveHomes]); `-Dvanadium.entityHomes=false` claims it in list order. */
-        private val HOMES = System.getProperty("vanadium.entityHomes", "true").toBoolean()
+        private val HOMES = DeveloperProperties.boolean("vanadium.entityHomes", true)
     }
 }
