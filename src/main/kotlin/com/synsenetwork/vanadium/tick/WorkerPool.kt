@@ -72,6 +72,12 @@ class WorkerPool internal constructor(
     val workerCount: Int get() = workers.size
 
     /**
+     * The latest published wave's progress, for the watchdog crash report; any thread may call it, and it reads
+     * counters only. Waves that run inline on their caller are never published.
+     */
+    internal fun latestWaveProgress(): String = current.get()?.progress() ?: "no parallel wave yet"
+
+    /**
      * Runs every task and blocks until all have finished (a full barrier). A single-task wave runs
      * inline. Interruption does not cancel a wave: the caller waits for all tasks, then restores its
      * interrupt flag. Do not change [tasks] until this returns; only one thread may run waves at a time.
@@ -282,6 +288,25 @@ class WorkerPool internal constructor(
         var waking = false
 
         val busyNanos: Long get() = busy.get()
+
+        /**
+         * [latestWaveProgress]. A participant counts the tasks it ran as finished only when it runs out of work, so
+         * every task of a participant still running counts as unfinished.
+         */
+        fun progress(): String {
+            if (taskCount == 0) return "no parallel wave since the tick started"
+            var unclaimed = 0
+            if (cells == null) {
+                unclaimed = maxOf(0, taskCount - counters.get(NEXT))
+            } else {
+                for (home in 0 until homeCount) for (phase in 0 until phases) {
+                    val state = cells.get((home + 1) * stride + phase)
+                    unclaimed += maxOf(0, state.toInt() - (state ushr 32).toInt())
+                }
+            }
+            val finished = taskCount - counters.get(REMAINING)
+            return "$finished of $taskCount tasks finished, $unclaimed unclaimed, ${helpers + 1} participants"
+        }
 
         /**
          * Takes helper indices from the wake cursor and unparks those workers that are parked, until [limit]

@@ -76,6 +76,12 @@ class TickScheduler internal constructor(
 
     val workerCount: Int get() = pool.workerCount
 
+    /** The world being ticked, or the last one started, for the watchdog crash report. */
+    internal val currentDimension: String get() = dimension
+
+    /** [WorkerPool.latestWaveProgress], for the watchdog crash report. */
+    internal fun latestWaveProgress(): String = pool.latestWaveProgress()
+
     /** [spawnParticipants] as results and benchmark arms record it: the limit, or `auto`. */
     val spawnParticipantsLabel: String get() = spawnParticipants?.toString() ?: "auto"
 
