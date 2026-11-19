@@ -122,8 +122,10 @@ within 2 ms of the end of this one) workers spin 2 ms through every gap. With sl
 In every mode the next tick's start wakes the workers the previous tick used, so they are
 spinning by its first wave. A tick that ran nothing in parallel (an idle server) keeps nobody
 spinning, and a server paused when empty (`pause-when-empty-seconds`) fires no tick events at
-all. A `/tick freeze` server still runs its entity wave (each frozen entity only checked) and
-tracking, so with many entities it counts as parallel. Tick events are the only input: tests and
+all. A `/tick freeze` server (between `/tick step`s) ticks its entities serially, as vanilla
+does: only players and vehicles carrying one tick, so its entity stage wakes nobody. Tracking
+still runs, as vanilla's does, and only counts as parallel when it has enough work to spread.
+Tick events are the only input: tests and
 benchmarks without them spin 2 ms. The caller's own two wake-ups per fan-out, the tick-start wake and the 200 µs
 caller spin floor are fixed; tests and `benchWorkerPool` pass other values to the constructors.
 `vanadium.workerSlackSpinMicros` (500 µs) sets the spin between waves with slack, for

@@ -359,6 +359,24 @@ Measured 2026-11-12 on the branch that added `idleWorkers` (merged in
 [#16](https://github.com/synsejse/Vanadium/pull/16)), `isolation = 2`, the harness of
 `/vanadium profile` in a fresh server per run; environment as below.
 
+### Frozen worlds
+
+Under `/tick freeze` vanilla ticks only players and vehicles carrying one. The entity stage used to
+dispatch every entity in a parallel wave anyway, each task only finding its entity frozen; it now runs
+vanilla's loop serially while the game is frozen and not stepping. CPU per mode (% of one core, 10 s
+windows; 4,096 zombies over 1,024 chunks, 36 workers, two fresh servers per build, alternating):
+
+| Build | Mode | Workers, unfrozen | Workers, frozen | Process, frozen | Frozen tick avg (ms) |
+| --- | --- | ---: | ---: | ---: | ---: |
+| before | `lean` | 424–453% | 33–40% | 35–42% | 0.95–1.15 |
+| after | `lean` | 432–506% | 0.0% | 2–6% | 1.98–3.38 |
+| before | `hot` | 3,528–3,567% | 3,565–3,576% | 3,669–3,682% | 0.28 |
+| after | `hot` | 3,566–3,572% | 0.0% | 5–7% | 1.72–2.67 |
+
+Frozen ticks take 1–2.5 ms longer on one thread, as vanilla's do (every entity's frozen check), against
+a near-idle process. Tracking still runs while frozen and stayed inline here (no wave). Measured
+2026-11-19 on the dual Xeon VM, Lithium and C2ME pins, G1 4 GiB, `isolation = 2`.
+
 ## Mixed-bench tuning at 20 TPS
 
 Candidate settings from [`runMixedBench`](PROFILING.md#mixed-whole-server-benchmark) on the dual Xeon

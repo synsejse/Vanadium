@@ -24,8 +24,17 @@ class EntityTickTasks(private val list: EntityTickList, private val active: Int2
      * entity types with the costliest ticks first ([PersistentTickTasks]), on as many threads as finish the rest
      * while the longest tick runs ([TickScheduler.flatParticipants]). The wave has a home per possible participant
      * ([WaveHomes]): each thread ticks the same entities from tick to tick, so their data stays in its core's caches.
+     *
+     * When the game does not [runsNormally] (`/tick freeze`, between `/tick step`s), vanilla's body skips every
+     * entity but players and vehicles carrying one (`TickRateManager.isEntityFrozen`), so a wave would wake workers
+     * only to check each entity. The tick list then runs [body] serially on this thread, exactly as vanilla does;
+     * tracking keeps collecting membership changes, and the next normal tick dispatches them.
      */
-    fun dispatch(scheduler: TickScheduler, body: Consumer<Entity>) {
+    fun dispatch(scheduler: TickScheduler, body: Consumer<Entity>, runsNormally: Boolean) {
+        if (!runsNormally) {
+            list.forEach(body)
+            return
+        }
         tasks.dispatch(Vanadium.config.serialEntityRulesKey(), scheduler.detailedDiagnostics,
             if (HOMES) scheduler.workerCount + 1 else 0,
             { entities, longest -> scheduler.flatParticipants(Stage.ENTITY, entities, longest) }, body,
