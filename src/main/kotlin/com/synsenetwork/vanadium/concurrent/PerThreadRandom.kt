@@ -36,7 +36,7 @@ class PerThreadRandomSource(seed: Long) : RandomSource {
 /**
  * Per-thread state for `Level.randValue`, the LCG behind random-tick positions. Vanilla's
  * `getBlockRandomPos` and Lithium's random-tick and position shortcuts advance one field per level from
- * every parallel chunk tick, losing updates and correlating positions across chunks. `SynchronisePlugin`
+ * every parallel chunk tick, losing updates and correlating positions across chunks. `VanadiumMixinPlugin`
  * rewrites every read and write of the field in `Level` and `ServerLevel` to these calls, so each thread
  * keeps its own sequence with the same arithmetic. The level is ignored: the sequence was never observable.
  */
