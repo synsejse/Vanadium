@@ -41,7 +41,7 @@ class PerThreadRandomSource(seed: Long) : RandomSource {
  * keeps its own sequence with the same arithmetic. The level is ignored: the sequence was never observable.
  */
 object PerThreadRandValue {
-    private val state = ThreadLocal.withInitial { IntArray(1).apply { this[0] = RandomSupport.generateUniqueSeed().toInt() } }
+    private val state = ThreadLocal.withInitial { intArrayOf(RandomSupport.generateUniqueSeed().toInt()) }
 
     @JvmStatic
     @Suppress("UNUSED_PARAMETER")

@@ -61,19 +61,7 @@ object Vanadium : ModInitializer {
             if (config.enabled) (level as NavigationAccess).`vanadium$navigations`().refresh()
         }
         ServerTickEvents.END_LEVEL_TICK.register { scheduler.finishWorld() }
-        ServerTickEvents.END_SERVER_TICK.register { server ->
-            // How long the server will sleep before the next tick decides whether idle workers park now, and when
-            // they are woken again.
-            pool?.let {
-                val nextTick = server.nextTickTime
-                it.tickEnded(nextTick - Util.getNanos(), server.tickRateManager().isSprinting)
-                ServerSpin.arm(nextTick, it.serverSpinNanos)
-            }
-            tickEvent?.commit()
-            tickEvent = null
-            TickBenchmark.onTickEnd(server)
-            TickProfiler.onTickEnd()
-        }
+        ServerTickEvents.END_SERVER_TICK.register(::onTickEnd)
         ServerLifecycleEvents.SERVER_STOPPED.register(::onServerStopped)
         LOGGER.info("Vanadium Initialized")
     }
@@ -101,14 +89,32 @@ object Vanadium : ModInitializer {
     }
 
     private fun onTickStart(server: MinecraftServer) {
-        tickEvent = ServerTickEvent().also { it.begin() }
-        pool?.let {
-            it.configureIdle(config.idleWorkersMode())
-            it.tickStarted()
+        val event = ServerTickEvent()
+        event.begin()
+        tickEvent = event
+        val pool = pool
+        if (pool != null) {
+            pool.configureIdle(config.idleWorkersMode())
+            pool.tickStarted()
         }
         config.refreshSerialRules()
         TickProfiler.onTickStart()
         diagnostics?.configure(config.slowWaveMillis, config.detailedTickDiagnostics)
+    }
+
+    private fun onTickEnd(server: MinecraftServer) {
+        // How long the server will sleep before the next tick decides whether idle workers park now, and when
+        // they are woken again.
+        val pool = pool
+        if (pool != null) {
+            val nextTick = server.nextTickTime
+            pool.tickEnded(nextTick - Util.getNanos(), server.tickRateManager().isSprinting)
+            ServerSpin.arm(nextTick, pool.serverSpinNanos)
+        }
+        tickEvent?.commit()
+        tickEvent = null
+        TickBenchmark.onTickEnd(server)
+        TickProfiler.onTickEnd()
     }
 
     private fun onServerStopped(server: MinecraftServer) {
