@@ -11,10 +11,8 @@ it is not a no-Vanadium control.
 - `/vanadium profile 30` captures tick/stage distributions at the current tick rate.
 - `/vanadium profile report` shows the last completed capture.
 
-Results are logged as `VANADIUM_RESULT` JSON lines and written under `vanadium/results/`
-in the server directory, including configuration, versions, heap and processor count.
-World totals include stage work; do not sum overlapping measurements. Caller tail wait
-is not a measurement of lock contention.
+What the reports contain, how their measurements overlap and where the `VANADIUM_RESULT` JSON goes
+are in [configuration and commands](CONFIGURATION.md#reports).
 
 ## Flight Recorder
 
@@ -28,11 +26,15 @@ jfr summary /absolute/path/vanadium.jfr
 jfr print --events 'vanadium.*,jdk.JavaMonitorEnter,jdk.ThreadPark' /absolute/path/vanadium.jfr
 ```
 
-Vanadium emits `vanadium.ServerTick` (work excluding idle), `vanadium.Wave` (stage, world,
-regions, tasks, participants and isolation), and `vanadium.Preparation` (independent jobs).
-Correlate these intervals with worker samples, monitor blocking, parks and allocation
-samples in Mission Control. The serial remainder of tick work bounds potential scaling.
-Region duration includes lock waits and does not establish CPU utilization by itself.
+Vanadium emits `vanadium.ServerTick` (the server's tick work, from Fabric's `START_SERVER_TICK` to
+`END_SERVER_TICK`), `vanadium.Wave` (one stage wave: stage, world, regions, tasks, participants and
+isolation) and `vanadium.Preparation` (independent jobs), all on the server thread. They are
+durations of work. A completion gap, the time between two ticks' completions that the live fixtures
+report, also holds the pacing wait, tasks the server thread runs between ticks and JVM stops before
+the tick, so a long gap can hold a short `ServerTick`; see [tick timing](#tick-timing) for the
+fixtures' clocks. Correlate these intervals with worker samples, monitor blocking, parks and
+allocation samples in Mission Control. A wave's duration includes its lock waits and does not
+establish CPU utilization by itself.
 
 `./gradlew runIntegration -Plive.jfr=true` captures the isolated live suite with 100µs
 monitor thresholds. `./gradlew runFeatureBench` writes separate on/off JFR recordings and
@@ -122,7 +124,30 @@ full collections; under ZGC the cycle beans and the pause beans of those same cy
 together, so the columns overlap and are neither pause counts nor pause time. Compare GC pauses
 between collectors (or runs) with `gc.log` or JFR's GC pause events, not these columns.
 
-Tick timing (columns appended to `windows.csv` after the health columns):
+A stalled tick or setup stops the run after five minutes (`max-tick-time`) with vanilla's crash
+report, which includes every thread's stack and held monitors.
+
+When the server stops before the last window (a crash, including the fixture's own, or a shutdown
+request such as SIGTERM, which Gradle's task timeout sends), the fixture logs `MIXED_BENCH_ABORTED`,
+appends the ticks buffered since the last boundary to `ticks.csv`, stops JFR into `live.jfr` and
+closes its files, best effort; the crash report keeps the original error and the run does not pass.
+There is no periodic flushing: a server thread that never returns (the watchdog's stall exit) or a
+halted or killed JVM loses the ticks since the last boundary. The recording is then written only by
+the JDK's exit hook (`System.exit`, SIGTERM; the watchdog allows it 10 seconds), never on `halt` or
+SIGKILL.
+
+To compare modes, alternate fresh runs with identical properties, for example
+`enabled, serial, serial, enabled` repeated, and compare per-window distributions (tick p50/p95,
+CPU per tick, busy cores) rather than single means; whole-server timings vary noticeably between
+runs, so use several runs per mode. Mob AI, spawning and villager behaviour are random, so
+entity counts differ slightly between runs; check them and the health columns before comparing.
+For tail work, run with `-Pmixed.gcLog=true` and match slow ticks or long gaps (`ticks.csv`) to
+`gc.log` lines by uptime. Short smoke settings (for example
+`-Pmixed.warmup=200 -Pmixed.window=200 -Pmixed.windows=2`) only check the harness.
+
+### Tick timing
+
+Columns appended to `windows.csv` after the health columns, and the clocks behind them:
 
 - Clock: `*_uptime_ns` values are `System.nanoTime()` converted to JVM uptime, the clock of unified
   logging's `uptimenanos` decoration, so `gc.log` pauses and safepoints line up with ticks directly.
@@ -154,28 +179,6 @@ shorter than the lead; `jfrRecordedLeadTicks` in the JSON is the lead it actuall
 such as the first explosion) are not preloaded or excluded: the first window may contain them, and
 the per-tick data shows where. [Cold first-use explosion](#cold-first-use-explosion) isolates the first explosion.
 
-A stalled tick or setup stops the run after five minutes (`max-tick-time`) with vanilla's crash
-report, which includes every thread's stack and held monitors.
-
-When the server stops before the last window (a crash, including the fixture's own, or a shutdown
-request such as SIGTERM, which Gradle's task timeout sends), the fixture logs `MIXED_BENCH_ABORTED`,
-appends the ticks buffered since the last boundary to `ticks.csv`, stops JFR into `live.jfr` and
-closes its files, best effort; the crash report keeps the original error and the run does not pass.
-There is no periodic flushing: a server thread that never returns (the watchdog's stall exit) or a
-halted or killed JVM loses the ticks since the last boundary. The recording is then written only by
-the JDK's exit hook (`System.exit`, SIGTERM; the watchdog allows it 10 seconds), never on `halt` or
-SIGKILL.
-
-To compare modes, alternate fresh runs with identical properties, for example
-`enabled, serial, serial, enabled` repeated, and compare per-window distributions (tick p50/p95,
-CPU per tick, busy cores) rather than single means; whole-server timings vary noticeably between
-runs, so use several runs per mode. Mob AI, spawning and villager behaviour are random, so
-entity counts differ slightly between runs; check them and the health columns before comparing.
-Record the hardware, flags and properties with any published result. For tail work, run with
-`-Pmixed.gcLog=true` and match slow ticks or long gaps (`ticks.csv`) to `gc.log` lines by uptime.
-Short smoke settings (for example
-`-Pmixed.warmup=200 -Pmixed.window=200 -Pmixed.windows=2`) only check the harness.
-
 ### Spawn contention arms
 
 The 4338adb profile found spawn attempts bound by vanilla's shared spawn-state monitor
@@ -192,11 +195,8 @@ and the JVM arguments, and `MIXED_BENCH_SETUP` logs `spawnArm`.
 | `participants-1` | `-Pmixed.jvmArgs=-Dvanadium.spawnParticipants=1` | parallel | spawning wave inline on the server thread, region plan order, thunder in its region |
 | `serial-spawning` | `-Pmixed.parallelSpawning=false` | vanilla serial `createState` | vanilla's `tickSpawningChunk` inline in its shuffled order: each chunk's thunder, then its checks and attempt |
 
-The cap is an upper bound on the threads a spawning wave is offered, not a guaranteed occupancy:
-the wave gets the smaller of the scheduler's estimate and the cap (that is what `WaveEvent` and tick
-profiles record), a one-region wave runs inline whatever the cap, and offered workers that find no
-claimable region stay idle. With parallel spawning the spawning wave also carries the thunder of
-ticking chunks, so the cap bounds that thunder too.
+The cap is an upper bound on the threads a spawning wave is offered, not a guaranteed occupancy;
+[Architecture](ARCHITECTURE.md#spawning-participants) says what it bounds and what it leaves alone.
 
 `participants-1` keeps the parallel count and bounds only the spawning wave. `serial-spawning` is the
 genuine serial path, and it differs from `participants-1` in more than the count. The count runs
@@ -330,8 +330,9 @@ Limitations:
 
 - Development launch: Loom's run tasks start the server with `fabric.development` and a log4j
   configuration that writes DEBUG to `logs/debug.log`, including Mixin's per-mixin `Mixing ...` lines
-  written during the transform. A release server (production Fabric launch, its own logging) may
-  transform faster; this fixture measures the development launch only, as the mixed bench did.
+  written during the transform. `runColdExplosion`, like `runMixedBench`, measures that launch only.
+  The packaged fixture jars were run by hand under a production Fabric launch on 2026-11-18; see the
+  [release follow-up](PERFORMANCE.md#release-follow-up).
 - `cold.classLog` and JFR add their own cost to every class load (JFR noticeably more): use them for
   attribution in separate runs and take timings from runs without them.
 - Host effects (frequency, scheduling, the dual-socket VM) are outside the instrumentation, and the

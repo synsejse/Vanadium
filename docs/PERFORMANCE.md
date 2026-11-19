@@ -27,12 +27,14 @@ Uncapped TPS by `workers`, against the same server with Lithium but without Vana
   98%, 99.6% and 98% of each peak, inside the peak's sample range.
 - One worker per logical processor (72 here) leaves none for the server thread, C2ME and the
   collector. It ran 40% and 43% below the best setting for the spread-out world and the crowded base.
-- Combat no longer loses throughput with more workers (it lost 18% from 24 to 48 before the second
-  wave): its entity wave runs on no more threads than its longest tick leaves work for, about 30
-  here, and the other workers stay parked. 72 workers ran 4% below its peak.
-- Against the previous default of 48 workers, 36 measured −1%, −0.4% and +3.5%: within noise on all
-  three. On this machine the default is as good a single setting as any; elsewhere, start from it
-  and measure with `/vanadium benchmark`.
+- Combat no longer loses throughput with more workers (it lost 18% from 24 to 48 in the 2026-11-13
+  sweep at `f3658bf`, before the second wave): its entity wave runs on no more threads than its
+  longest tick leaves work for, about 30 here, and the other workers stay parked. 72 workers ran 4%
+  below its peak.
+- Against the previous default of 48 workers, 36 measured −1%, −0.4% and +3.5% in this sweep: within
+  noise on all three. Before the second wave (`a74931b`, [default worker count](#default-worker-count))
+  36 beat 48 by 13% in combat. On this machine the default is as good a single setting as any;
+  elsewhere, start from it and measure with `/vanadium benchmark`.
 
 Measured 2026-11-14 at commit `e29ec28` (after the second wave), `isolation = 2`, no extra JVM flags
 ([recommended flags](#recommended-jvm-flags) add 12–65% on top). One fresh server JVM per point and
@@ -46,10 +48,10 @@ spread-out world, 15,000 for the crowded base and 2,500 for combat. The spread-o
   sweeps, with and without Vanadium), which is what widens its ranges; one first window at 24
   workers (909 TPS) is a low outlier. The sprint report rounds to 0.01 ms per tick, about 2% at
   2,000 TPS.
-- The previous sweep (2026-11-13, before the second wave and before vCPU pinning) read 21.2 / 187 /
-  23.1 TPS for Lithium alone and peaked at 262 / 1,429 / 244. Lithium alone is the same software in
-  both, so part of the difference between sweeps is the machine; compare builds within one table
-  ([before and after the second wave](#before-and-after-the-second-wave)), not across sweeps.
+- The previous sweep (2026-11-13 at `f3658bf`, before the second wave and before vCPU pinning) read
+  21.2 / 187 / 23.1 TPS for Lithium alone and peaked at 262 / 1,429 / 244. Lithium alone is the same
+  software in both, so part of the difference between sweeps is the machine; compare builds within one
+  table ([before and after the second wave](#before-and-after-the-second-wave)), not across sweeps.
 - An even earlier sweep used 1,000-tick windows, which lasted about one second on the crowded
   base and read lower there (Lithium alone: 119 TPS). Do not compare its numbers with these.
 
@@ -109,8 +111,8 @@ through it) and entity homes. Both builds at 36 workers, no extra JVM flags. Mea
 - "After" ran faster than "before" in all eight rounds of every workload. Like windows agree: first
   windows +44% / +30% / +27%, second windows +47% / +42% / +23%.
 - Both arms ran with `workers = 36`, so the new default is not part of these numbers. Against the
-  previous default of 48 workers, the "before" build measured 3% faster on the spread-out world and
-  13% slower in combat ([default worker count](#default-worker-count)).
+  previous default of 48 workers, the "before" build (`a74931b`) measured 3% faster on the spread-out
+  world and 13% slower in combat ([default worker count](#default-worker-count), 2026-11-14).
 - **Spawning was off**, as in every benchmark here. A dedicated server with `spawn_mobs` false now
   skips the mob count; that alone measured +14% on the spread-out world and +26% on the crowded base
   (against the build before it, eight runs per arm). With spawning on the count still runs every
@@ -348,8 +350,8 @@ Fast state (afternoon), alternating configurations:
   one thread busy through the gap, as `hot` does. It was not measured in the slow state: whether one
   spinning thread suffices there is not known. A short server spin (1 or 5 ms) and early worker wake-ups
   measured no faster than nothing in either state. Both experiments' controls (`vanadium.serverSpinMicros`,
-  `vanadium.prewakeLeadMicros`) were later removed, so these rows can no longer be reproduced on a
-  current build.
+  `vanadium.prewakeLeadMicros`) were later [removed](CONFIGURATION.md#removed-options-and-properties),
+  so these rows can no longer be reproduced on a current build.
 - A later alternating run in the fast state, two fresh servers per mode: `lean` 6.56–7.09 ms average
   (p95 8.9–9.9), `balanced` 6.37–6.49 (8.6–9.2), `hot` 6.39–6.89 (8.8–9.9). No mode is ahead by more than
   the run-to-run spread, so `lean` is the default: it is the only one that costs nothing when it does not
@@ -398,16 +400,18 @@ The results below apply to this fixture.
   the spin reduced worker CPU by 18–23% and process CPU by 11–16% in both pairs. The tail results were
   mixed. P99 moved +4.7 ms in one pair and −4.6 ms in the other. In one simulation-distance-8 pair, CPU
   dropped 18% and p99 improved, while the worst tick rose from 80 to 99 ms.
-- **G1 with ergonomic defaults.** ZGC cut collector pauses to about 1 ms per run. Whole-tick p99 still
-  rose in both pairs, its count of ticks over 50 ms was 0 vs 2 in the screen and 5 vs 4 in the repeat,
-  and it used 1–5% more process CPU. 8 MiB G1 regions (one sample) logged fewer pauses with the same
-  slow ticks. Several remaining slow ticks and gaps overlapped G1 safepoints, but others had no logged
-  collector or safepoint cause.
-- **No preload by default.** In a development launch, `runColdExplosion` placed a once-per-JVM first
-  `ServerExplosion` cost of 23.9 ms (22.6–52.7 ms, median of four pairs) on an entity-wave worker
-  while the server thread waited. A class-only `Class.forName` control removed about half of the first
-  blast's excess. The load itself took 39–61 ms on the server thread. Helper-class and first-run costs
-  remained. A production launch and the startup cost of a real preload were not measured.
+- **G1 with ergonomic defaults** (development launch; see the [release follow-up](#release-follow-up)
+  for 8 MiB regions on the release server). ZGC cut collector pauses to about 1 ms per run. Whole-tick
+  p99 still rose in both pairs, its count of ticks over 50 ms was 0 vs 2 in the screen and 5 vs 4 in
+  the repeat, and it used 1–5% more process CPU. 8 MiB G1 regions (one sample) logged fewer pauses
+  with the same slow ticks. Several remaining slow ticks and gaps overlapped G1 safepoints, but others
+  had no logged collector or safepoint cause.
+- **No preload by default** (development launch; see the [release follow-up](#release-follow-up)). In
+  a development launch, `runColdExplosion` placed a once-per-JVM first `ServerExplosion` cost of 23.9
+  ms (22.6–52.7 ms, median of four pairs) on an entity-wave worker while the server thread waited. A
+  class-only `Class.forName` control removed about half of the first blast's excess. The load itself
+  took 39–61 ms on the server thread. Helper-class and first-run costs remained. This campaign did not
+  measure a production launch or the startup cost of a real preload.
 
 On the combined branch at `e6f7af7`, three fresh pairs (two at simulation distance 6 and one at 8)
 used the same setup with two 1,000-tick windows per JVM. Cap 2 with 250 µs spin used 32–35% less
@@ -434,6 +438,72 @@ Measured 2026-11-18 at commits `3481b4a` (spawning, workers, collectors) and `b6
 explosion). OpenJDK 25.0.4.1, Fabric Loader 0.20.1, Fabric API 0.165.2+26.3, C2ME
 0.4.2-alpha.0.116, Lithium 0.26.3. Host frequency and contention were not observed. The machine is
 described below.
+
+### Release follow-up
+
+On 2026-11-18 the packaged release jar built from `dev` at `3722a70` ran the cold-explosion and mixed
+fixtures under a production launch, to check the development-launch results above. Conclusions:
+keep the ergonomic G1 region size, the production logging configuration and preload off. None
+changes a default.
+
+Provenance: the standard Fabric dedicated launcher (`java … -jar fabric-server-launch.jar nogui`;
+Loader 0.20.1, installer 1.1.2) without `fabric.development`, Loom's classpath, a Log4j override or
+per-mixin DEBUG tracing; the packaged `cold-explosion.jar` or `mixed-bench.jar` fixture (started with
+its `vanadium.live.mode` system property) as the only extra mod. Fabric API 0.165.2+26.3, Fabric
+Language Kotlin 1.14.2+kotlin.2.4.21, Cloth Config 26.3.159, C2ME 0.4.2-alpha.0.116, Lithium 0.26.3,
+Nix OpenJDK 25.0.4.1+1, the dual Xeon VM [below](#environment-and-limits). Mojang's default INFO
+logger wrote `logs/latest.log` and worlds to ext4. Fresh world and JVM per arm, one server at a time,
+arms in alternating order. The raw evidence (fixture CSVs, GC logs, JFR, perf switch records) is kept
+locally and not published.
+
+- **Cold first explosion.** `runColdExplosion` fixture, 24 workers, `lean`, `isolation = 2`, C2ME
+  parallelism 4, fixed 2 GiB G1 heap, 200 cows, five measured blasts 80 ticks apart; three
+  sham/warmup/load triplets without JFR or class logging.
+
+  | Arm | Blast 1 explosion call (ms) | Blast 1 tick (ms) | Blast 1 completion gap (ms) |
+  | --- | ---: | ---: | ---: |
+  | `sham` | 25.07–34.46 | 30.81–40.49 | 77.34–88.33 |
+  | `warmup` | 2.52–3.38 | 5.45–7.79 | 48.12–54.06 |
+  | `load` | 12.70–15.07 | 16.88–20.47 | 64.56–68.32 |
+
+  Warm repeat calls in all nine runs took 1.12–3.78 ms. Sham minus warmup, by triplet: median
+  30.80 ms in the call (22.55–31.07) and 32.70 ms for the tick (25.36–34.04). The class-only
+  `Class.forName` took 23.68 ms median (16.74–31.96) on the server thread at its own tick, which
+  pacing absorbed, and removed a median 19.39 ms of the first call; 11.68 ms stayed above warmup.
+  Eight of the nine first blasts ran on an entity-wave worker, one on the server thread. These runs
+  used 24 workers and a different blast schedule from the development campaign's 36 workers, so
+  compare them with each other, not with its 23.9 ms. Preload stays off: a class-only preload would
+  move most of the cost to an earlier server-thread moment, the startup cost and reliability of a real
+  startup hook are unmeasured, and every first-blast tick stayed under 50 ms.
+- **G1 region size.** `runMixedBench` fixture, 8 players, 4 bases, view/simulation distance 8/6,
+  24 workers, `isolation = 2`, C2ME parallelism 10, `-Dvanadium.spawnParticipants=2`,
+  `-Dvanadium.workerSlackSpinMicros=250`, fixed 4 GiB G1 heap, 1,600 warmup ticks and four paced
+  1,000-tick windows; two pairs, ergonomic (2 MiB) against `-XX:G1HeapRegionSize=8m`, run
+  ergonomic, 8 MiB, 8 MiB, ergonomic.
+
+  | Arm | Tick p95 / p99 / max (ms) | Ticks > 50 ms | Max gap (ms) | Gaps > 85 ms | JVM stopped, total / in ticks (ms) |
+  | --- | ---: | ---: | ---: | ---: | ---: |
+  | A ergonomic | 23.76 / 29.66 / 90.98 | 2 | 124.05 | 1 | 1,010 / 0 |
+  | A 8 MiB | 25.32 / 34.06 / 93.62 | 9 | 123.65 | 7 | 505 / 286 |
+  | B 8 MiB | 23.92 / 31.93 / 78.26 | 8 | 113.83 | 6 | 538 / 260 |
+  | B ergonomic | 21.42 / 26.34 / 61.15 | 1 | 121.93 | 2 | 1,061 / 0 |
+
+  Every ergonomic pause in the windows (47 and 45) was a humongous-allocation concurrent start, which
+  8 MiB regions removed. 8 MiB halved total stopped time but moved it into tick execution: tick p99
+  rose 4.4 and 5.6 ms, seven more ticks exceeded 50 ms in each pair and four or six more gaps
+  exceeded 85 ms, while the worst gap moved by less than 10 ms. Ergonomic regions stay. A separate ergonomic JFR
+  run caught the cold explosion on the release server: in tick 3551 (68.2 ms) the server thread parked
+  39.96 ms in `WorkBatch.awaitCompletion` while a worker first loaded and transformed
+  `ServerExplosion` inside a creeper's tick in the flat entity wave.
+- **Logging.** In one release mixed run (same fixture settings, JFR and a server-thread perf switch
+  sampler attached) a synchronous 855-byte write of the fixture's window report to `logs/latest.log`
+  took 35.11 ms between ticks, with the server thread in `write(2)` waiting in ext4. A follow-up ran
+  four arms with `logs/` on disk or on tmpfs (disk, tmpfs, tmpfs, disk; worlds on disk in all). No
+  server-thread log write reached 5 ms with either placement (the largest took 0.135 ms), so the
+  slow write did not recur and no effect of the placement could be shown; tick maxima moved in
+  opposite directions within the two pairs, and most gaps over 85 ms overlapped a G1 stop before the
+  tick. The production logging configuration stays. If you trace recurring server-thread stalls to the
+  log file, a memory-backed `logs/` directory is a mitigation to test on your own workload.
 
 ## Environment and limits
 
