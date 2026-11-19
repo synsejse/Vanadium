@@ -102,8 +102,6 @@ internal class SpinPolicy(
     private val longNanos: Long,
     private val shortNanos: Long,
     private val hotNanos: Long = HOT_SPIN_MICROS * 1_000L,
-    /** How long before a tick is due the server thread starts spinning in [IdleWorkers.BALANCED]. */
-    private val serverLeadNanos: Long = DEFAULT_SERVER_LEAD_MICROS * 1_000L,
     /** How long a wave's caller spins for its tail under pressure; see [callerSpinNanos]. */
     private val callerPressureNanos: Long = CALLER_PRESSURE_SPIN_NANOS,
 ) {
@@ -155,8 +153,10 @@ internal class SpinPolicy(
         private set
 
     /**
-     * Set by [tickEnded]: how long before the next tick the server thread spins instead of sleeping ([ServerSpin]);
-     * [Long.MAX_VALUE] spins through the whole gap. Zero after a tick that ran nothing in parallel.
+     * Set by [tickEnded]: how long before the next tick the server thread spins instead of sleeping ([ServerSpin]).
+     * [IdleWorkers.BALANCED] and [IdleWorkers.HOT] spin through the whole gap ([Long.MAX_VALUE]): a 1 or 5 ms window
+     * measured no faster than none (docs/PERFORMANCE.md). Zero in [IdleWorkers.LEAN] and after a tick that ran
+     * nothing in parallel.
      */
     var serverWindowNanos = 0L
         private set
@@ -179,27 +179,22 @@ internal class SpinPolicy(
     fun tickEnded(nanosUntilNextTick: Long, sprinting: Boolean, graceNanos: Long = 0L, ranParallel: Boolean = true): Gap {
         inTick = false
         underPressure = sprinting || nanosUntilNextTick < longNanos
-        val gap = when {
-            underPressure -> Gap.PRESSURE
-            mode == IdleWorkers.HOT && ranParallel -> Gap.SPIN_THROUGH
-            else -> Gap.PARK
-        }
-        betweenTicks = gap
-        serverWindowNanos = when {
-            !ranParallel -> 0L
-            mode == IdleWorkers.HOT -> Long.MAX_VALUE
-            mode == IdleWorkers.BALANCED -> serverLeadNanos
-            else -> 0L
-        }
+        serverWindowNanos = if (!ranParallel || mode == IdleWorkers.LEAN) 0L else Long.MAX_VALUE
         val now = System.nanoTime()
-        when (gap) {
-            Gap.SPIN_THROUGH -> spinUntil = now + nanosUntilNextTick + graceNanos
-            // A spin-through for a tick that ended within its grace period must not keep workers spinning.
-            Gap.PARK -> spinUntil = now
-            Gap.PRESSURE -> {}
+        when {
+            underPressure -> betweenTicks = Gap.PRESSURE
+            mode == IdleWorkers.HOT && ranParallel -> {
+                betweenTicks = Gap.SPIN_THROUGH
+                spinUntil = now + nanosUntilNextTick + graceNanos
+            }
+            else -> {
+                betweenTicks = Gap.PARK
+                // A spin-through for a tick that ended within its grace period must not keep workers spinning.
+                spinUntil = now
+            }
         }
         update()
-        return gap
+        return betweenTicks
     }
 
     private fun update() {
@@ -226,17 +221,12 @@ internal class SpinPolicy(
         private const val HOT_SPIN_MICROS = 50_000L
 
         /**
-         * Caller spin for a wave's tail under pressure (`vanadium.callerPressureSpinMicros`): well past the tail of a
-         * 600-mob fight at 36 to 48 workers (1 to 2.5 ms on average, one villager's path search), so the caller
-         * parks only for waves that run long.
+         * Caller spin for a wave's tail under pressure (`vanadium.callerPressureSpinMicros`): well past a combat
+         * tick's tail, which is one long entity tick (1 to 2.5 ms on average in a 600-mob fight at 36 to 48 workers,
+         * one villager's path search; measured for 2d4cc99 on 2026-11-14), so the caller parks only for waves that
+         * run long.
          */
         private const val CALLER_PRESSURE_SPIN_MICROS = 10_000L
-
-        /**
-         * How long before the next tick the server thread spins in [IdleWorkers.BALANCED]: through the whole gap.
-         * A 1 or 5 ms window measured no faster than none (see docs/PERFORMANCE.md).
-         */
-        const val DEFAULT_SERVER_LEAD_MICROS = Long.MAX_VALUE / 1_000L
 
         /** What the two spin overrides accept, in microseconds: none to a second. */
         private val SPIN_OVERRIDE_MICROS = 0L..1_000_000L

@@ -109,7 +109,7 @@ class WorkerPool internal constructor(
             if (helpers > tickPeakHelpers) tickPeakHelpers = helpers
             publish(batch)
         }
-        var waveFailure: Throwable? = null
+        var failure: Throwable? = null
         try {
             batch.participate(caller, CALLER_SLOT)
             val waitStart = if (callerWait != null) System.nanoTime() else 0
@@ -119,39 +119,34 @@ class WorkerPool internal constructor(
                 callerWait?.accept(System.nanoTime() - waitStart)
             }
         } catch (t: Throwable) {
-            waveFailure = t
-            throw t
-        } finally {
-            if (caller != null && --caller.parallelWaves == 0) {
-                try {
-                    caller.runAfterWave()
-                } catch (t: Throwable) {
-                    // The wave's own failure stays primary.
-                    waveFailure?.addSuppressed(t) ?: throw t
-                }
-            }
+            // Thrown once the after-wave tasks have run, as the primary failure.
+            failure = t
         }
+        if (caller != null && --caller.parallelWaves == 0) failure = caller.runAfterWave(failure)
+        if (failure != null) throw failure
         if (rejected) throw RejectedExecutionException("Vanadium worker pool is closed")
         return batch.busyNanos
     }
 
     /**
-     * Publishes [batch], then starts its wake-up if one of its helpers may be parked. A worker sets its bit in
-     * [parkedBits] before its last look at [current], so finding no helper's bit set here means every helper
-     * will see the batch without being woken.
+     * Publishes [batch], then starts its wake-up if one of its helpers may be parked. Dekker with
+     * [WorkerThread.run]: a worker sets its bit in [parkedBits] before its last look at [current], and the bits are
+     * read here after publishing, so a helper whose bit is clear will see the batch without being woken.
      */
     private fun publish(batch: WorkBatch) {
-        // Unlimited caller wakes is the serial loop this replaced, kept for comparison in benchmarks: no fan-out.
+        // Unlimited caller wakes is the serial loop the fan-out replaced, kept for comparison in benchmarks.
         val fanOut = callerWakes != Int.MAX_VALUE
-        // A hint read before publishing lets spinning helpers, which see the batch first, help wake from the start.
+        // Only a hint, read before publishing: it lets spinning helpers, which see the batch first, help wake from
+        // the start. The read after publishing decides.
         if (fanOut && anyParked(batch.helpers)) batch.waking = true
         current.set(batch)
-        lastFanOut = anyParked(batch.helpers)
-        if (!lastFanOut) {
+        if (!anyParked(batch.helpers)) {
+            lastFanOut = false
             lastCallerUnparks = 0
             return
         }
         if (fanOut) batch.waking = true
+        lastFanOut = true
         lastCallerUnparks = batch.wake(workers, callerWakes)
     }
 
@@ -252,14 +247,17 @@ class WorkerPool internal constructor(
          * (low half). The home's owner claims from the front, others from the end. Copied from [WaveHomes] here, on
          * the caller, so a late helper never reads the caller's layout.
          */
-        private val cells = homes?.let { layout ->
+        private val cells: AtomicLongArray? = if (homes == null) null else copyCells(homes)
+
+        /** Runs during construction, so it reads only the fields declared above [cells]. */
+        private fun copyCells(layout: WaveHomes): AtomicLongArray {
             require(layout.starts[0] == 0 && layout.starts[phases * homeCount] == taskCount) { "homes do not cover the wave" }
-            AtomicLongArray((homeCount + 2) * stride).also { cells ->
-                for (phase in 0 until phases) for (home in 0 until homeCount) {
-                    val cell = phase * homeCount + home
-                    cells.set((home + 1) * stride + phase, layout.starts[cell].toLong() shl 32 or layout.starts[cell + 1].toLong())
-                }
+            val cells = AtomicLongArray((homeCount + 2) * stride)
+            for (phase in 0 until phases) for (home in 0 until homeCount) {
+                val cell = phase * homeCount + home
+                cells.set((home + 1) * stride + phase, layout.starts[cell].toLong() shl 32 or layout.starts[cell + 1].toLong())
             }
+            return cells
         }
 
         /** Chunks only when tasks greatly outnumber participants; cells stay individually balanced. */
@@ -455,7 +453,8 @@ class WorkerPool internal constructor(
                 if (Thread.interrupted()) interrupted = true
             }
             if (interrupted) Thread.currentThread().interrupt()
-            error.get()?.let { throw RuntimeException("Vanadium worker task failed", it) }
+            val failure = error.get()
+            if (failure != null) throw RuntimeException("Vanadium worker task failed", failure)
         }
 
         /** A helper's task: queues [work] for the caller and waits for it; see [WorkerPool.callOnWaveCaller]. */
@@ -473,7 +472,8 @@ class WorkerPool internal constructor(
                     stalled?.run()
                 }
             }
-            request.failure?.let { throw it }
+            val failure = request.failure
+            if (failure != null) throw failure
             @Suppress("UNCHECKED_CAST")
             return request.result as T
         }
@@ -634,7 +634,8 @@ class WorkerPool internal constructor(
         private fun currentDeferral(): Deferral? {
             val thread = Thread.currentThread()
             if (thread is WorkerThread) return thread.deferral
-            return CALLER.get().takeIf { it.parallelWaves > 0 }
+            val caller = CALLER.get()
+            return if (caller.parallelWaves > 0) caller else null
         }
 
         /**
@@ -680,7 +681,8 @@ class WorkerPool internal constructor(
         @JvmStatic
         fun <T> callOnWaveCaller(work: Supplier<T>, stalled: Runnable? = null): T {
             val thread = Thread.currentThread()
-            val batch = (thread as? WorkerThread)?.running ?: return work.get()
+            val batch = if (thread is WorkerThread) thread.running else null
+            if (batch == null) return work.get()
             return batch.callOnCaller(work, stalled)
         }
 
@@ -688,13 +690,17 @@ class WorkerPool internal constructor(
         internal fun callerHasRequests(): Boolean = CALLER.get().hasRequests
 
         /**
-         * For schedulers that run a claim loop inside one pool task: the caller must also serve requests
-         * between regions and while waiting for dependencies. Otherwise a region can wait for the caller
-         * while the caller waits for that region. Cache once per participant; helpers get no pump.
-         * Invoke only outside a region, with no claim or task lock held.
+         * For schedulers that run a claim loop inside one pool task: the state of the wave's caller when called on
+         * it, null on a helper or outside a parallel wave. The caller must also serve requests
+         * ([CallerState.serveRequests]) between regions and while waiting for dependencies; otherwise a region can
+         * wait for the caller while the caller waits for that region. Look it up once per participant; serve only
+         * outside a region, with no claim or task lock held.
          */
-        internal fun callerRequestPump(): Runnable? =
-            if (Thread.currentThread() is WorkerThread) null else CALLER.get().takeIf { it.parallelWaves > 0 }
+        internal fun waveCaller(): CallerState? {
+            if (Thread.currentThread() is WorkerThread) return null
+            val caller = CALLER.get()
+            return if (caller.parallelWaves > 0) caller else null
+        }
 
         /**
          * Inside [runDeferrable] during a parallel wave, marks the task for the server thread and returns the signal
@@ -711,13 +717,13 @@ class WorkerPool internal constructor(
     }
 
     /** Whether the running task may be deferred, and whether it asked to be. */
-    private open class Deferral {
+    internal open class Deferral {
         var deferrable = false
         var deferred = false
     }
 
     /** A helper's [callOnWaveCaller] work; [result] and [failure] are published by [done]. */
-    private class CallerRequest(val work: Supplier<*>, val requester: Thread) {
+    internal class CallerRequest(val work: Supplier<*>, val requester: Thread) {
         var result: Any? = null
         var failure: Throwable? = null
 
@@ -725,7 +731,8 @@ class WorkerPool internal constructor(
         var done = false
     }
 
-    private class CallerState : Deferral(), Runnable {
+    /** A thread's state as a wave caller; see [waveCaller]. */
+    internal class CallerState : Deferral() {
         /** Nesting depth of waves with helpers that this thread is running. */
         var parallelWaves = 0
         val afterWave = ArrayList<Runnable>()
@@ -734,10 +741,6 @@ class WorkerPool internal constructor(
         val requests = ConcurrentLinkedQueue<CallerRequest>()
 
         val hasRequests: Boolean get() = !requests.isEmpty()
-
-        override fun run() {
-            if (hasRequests) serveRequests()
-        }
 
         /**
          * Runs every queued request on this thread, outside any task of its own, and releases its requester. The
@@ -762,9 +765,12 @@ class WorkerPool internal constructor(
             }
         }
 
-        /** Runs every queued task, including ones queued by them, then rethrows the first failure. */
-        fun runAfterWave() {
-            var failure: Throwable? = null
+        /**
+         * Runs every queued task, including ones queued by them, and returns [waveFailure], or else the first
+         * task's failure, with every later failure suppressed in it.
+         */
+        fun runAfterWave(waveFailure: Throwable?): Throwable? {
+            var failure = waveFailure
             var i = 0
             while (i < afterWave.size) {
                 try {
@@ -775,7 +781,7 @@ class WorkerPool internal constructor(
                 i++
             }
             afterWave.clear()
-            failure?.let { throw it }
+            return failure
         }
     }
 }

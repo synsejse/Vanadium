@@ -163,12 +163,6 @@ exactly the armed tick, so a wait that no tick event preceded (a paused server b
 loop iterations, startup, shutdown) never spins. Spin slices are not counted as idle time in
 vanilla's tick-time debug samples.
 
-Timed early worker wake (a timer thread that woke workers a set lead before each tick) was removed,
-with the JVM overrides for it and for the values above that are now fixed
-([removed properties](CONFIGURATION.md#removed-options-and-properties)): no lead measured faster
-([PERFORMANCE.md](PERFORMANCE.md#idle-workers-at-20-tps)), and the other overrides duplicated
-`idleWorkers` or served one-off experiments.
-
 ## Flat entity wave
 
 Regions cannot help where work is packed together: a base or a mob farm is one clique of conflicting

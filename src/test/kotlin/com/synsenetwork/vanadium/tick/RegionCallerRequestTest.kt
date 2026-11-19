@@ -49,7 +49,7 @@ class RegionCallerRequestTest {
                     Thread.onSpinWait()
                 }
                 // The only unfinished work conflicts with the helper's region. Waiting for a region
-                // completion here must still pump the request that lets that helper finish.
+                // completion here must still serve the request that lets that helper finish.
                 participants[1].run()
             }
         }

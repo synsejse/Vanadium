@@ -59,10 +59,10 @@ internal class ClaimWave(
     override val busyNanos: Long get() = busy.get()
 
     private fun participate() {
-        val callerRequests = WorkerPool.callerRequestPump()
+        val caller = WorkerPool.waveCaller()
         var spent = 0L
         while (true) {
-            callerRequests?.run()
+            if (caller != null && caller.hasRequests) caller.serveRequests()
             val seen = remaining.get()
             if (seen == 0) break
             val ran = claimAndRunOne()
@@ -72,7 +72,7 @@ internal class ClaimWave(
             }
             // A running region may itself need the caller before it can complete.
             while (remaining.get() == seen) {
-                callerRequests?.run()
+                if (caller != null && caller.hasRequests) caller.serveRequests()
                 Thread.onSpinWait()
             }
         }
@@ -190,16 +190,16 @@ internal class DataflowWave(
     override val busyNanos: Long get() = busy.get()
 
     private fun participate() {
-        val callerRequests = WorkerPool.callerRequestPump()
+        val caller = WorkerPool.waveCaller()
         var spent = 0L
         while (true) {
-            callerRequests?.run()
+            if (caller != null && caller.hasRequests) caller.serveRequests()
             val slot = taken.getAndIncrement()
             if (slot >= count) break
             var entry = slots.get(slot)
             while (entry == 0) {
                 // The predecessor holding this slot back may be waiting for the caller.
-                callerRequests?.run()
+                if (caller != null && caller.hasRequests) caller.serveRequests()
                 Thread.onSpinWait()
                 entry = slots.get(slot)
             }
