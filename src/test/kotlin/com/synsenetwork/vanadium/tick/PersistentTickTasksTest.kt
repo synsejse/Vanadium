@@ -375,6 +375,94 @@ class PersistentTickTasksTest {
     }
 
     @Test
+    fun kindsLearnTheirMeanAndCostliestMemberAndTheWaveItsLongestGroup() {
+        val f = Fixture()
+        // Before any wave every kind is assumed to cost the same, so with 4 participants each member is its own group.
+        val a = listOf(Item(0, "a", 1_000), Item(1, "a", 2_000), Item(2, "a", 3_000), Item(3, "a", 10_000))
+        val b = listOf(Item(4, "b", 500), Item(5, "b", 500))
+        (a + b).forEach(f::add)
+        assertEquals(0.0, f.tasks.longestNanos, "nothing measured before the first wave")
+        f.tick()
+        assertTrue(f.groups.all { it.size == 1 }, "${f.groups}")
+        // The first wave sets every estimate outright.
+        fun assertLearned(kind: String, mean: Double, costliest: Double) {
+            val learned = f.tasks.learnedKind(kind)!!
+            assertEquals(mean, learned.nanosPerTask, 1e-9, "$kind mean")
+            assertEquals(costliest, learned.longestNanos, 1e-9, "$kind costliest")
+        }
+        assertLearned("a", 4_000.0, 10_000.0)
+        assertLearned("b", 500.0, 500.0)
+        assertEquals(10_000.0, f.tasks.longestNanos)
+        // Later waves move kind costs a tenth of the way; the wave's longest group rises a tenth of the way too.
+        a[3].cost = 20_000
+        f.tick()
+        assertTrue(f.groups.all { it.size == 1 }, "${f.groups}")
+        assertLearned("a", 4_250.0, 11_000.0)
+        assertLearned("b", 500.0, 500.0)
+        assertEquals(11_000.0, f.tasks.longestNanos, 1e-9)
+        // ... and falls half of the way.
+        a[3].cost = 1_000
+        f.tick()
+        assertLearned("a", 4_000.0, 10_200.0)
+        assertEquals(7_000.0, f.tasks.longestNanos, 1e-9)
+    }
+
+    @Test
+    fun aGroupOfSeveralMembersCountsItsTimePerMember() {
+        val f = Fixture()
+        // One participant and a hundred members: the unmeasured wave is cut into ten groups of ten.
+        val items = List(100) { Item(it, "c", if (it == 15) 1_900 else 100) }
+        items.forEach(f::add)
+        f.tick(participants = 1)
+        assertEquals(List(10) { 10 }, f.groups.map { it.size })
+        val learned = f.tasks.learnedKind("c")!!
+        assertEquals(118.0, learned.nanosPerTask, 1e-9)
+        // The costliest member is not known alone: its group's 2,800 ns over ten members.
+        assertEquals(280.0, learned.longestNanos, 1e-9)
+        assertEquals(2_800.0, f.tasks.longestNanos)
+    }
+
+    @Test
+    fun theLongestGroupStartIsMeasuredFromTheWaveStart() {
+        val f = Fixture()
+        // One kind, its costliest member last: the longest group starts after the two before it.
+        val serial = Item(9, "a", 70_000).apply { fixed = true }
+        listOf(Item(0, "a", 1_000), Item(1, "a", 1_000), Item(2, "a", 5_000), serial).forEach(f::add)
+        val profile = TickProfile()
+        f.tick(participants = 4)
+        f.tasks.recordLastWave(profile, Stage.ENTITY)
+        val entity = profile.toJson().getAsJsonObject("stages").getAsJsonObject("ENTITY")
+        assertEquals(listOf(listOf(0), listOf(1), listOf(2)), f.groups)
+        assertEquals(3, entity.get("groups").asInt)
+        assertEquals(0.005, entity.getAsJsonObject("longestGroup").get("p99Ms").asDouble, 1e-12)
+        // Serial members ran first and are not part of the wave's time.
+        assertEquals(0.002, entity.getAsJsonObject("longestGroupStart").get("p99Ms").asDouble, 1e-12)
+    }
+
+    @Test
+    fun groupsStillRunningWhenTheCallerRunsOutAreCountedAtTheTail() {
+        val f = Fixture()
+        listOf(Item(0, "a", 1_000), Item(1, "a", 1_000), Item(2, "a", 1_000), Item(3, "a", 1_000)).forEach(f::add)
+        fun wave(onCaller: Int): Double {
+            val profile = TickProfile()
+            f.tasks.dispatch(f.rulesKey, false, { _, _ -> 4 }, { f.clock.addAndGet(it.cost) }, { }) { list, _, _, _ ->
+                assertEquals(4, list.size)
+                // The caller runs the first groups; another thread runs the rest after it, so they end after the caller's last.
+                list.take(onCaller).forEach(Runnable::run)
+                Thread { list.drop(onCaller).forEach(Runnable::run) }.apply { start(); join() }
+            }
+            f.tasks.recordLastWave(profile, Stage.ENTITY)
+            return profile.toJson().getAsJsonObject("stages").getAsJsonObject("ENTITY").get("groupsRunningAtTailStart").asDouble
+        }
+        f.tick()
+        assertEquals(0.0, wave(4))
+        assertEquals(1.0, wave(3))
+        assertEquals(3.0, wave(1))
+        // A caller that ran no group waited from the wave's start: every group was still to finish.
+        assertEquals(4.0, wave(0))
+    }
+
+    @Test
     fun aKindWithRareLongTicksRunsBeforeACostlierOnAverage() {
         val f = Fixture()
         // "spiky" costs less on average (3,450) than "steady" (5,000), but one member's tick is ten times any other.

@@ -31,6 +31,31 @@ class TickProfileTest {
     }
 
     @Test
+    fun stageFieldsKeepTheirNamesAndOrder() {
+        val profile = TickProfile()
+        profile.recordStage(Stage.ENTITY, 1_000)
+        profile.recordFlatWave(Stage.ENTITY, 40)
+        profile.recordWaveCapacity(Stage.ENTITY, 1_000, 4)
+        profile.recordFlatGroups(Stage.ENTITY, 8, 400, 100, 2)
+        profile.recordFlatGroups(Stage.ENTITY, 6, 600, 0, 1)
+        profile.recordStage(Stage.CHUNK, 2_000)
+        profile.recordRegions(Stage.CHUNK, longArrayOf(500, 700))
+        profile.recordWaveCapacity(Stage.CHUNK, 2_000, 2)
+        val stages = profile.toJson().getAsJsonObject("stages")
+        val common = listOf("execution", "regionExecution", "callerTailWaitMs", "waves", "regions", "tasks", "maxTasksPerRegion")
+        val entity = stages.getAsJsonObject("ENTITY")
+        assertEquals(common + listOf("utilization", "avgParticipants", "groups", "longestGroup", "longestGroupStart",
+            "groupsRunningAtTailStart"), entity.keySet().toList())
+        assertEquals(14, entity.get("groups").asInt)
+        assertEquals(1.5, entity.get("groupsRunningAtTailStart").asDouble)
+        assertEquals(0.0006, entity.getAsJsonObject("longestGroup").get("p99Ms").asDouble, 1e-12)
+        assertEquals(0.0001, entity.getAsJsonObject("longestGroupStart").get("p99Ms").asDouble, 1e-12)
+        assertEquals(common + listOf("utilization", "avgParticipants"), stages.getAsJsonObject("CHUNK").keySet().toList())
+        assertEquals(0.3, stages.getAsJsonObject("CHUNK").get("utilization").asDouble, 1e-12)
+        assertEquals(common, stages.getAsJsonObject("TRACKING").keySet().toList())
+    }
+
+    @Test
     fun percentilesUseNearestRank() {
         val values = LongArray(100) { it + 1L }
         assertEquals(50, TickProfile.Samples.percentile(values, 50))

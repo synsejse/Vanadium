@@ -56,15 +56,10 @@ class TickProfile {
     /**
      * The groups a flat wave's tasks were claimed in: how many, the longest one's time and how long after the wave's
      * start it started, and how many had not finished when the dispatching thread ran out of groups to claim (it
-     * waited for those).
+     * waited for those). Report data only (`PersistentTickTasks.recordLastWave`); nothing reads it back.
      */
-    fun recordFlatGroups(stage: Stage, groups: Int, longestNanos: Long, longestStartNanos: Long, runningAtTail: Int) {
-        val stats = stages.getValue(stage)
-        stats.groups += groups
-        stats.longestGroups.add(longestNanos)
-        stats.longestGroupStarts.add(longestStartNanos)
-        stats.groupsRunningAtTail += runningAtTail
-    }
+    fun recordFlatGroups(stage: Stage, groups: Int, longestNanos: Long, longestStartNanos: Long, runningAtTail: Int) =
+        stages.getValue(stage).flatGroups.record(groups, longestNanos, longestStartNanos, runningAtTail)
 
     fun recordWave(stage: Stage, regions: List<Region>) {
         if (regions.isEmpty()) return
@@ -95,27 +90,7 @@ class TickProfile {
                 addProperty("serial", serialNanos.toDouble() / tickNanos)
             }
         })
-        add("stages", JsonObject().apply {
-            for ((stage, stats) in stages) add(stage.name, JsonObject().apply {
-                add("execution", stats.durations.toJson())
-                add("regionExecution", stats.regionDurations.toJson())
-                addProperty("callerTailWaitMs", stats.waitNanos / 1e6)
-                addProperty("waves", stats.waves)
-                addProperty("regions", stats.regions)
-                addProperty("tasks", stats.tasks)
-                addProperty("maxTasksPerRegion", stats.maxTasksPerRegion)
-                val utilization = stats.utilization()
-                if (utilization != null) addProperty("utilization", utilization)
-                if (stats.participantWaves > 0) addProperty("avgParticipants", stats.participants.toDouble() / stats.participantWaves)
-                if (stats.longestGroups.count > 0) {
-                    addProperty("groups", stats.groups)
-                    // Per wave: the longest group, and the groups other threads were still running when the caller's tail wait began.
-                    add("longestGroup", stats.longestGroups.toJson())
-                    add("longestGroupStart", stats.longestGroupStarts.toJson())
-                    addProperty("groupsRunningAtTailStart", stats.groupsRunningAtTail.toDouble() / stats.longestGroups.count)
-                }
-            })
-        })
+        add("stages", JsonObject().apply { for ((stage, stats) in stages) add(stage.name, stats.toJson()) })
         add("preparations", JsonObject().apply {
             for ((kind, stats) in preparations) add(kind.name, JsonObject().apply {
                 add("duration", stats.durations.toJson())
@@ -134,15 +109,49 @@ class TickProfile {
         var regions = 0L
         var tasks = 0L
         var maxTasksPerRegion = 0
-        var groups = 0L
-        val longestGroups = Samples()
-        val longestGroupStarts = Samples()
-        var groupsRunningAtTail = 0L
+        val flatGroups = FlatGroupStats()
         var participantWaves = 0L
         var participants = 0L
 
         fun utilization(): Double? =
             if (capacityNanos == 0L) null else minOf(1.0, regionDurations.totalNanos.toDouble() / capacityNanos)
+
+        fun toJson(): JsonObject = JsonObject().apply {
+            add("execution", durations.toJson())
+            add("regionExecution", regionDurations.toJson())
+            addProperty("callerTailWaitMs", waitNanos / 1e6)
+            addProperty("waves", waves)
+            addProperty("regions", regions)
+            addProperty("tasks", tasks)
+            addProperty("maxTasksPerRegion", maxTasksPerRegion)
+            utilization()?.let { addProperty("utilization", it) }
+            if (participantWaves > 0) addProperty("avgParticipants", participants.toDouble() / participantWaves)
+            flatGroups.addTo(this)
+        }
+    }
+
+    /** [recordFlatGroups] per stage; only flat waves with groups (entities) have any. */
+    private class FlatGroupStats {
+        var groups = 0L
+        val longestGroups = Samples()
+        val longestGroupStarts = Samples()
+        var groupsRunningAtTail = 0L
+
+        fun record(groups: Int, longestNanos: Long, longestStartNanos: Long, runningAtTail: Int) {
+            this.groups += groups
+            longestGroups.add(longestNanos)
+            longestGroupStarts.add(longestStartNanos)
+            groupsRunningAtTail += runningAtTail
+        }
+
+        fun addTo(stage: JsonObject) {
+            if (longestGroups.count == 0L) return
+            stage.addProperty("groups", groups)
+            // Per wave: the longest group, and the groups other threads were still running when the caller's tail wait began.
+            stage.add("longestGroup", longestGroups.toJson())
+            stage.add("longestGroupStart", longestGroupStarts.toJson())
+            stage.addProperty("groupsRunningAtTailStart", groupsRunningAtTail.toDouble() / longestGroups.count)
+        }
     }
 
     private class PreparationStats {
