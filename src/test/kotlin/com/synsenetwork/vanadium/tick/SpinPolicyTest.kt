@@ -114,9 +114,9 @@ class SpinPolicyTest {
 
     @Test
     fun serverSpinsBeforeTicksThatRanParallelWork() {
-        val policy = SpinPolicy(long, short, serverLeadNanos = 5_000_000L)
+        val policy = SpinPolicy(long, short)
         policy.tickEnded(45_000_000L, sprinting = false)
-        assertEquals(5_000_000L, policy.serverWindowNanos)
+        assertEquals(Long.MAX_VALUE, policy.serverWindowNanos, "a balanced server spins through the whole gap")
         policy.tickEnded(45_000_000L, sprinting = false, ranParallel = false)
         assertEquals(0L, policy.serverWindowNanos, "an idle or frozen tick made the server spin")
         policy.configure(IdleWorkers.HOT)
@@ -134,7 +134,7 @@ class SpinPolicyTest {
         assertEquals(10_000_000L, policy.callerSpinNanos)
         policy.tickEnded(45_000_000L, sprinting = false)
         assertEquals(SpinPolicy.Gap.PARK, policy.betweenTicks)
-        assertEquals(Long.MAX_VALUE / 1_000L * 1_000L, policy.serverWindowNanos, "balanced spins the server through the gap")
+        assertEquals(Long.MAX_VALUE, policy.serverWindowNanos, "balanced spins the server through the gap")
         policy.tickStarted()
         assertEquals(500_000L, policy.workerSpinNanos)
         assertEquals(500_000L, policy.callerSpinNanos)

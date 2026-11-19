@@ -109,7 +109,7 @@ class WorkerPool internal constructor(
             if (helpers > tickPeakHelpers) tickPeakHelpers = helpers
             publish(batch)
         }
-        var waveFailure: Throwable? = null
+        var failure: Throwable? = null
         try {
             batch.participate(caller, CALLER_SLOT)
             val waitStart = if (callerWait != null) System.nanoTime() else 0
@@ -119,39 +119,34 @@ class WorkerPool internal constructor(
                 callerWait?.accept(System.nanoTime() - waitStart)
             }
         } catch (t: Throwable) {
-            waveFailure = t
-            throw t
-        } finally {
-            if (caller != null && --caller.parallelWaves == 0) {
-                try {
-                    caller.runAfterWave()
-                } catch (t: Throwable) {
-                    // The wave's own failure stays primary.
-                    waveFailure?.addSuppressed(t) ?: throw t
-                }
-            }
+            // Thrown once the after-wave tasks have run, as the primary failure.
+            failure = t
         }
+        if (caller != null && --caller.parallelWaves == 0) failure = caller.runAfterWave(failure)
+        if (failure != null) throw failure
         if (rejected) throw RejectedExecutionException("Vanadium worker pool is closed")
         return batch.busyNanos
     }
 
     /**
-     * Publishes [batch], then starts its wake-up if one of its helpers may be parked. A worker sets its bit in
-     * [parkedBits] before its last look at [current], so finding no helper's bit set here means every helper
-     * will see the batch without being woken.
+     * Publishes [batch], then starts its wake-up if one of its helpers may be parked. Dekker with
+     * [WorkerThread.run]: a worker sets its bit in [parkedBits] before its last look at [current], and the bits are
+     * read here after publishing, so a helper whose bit is clear will see the batch without being woken.
      */
     private fun publish(batch: WorkBatch) {
-        // Unlimited caller wakes is the serial loop this replaced, kept for comparison in benchmarks: no fan-out.
+        // Unlimited caller wakes is the serial loop the fan-out replaced, kept for comparison in benchmarks.
         val fanOut = callerWakes != Int.MAX_VALUE
-        // A hint read before publishing lets spinning helpers, which see the batch first, help wake from the start.
+        // Only a hint, read before publishing: it lets spinning helpers, which see the batch first, help wake from
+        // the start. The read after publishing decides.
         if (fanOut && anyParked(batch.helpers)) batch.waking = true
         current.set(batch)
-        lastFanOut = anyParked(batch.helpers)
-        if (!lastFanOut) {
+        if (!anyParked(batch.helpers)) {
+            lastFanOut = false
             lastCallerUnparks = 0
             return
         }
         if (fanOut) batch.waking = true
+        lastFanOut = true
         lastCallerUnparks = batch.wake(workers, callerWakes)
     }
 
@@ -252,14 +247,17 @@ class WorkerPool internal constructor(
          * (low half). The home's owner claims from the front, others from the end. Copied from [WaveHomes] here, on
          * the caller, so a late helper never reads the caller's layout.
          */
-        private val cells = homes?.let { layout ->
+        private val cells: AtomicLongArray? = if (homes == null) null else copyCells(homes)
+
+        /** Runs during construction, so it reads only the fields declared above [cells]. */
+        private fun copyCells(layout: WaveHomes): AtomicLongArray {
             require(layout.starts[0] == 0 && layout.starts[phases * homeCount] == taskCount) { "homes do not cover the wave" }
-            AtomicLongArray((homeCount + 2) * stride).also { cells ->
-                for (phase in 0 until phases) for (home in 0 until homeCount) {
-                    val cell = phase * homeCount + home
-                    cells.set((home + 1) * stride + phase, layout.starts[cell].toLong() shl 32 or layout.starts[cell + 1].toLong())
-                }
+            val cells = AtomicLongArray((homeCount + 2) * stride)
+            for (phase in 0 until phases) for (home in 0 until homeCount) {
+                val cell = phase * homeCount + home
+                cells.set((home + 1) * stride + phase, layout.starts[cell].toLong() shl 32 or layout.starts[cell + 1].toLong())
             }
+            return cells
         }
 
         /** Chunks only when tasks greatly outnumber participants; cells stay individually balanced. */
@@ -455,7 +453,8 @@ class WorkerPool internal constructor(
                 if (Thread.interrupted()) interrupted = true
             }
             if (interrupted) Thread.currentThread().interrupt()
-            error.get()?.let { throw RuntimeException("Vanadium worker task failed", it) }
+            val failure = error.get()
+            if (failure != null) throw RuntimeException("Vanadium worker task failed", failure)
         }
 
         /** A helper's task: queues [work] for the caller and waits for it; see [WorkerPool.callOnWaveCaller]. */
@@ -473,7 +472,8 @@ class WorkerPool internal constructor(
                     stalled?.run()
                 }
             }
-            request.failure?.let { throw it }
+            val failure = request.failure
+            if (failure != null) throw failure
             @Suppress("UNCHECKED_CAST")
             return request.result as T
         }
@@ -634,7 +634,8 @@ class WorkerPool internal constructor(
         private fun currentDeferral(): Deferral? {
             val thread = Thread.currentThread()
             if (thread is WorkerThread) return thread.deferral
-            return CALLER.get().takeIf { it.parallelWaves > 0 }
+            val caller = CALLER.get()
+            return if (caller.parallelWaves > 0) caller else null
         }
 
         /**
@@ -680,7 +681,8 @@ class WorkerPool internal constructor(
         @JvmStatic
         fun <T> callOnWaveCaller(work: Supplier<T>, stalled: Runnable? = null): T {
             val thread = Thread.currentThread()
-            val batch = (thread as? WorkerThread)?.running ?: return work.get()
+            val batch = if (thread is WorkerThread) thread.running else null
+            if (batch == null) return work.get()
             return batch.callOnCaller(work, stalled)
         }
 
@@ -688,13 +690,17 @@ class WorkerPool internal constructor(
         internal fun callerHasRequests(): Boolean = CALLER.get().hasRequests
 
         /**
-         * For schedulers that run a claim loop inside one pool task: the caller must also serve requests
-         * between regions and while waiting for dependencies. Otherwise a region can wait for the caller
-         * while the caller waits for that region. Cache once per participant; helpers get no pump.
-         * Invoke only outside a region, with no claim or task lock held.
+         * For schedulers that run a claim loop inside one pool task: the state of the wave's caller when called on
+         * it, null on a helper or outside a parallel wave. The caller must also serve requests
+         * ([CallerState.serveRequests]) between regions and while waiting for dependencies; otherwise a region can
+         * wait for the caller while the caller waits for that region. Look it up once per participant; serve only
+         * outside a region, with no claim or task lock held.
          */
-        internal fun callerRequestPump(): Runnable? =
-            if (Thread.currentThread() is WorkerThread) null else CALLER.get().takeIf { it.parallelWaves > 0 }
+        internal fun waveCaller(): CallerState? {
+            if (Thread.currentThread() is WorkerThread) return null
+            val caller = CALLER.get()
+            return if (caller.parallelWaves > 0) caller else null
+        }
 
         /**
          * Inside [runDeferrable] during a parallel wave, marks the task for the server thread and returns the signal
@@ -711,13 +717,13 @@ class WorkerPool internal constructor(
     }
 
     /** Whether the running task may be deferred, and whether it asked to be. */
-    private open class Deferral {
+    internal open class Deferral {
         var deferrable = false
         var deferred = false
     }
 
     /** A helper's [callOnWaveCaller] work; [result] and [failure] are published by [done]. */
-    private class CallerRequest(val work: Supplier<*>, val requester: Thread) {
+    internal class CallerRequest(val work: Supplier<*>, val requester: Thread) {
         var result: Any? = null
         var failure: Throwable? = null
 
@@ -725,7 +731,8 @@ class WorkerPool internal constructor(
         var done = false
     }
 
-    private class CallerState : Deferral(), Runnable {
+    /** A thread's state as a wave caller; see [waveCaller]. */
+    internal class CallerState : Deferral() {
         /** Nesting depth of waves with helpers that this thread is running. */
         var parallelWaves = 0
         val afterWave = ArrayList<Runnable>()
@@ -734,10 +741,6 @@ class WorkerPool internal constructor(
         val requests = ConcurrentLinkedQueue<CallerRequest>()
 
         val hasRequests: Boolean get() = !requests.isEmpty()
-
-        override fun run() {
-            if (hasRequests) serveRequests()
-        }
 
         /**
          * Runs every queued request on this thread, outside any task of its own, and releases its requester. The
@@ -762,9 +765,12 @@ class WorkerPool internal constructor(
             }
         }
 
-        /** Runs every queued task, including ones queued by them, then rethrows the first failure. */
-        fun runAfterWave() {
-            var failure: Throwable? = null
+        /**
+         * Runs every queued task, including ones queued by them, and returns [waveFailure], or else the first
+         * task's failure, with every later failure suppressed in it.
+         */
+        fun runAfterWave(waveFailure: Throwable?): Throwable? {
+            var failure = waveFailure
             var i = 0
             while (i < afterWave.size) {
                 try {
@@ -775,206 +781,8 @@ class WorkerPool internal constructor(
                 i++
             }
             afterWave.clear()
-            failure?.let { throw it }
+            return failure
         }
-    }
-}
-
-/**
- * What idle workers do between ticks that leave slack. Chosen with `idleWorkers` in the config, or live with
- * `/vanadium set idleWorkers`.
- */
-enum class IdleWorkers {
-    /**
-     * Workers park when a tick ends and wake when the next starts; the server thread spins through its wait for
-     * the next tick ([ServerSpin]). About one core while ticks run parallel work.
-     */
-    BALANCED,
-
-    /** Workers and the server thread spin through the gap between ticks: every worker that ran holds a core. */
-    HOT,
-
-    /** Nothing spins between ticks: workers park when a tick ends and wake when the next one starts. */
-    LEAN;
-
-    val configName: String get() = name.lowercase()
-
-    companion object {
-        val names: List<String> = entries.map { it.configName }
-
-        /** Case-insensitive; null for anything else. */
-        fun parse(text: String): IdleWorkers? = entries.firstOrNull { it.name.equals(text.trim(), ignoreCase = true) }
-    }
-}
-
-/**
- * How long idle workers spin before parking, from the server's tick events. Spinning costs a core per
- * worker; parking costs a wake-up (hundreds of microseconds on a VM) when the next wave comes, and a core
- * left idle for the rest of a 50 ms tick comes back slow.
- *
- * - Under pressure (sprinting, or the last tick ended less than [longNanos] before the next was due), workers
- *   spin [longNanos] through every gap, including the one between ticks: throughput is what matters, and the
- *   next wave is close.
- * - With slack, workers spin [shortNanos] between waves of a tick ([hotNanos] in [IdleWorkers.HOT]); when the
- *   tick ends, [betweenTicks] says what the pool does until the next one.
- *
- * Without tick events (tests, benchmarks, before the first tick) workers spin [longNanos]. Events come from the
- * server thread; workers only read [workerSpinNanos] and [spinUntil].
- */
-internal class SpinPolicy(
-    private val longNanos: Long,
-    private val shortNanos: Long,
-    private val hotNanos: Long = HOT_SPIN_MICROS * 1_000L,
-    /** How long before a tick is due the server thread starts spinning in [IdleWorkers.BALANCED]. */
-    private val serverLeadNanos: Long = DEFAULT_SERVER_LEAD_MICROS * 1_000L,
-    /** How long a wave's caller spins for its tail under pressure; see [callerSpinNanos]. */
-    private val callerPressureNanos: Long = CALLER_PRESSURE_SPIN_NANOS,
-) {
-    /** What the pool does at the end of a tick. */
-    enum class Gap {
-        /** Under pressure: keep the spin budget, nothing more. */
-        PRESSURE,
-
-        /** Spin until just after the next tick is due. */
-        SPIN_THROUGH,
-
-        /** Park now; the next tick's start wakes them. */
-        PARK,
-    }
-
-    @Volatile
-    var workerSpinNanos: Long = longNanos
-        private set
-
-    /**
-     * How long a wave's caller (the server thread) spins for the wave's tail before parking. Its wake-up delays the
-     * tick itself, not only a later wave, and it waits on its own processor; so under pressure (and without tick
-     * events) it spins through tails of up to [callerPressureNanos]: a combat tick's tail is one long entity tick,
-     * often longer than a worker's budget. With slack it spins as long as an idle worker would. Read by the caller.
-     */
-    var callerSpinNanos: Long = maxOf(longNanos, callerPressureNanos)
-        private set
-
-    /**
-     * [System.nanoTime] until which idle workers keep spinning whatever [workerSpinNanos] says: set in
-     * [IdleWorkers.HOT] by [tickEnded] to just past the next tick, and back to the present when workers are to park.
-     */
-    @Volatile
-    var spinUntil: Long = System.nanoTime()
-        private set
-
-    var mode: IdleWorkers = IdleWorkers.BALANCED
-        private set
-
-    /** Whether the last tick ended with the next one due soon (see the class comment), or the server was sprinting. */
-    var underPressure = true
-        private set
-
-    var inTick = true
-        private set
-
-    /** Set by [tickEnded]: what the pool does until the next tick. */
-    var betweenTicks = Gap.PRESSURE
-        private set
-
-    /**
-     * Set by [tickEnded]: how long before the next tick the server thread spins instead of sleeping ([ServerSpin]);
-     * [Long.MAX_VALUE] spins through the whole gap. Zero after a tick that ran nothing in parallel.
-     */
-    var serverWindowNanos = 0L
-        private set
-
-    /** Applies [mode] from the next tick event. */
-    fun configure(mode: IdleWorkers) {
-        this.mode = mode
-    }
-
-    fun tickStarted() {
-        inTick = true
-        update()
-    }
-
-    /**
-     * Returns [betweenTicks]. Spinning through the gap is arranged before the spin budget drops, so no worker
-     * parks in between; [graceNanos] is how long past the due time workers keep spinning for a late tick. Without
-     * parallel work in the tick ([ranParallel] false) nobody spins through the gap.
-     */
-    fun tickEnded(nanosUntilNextTick: Long, sprinting: Boolean, graceNanos: Long = 0L, ranParallel: Boolean = true): Gap {
-        inTick = false
-        underPressure = sprinting || nanosUntilNextTick < longNanos
-        val gap = when {
-            underPressure -> Gap.PRESSURE
-            mode == IdleWorkers.HOT && ranParallel -> Gap.SPIN_THROUGH
-            else -> Gap.PARK
-        }
-        betweenTicks = gap
-        serverWindowNanos = when {
-            !ranParallel -> 0L
-            mode == IdleWorkers.HOT -> Long.MAX_VALUE
-            mode == IdleWorkers.BALANCED -> serverLeadNanos
-            else -> 0L
-        }
-        val now = System.nanoTime()
-        when (gap) {
-            Gap.SPIN_THROUGH -> spinUntil = now + nanosUntilNextTick + graceNanos
-            // A spin-through for a tick that ended within its grace period must not keep workers spinning.
-            Gap.PARK -> spinUntil = now
-            Gap.PRESSURE -> {}
-        }
-        update()
-        return gap
-    }
-
-    private fun update() {
-        workerSpinNanos = when {
-            mode == IdleWorkers.HOT -> if (inTick || underPressure) maxOf(hotNanos, longNanos) else 0L
-            underPressure -> longNanos
-            inTick -> shortNanos
-            else -> 0L
-        }
-        callerSpinNanos = if (underPressure) maxOf(workerSpinNanos, callerPressureNanos) else workerSpinNanos
-    }
-
-    companion object {
-        /** Idle spin under pressure: two milliseconds covers inter-wave gaps on the Xeon VM. */
-        private const val LONG_SPIN_MICROS = 2_000L
-
-        /**
-         * Idle spin between waves of a tick with slack (`vanadium.workerSlackSpinMicros`): covers the usual serial
-         * gaps, not long serial phases.
-         */
-        private const val SHORT_SPIN_MICROS = 500L
-
-        /** Idle spin between waves in [IdleWorkers.HOT]: longer than any normal serial phase of a tick. */
-        private const val HOT_SPIN_MICROS = 50_000L
-
-        /**
-         * Caller spin for a wave's tail under pressure (`vanadium.callerPressureSpinMicros`): well past the tail of a
-         * 600-mob fight at 36 to 48 workers (1 to 2.5 ms on average, one villager's path search), so the caller
-         * parks only for waves that run long.
-         */
-        private const val CALLER_PRESSURE_SPIN_MICROS = 10_000L
-
-        /**
-         * How long before the next tick the server thread spins in [IdleWorkers.BALANCED]: through the whole gap.
-         * A 1 or 5 ms window measured no faster than none (see docs/PERFORMANCE.md).
-         */
-        const val DEFAULT_SERVER_LEAD_MICROS = Long.MAX_VALUE / 1_000L
-
-        /** What the two spin overrides accept, in microseconds: none to a second. */
-        private val SPIN_OVERRIDE_MICROS = 0L..1_000_000L
-
-        /** Read once per JVM; an invalid value warns and keeps the default. */
-        private val SLACK_SPIN_NANOS =
-            DeveloperProperties.long("vanadium.workerSlackSpinMicros", SHORT_SPIN_MICROS, SPIN_OVERRIDE_MICROS) * 1_000L
-        private val CALLER_PRESSURE_SPIN_NANOS =
-            DeveloperProperties.long("vanadium.callerPressureSpinMicros", CALLER_PRESSURE_SPIN_MICROS, SPIN_OVERRIDE_MICROS) * 1_000L
-
-        /**
-         * The production policy: `vanadium.workerSlackSpinMicros` sets the short spin and
-         * `vanadium.callerPressureSpinMicros` the caller's under pressure; everything else is fixed.
-         */
-        fun fromSystemProperties(): SpinPolicy = SpinPolicy(LONG_SPIN_MICROS * 1_000L, SLACK_SPIN_NANOS)
     }
 }
 

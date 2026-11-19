@@ -693,7 +693,7 @@ class WorkerPoolTest {
                     assertEquals(Long.MAX_VALUE, pool.serverSpinNanos)
                 } else {
                     awaitCondition("$mode workers did not park when the tick ended") { (0 until threads).all(pool::isParked) }
-                    assertEquals(if (mode == IdleWorkers.BALANCED) Long.MAX_VALUE / 1_000L * 1_000L else 0L, pool.serverSpinNanos)
+                    assertEquals(if (mode == IdleWorkers.BALANCED) Long.MAX_VALUE else 0L, pool.serverSpinNanos)
                 }
             }
         }

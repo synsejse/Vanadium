@@ -261,9 +261,6 @@ class TickSchedulerTest {
         WorkerPool(5).use { pool ->
             // A zero participant cost always estimates every worker, so only the ceiling can lower it.
             val scheduler = TickScheduler(pool, 1, participantCostNanos = 0.0, spawnParticipants = 2)
-            assertEquals(2, scheduler.regionParticipants(Stage.SPAWNING, 100, 1e9))
-            assertEquals(6, scheduler.regionParticipants(Stage.CHUNK, 100, 1e9), "other stages keep their estimate")
-            assertEquals(1, scheduler.regionParticipants(Stage.SPAWNING, 1, 1e9), "never more than the regions")
             // Cheap regions (dataflow), then heavy ones (claiming once measured): two overlap, never a third.
             repeat(3) {
                 val (threads, most) = regionWave(scheduler, Stage.SPAWNING, 8, CountDownLatch(2), nanos = 150_000)
@@ -299,7 +296,6 @@ class TickSchedulerTest {
             assertEquals("auto", scheduler.spawnParticipantsLabel)
             assertEquals("2", TickScheduler(pool, 1, spawnParticipants = 2).spawnParticipantsLabel)
             assertFailsWith<IllegalArgumentException> { TickScheduler(pool, 1, spawnParticipants = 0) }
-            assertEquals(scheduler.participants(100, 1e9), scheduler.regionParticipants(Stage.SPAWNING, 100, 1e9))
             assertEquals(4, regionWave(TickScheduler(pool, 1, participantCostNanos = 0.0), Stage.SPAWNING, 4, CountDownLatch(4)).first.size)
         }
     }

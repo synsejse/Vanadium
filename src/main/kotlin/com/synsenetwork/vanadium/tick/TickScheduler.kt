@@ -121,13 +121,6 @@ class TickScheduler internal constructor(
         return sqrt(estimatedNanos / participantCostNanos).toInt().coerceIn(1, most)
     }
 
-    /** [participants] for a region wave of [stage], within that stage's ceiling (only spawning has one). */
-    internal fun regionParticipants(stage: Stage, regions: Int, estimatedNanos: Double): Int {
-        val estimated = participants(regions, estimatedNanos)
-        val limit = spawnParticipants
-        return if (stage == Stage.SPAWNING && limit != null) minOf(estimated, limit) else estimated
-    }
-
     /**
      * Threads, the caller included, for a flat wave of [units] work items whose longest task is expected to take
      * [longestNanos] (0 when unknown): [participants], and no more than finish the rest of the wave's work within
@@ -179,7 +172,7 @@ class TickScheduler internal constructor(
         val grid = grids.getValue(stage)
         val recording = profile
         val start = if (recording != null) System.nanoTime() else 0
-        preparationStarts.remove(stage)?.let { recording?.recordPhase(dimension, "$stage preparation", start - it) }
+        recordPreparation(stage, start, recording)
         try {
             if (!grid.isEmpty) runWave(stage, grid, recording)
         } finally {
@@ -205,31 +198,20 @@ class TickScheduler internal constructor(
         if (tasks.isEmpty()) return
         val recording = profile
         recording?.recordFlatWave(stage, units)
-        val waitRecorder = recording?.let { LongConsumer { nanos -> it.recordWait(stage, nanos) } }
-        val event = WaveEvent()
-        event.begin()
         val start = System.nanoTime()
-        preparationStarts.remove(stage)?.let { recording?.recordPhase(dimension, "$stage preparation", start - it) }
+        recordPreparation(stage, start, recording)
         try {
             var busy = 0L
-            diagnostics?.watch(stage, dimension, 0).use { watch ->
-                val wave = watch?.wrap(tasks) ?: tasks
+            runMeasured(stage, tasks = units, regions = 0, participants = participants, isolation = 0, recording = recording) { watch, waitRecorder ->
+                val wave = if (watch == null) tasks else watch.wrap(tasks)
                 Interactions.runWave { busy = pool.runWave(wave, waitRecorder, participants, homes) }
             }
             learn(flatNanosPerTask, stage.ordinal, busy, units)
         } finally {
             if (recording != null) {
                 val elapsed = System.nanoTime() - start
-                recording.recordWaveCapacity(stage, elapsed, participants)
                 recording.recordStage(stage, elapsed)
                 recording.recordPhase(dimension, "$stage execution", elapsed)
-            }
-            if (event.shouldCommit()) {
-                event.stage = stage.name
-                event.dimension = dimension
-                event.tasks = units
-                event.participants = participants
-                event.commit()
             }
         }
     }
@@ -237,23 +219,28 @@ class TickScheduler internal constructor(
     private fun runWave(stage: Stage, grid: RegionGrid, recording: TickProfile?) {
         val regions = grid.plan(pool.workerCount + 1, isolation)
         recording?.recordWave(stage, regions)
-        val waitRecorder = recording?.let { LongConsumer { nanos -> it.recordWait(stage, nanos) } }
-        val participants = regionParticipants(stage, regions.size, grid.estimatedNanos)
-        val event = WaveEvent()
-        event.begin()
-        val start = System.nanoTime()
-        diagnostics?.watch(stage, dimension, isolation).use { watch ->
-            var tasks: List<Runnable> = watch?.wrap(regions) ?: regions
+        var participants = participants(regions.size, grid.estimatedNanos)
+        val limit = spawnParticipants
+        if (stage == Stage.SPAWNING && limit != null) participants = minOf(participants, limit)
+        runMeasured(stage, grid.taskCount, regions.size, participants, isolation, recording) { watch, waitRecorder ->
+            val start = System.nanoTime()
+            var tasks: List<Runnable> = if (watch == null) regions else watch.wrap(regions)
             val durations = if (recording != null) LongArray(tasks.size) else null
-            if (durations != null) tasks = tasks.mapIndexed { index, task ->
-                Runnable {
-                    val regionStart = System.nanoTime()
-                    try {
-                        task.run()
-                    } finally {
-                        durations[index] = System.nanoTime() - regionStart
-                    }
+            if (durations != null) {
+                // Profiling only: each region records its own run time.
+                val timed = ArrayList<Runnable>(tasks.size)
+                for (index in tasks.indices) {
+                    val task = tasks[index]
+                    timed.add(Runnable {
+                        val regionStart = System.nanoTime()
+                        try {
+                            task.run()
+                        } finally {
+                            durations[index] = System.nanoTime() - regionStart
+                        }
+                    })
                 }
+                tasks = timed
             }
             var busy = -1L
             try {
@@ -269,21 +256,46 @@ class TickScheduler internal constructor(
                 }
                 pool.runWave(wave.participants(participants), waitRecorder)
                 busy = wave.busyNanos
-                wave.failure?.let { throw RuntimeException("Vanadium worker task failed", it) }
+                val failure = wave.failure
+                if (failure != null) throw RuntimeException("Vanadium worker task failed", failure)
             } finally {
-                val wall = System.nanoTime() - start
-                grid.recordWave(if (busy >= 0) busy else wall)
-                if (durations != null) recording?.recordRegions(stage, durations)
-                recording?.recordWaveCapacity(stage, wall, participants)
-                if (event.shouldCommit()) {
-                    event.stage = stage.name
-                    event.dimension = dimension
-                    event.regions = regions.size
-                    event.tasks = grid.taskCount
-                    event.participants = participants
-                    event.isolation = isolation
-                    event.commit()
-                }
+                grid.recordWave(if (busy >= 0) busy else System.nanoTime() - start)
+                if (recording != null && durations != null) recording.recordRegions(stage, durations)
+            }
+        }
+    }
+
+    /** Records the time since [stage]'s [begin] or last wave as its preparation phase. */
+    private fun recordPreparation(stage: Stage, now: Long, recording: TickProfile?) {
+        val preparedAt = preparationStarts.remove(stage)
+        if (recording != null && preparedAt != null) recording.recordPhase(dimension, "$stage preparation", now - preparedAt)
+    }
+
+    /**
+     * The bookkeeping every stage wave shares around [body]: the watchdog's watch (null unless wave diagnostics
+     * are on), the caller's tail wait for the profile, the wave's capacity and its JFR event. A flat wave has no
+     * [regions] and no [isolation] (0).
+     */
+    private inline fun runMeasured(stage: Stage, tasks: Int, regions: Int, participants: Int, isolation: Int, recording: TickProfile?,
+                                   body: (watch: WaveDiagnostics.Watch?, waitRecorder: LongConsumer?) -> Unit) {
+        val waitRecorder = if (recording != null) LongConsumer { nanos -> recording.recordWait(stage, nanos) } else null
+        val event = WaveEvent()
+        event.begin()
+        val start = System.nanoTime()
+        val watch = diagnostics?.watch(stage, dimension, isolation)
+        try {
+            body(watch, waitRecorder)
+        } finally {
+            watch?.close()
+            recording?.recordWaveCapacity(stage, System.nanoTime() - start, participants)
+            if (event.shouldCommit()) {
+                event.stage = stage.name
+                event.dimension = dimension
+                event.regions = regions
+                event.tasks = tasks
+                event.participants = participants
+                event.isolation = isolation
+                event.commit()
             }
         }
     }
@@ -318,4 +330,35 @@ class TickScheduler internal constructor(
         /** JVM property for [spawnParticipants], read at server start ([DeveloperProperties.participantLimit]). */
         const val SPAWN_PARTICIPANTS_PROPERTY = "vanadium.spawnParticipants"
     }
+}
+
+/** The sequential parts of a world tick, in vanilla order. */
+enum class Stage {
+    SCHEDULED_TICK,
+    SPAWNING,
+    CHUNK,
+    TRACKING,
+    ENTITY,
+    BLOCK_ENTITY,
+}
+
+/** Independent jobs run through [TickScheduler.prepare], named for profiles and JFR events. */
+enum class PreparationKind {
+    /** Entity stage collection: chunk keys and tasks for large entity lists. */
+    ENTITY_BATCH,
+
+    /** Random-tick collection: ticking chunk keys and tasks. */
+    CHUNK_BATCH,
+
+    /** Natural spawn counts over entity slices. */
+    SPAWN_COUNTS,
+
+    /** Tracker movement scans before the area map is updated. */
+    TRACKING_MOVES,
+
+    /** Per-player tracking visibility diffs. */
+    TRACKING_DIFFS,
+
+    /** Chunk section serialization for a player's chunk batch. */
+    CHUNK_PACKETS,
 }
