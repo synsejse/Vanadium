@@ -123,9 +123,15 @@ class NavigationIndex : AbstractMutableSet<Mob>() {
         // edits become frequent or the pending paths stop changing.
         if (changedAgain && recentQueries < MIN_QUERIES_FOR_REFRESH && dirtyMobs > size / 2) return
 
-        // An entry added to a skipped empty stripe after this check waits for the next refresh.
+        // Every marker goes in before any stripe drains, so only entries queued before the refresh are
+        // processed. An entry added to a skipped empty stripe after this check waits for the next refresh.
         val marker = Any()
-        val marked = dirty.filter { it.isNotEmpty() }.onEach { it.add(marker) }
+        val marked = ArrayList<ConcurrentLinkedQueue<Any>>(STRIPES)
+        for (stripe in dirty) {
+            if (stripe.isEmpty()) continue
+            stripe.add(marker)
+            marked.add(stripe)
+        }
         for (stripe in marked) {
             while (true) {
                 val entry = stripe.poll() ?: break
@@ -143,28 +149,34 @@ class NavigationIndex : AbstractMutableSet<Mob>() {
         if (!state.`vanadium$navigationMember`()) return
         val navigation = mob.navigation
         val bounds = synchronized(navigation) {
-            if (VANILLA_PREDICATE.get(navigation.javaClass)) bounds(mob, navigation.path) else Bounds.UNBOUNDED
+            if (VANILLA_PREDICATE.get(navigation.javaClass)) bounds(mob, navigation.path) else Unbounded
         }
         synchronized(this) {
             if (mob !in members) return
             unbounded.remove(mob)
-            when {
-                bounds == null -> areas.remove(mob)
-                bounds === Bounds.UNBOUNDED -> {
+            when (bounds) {
+                null -> areas.remove(mob)
+                Unbounded -> {
                     areas.remove(mob)
                     unbounded.add(mob)
                 }
-                mob in areas -> areas.update(mob, bounds.x, bounds.z, bounds.radius)
-                else -> areas.add(mob, bounds.x, bounds.z, bounds.radius)
+                is Area -> if (mob in areas) {
+                    areas.update(mob, bounds.x, bounds.z, bounds.radius)
+                } else {
+                    areas.add(mob, bounds.x, bounds.z, bounds.radius)
+                }
             }
         }
     }
 
-    private class Bounds(val x: Int, val z: Int, val radius: Int) {
-        companion object {
-            val UNBOUNDED = Bounds(0, 0, -1)
-        }
-    }
+    /** Where a pending path can be invalidated; null when there is no pending path. */
+    private sealed interface Bounds
+
+    /** A square of chunks around the path's midpoint, indexed in [areas]. */
+    private class Area(val x: Int, val z: Int, val radius: Int) : Bounds
+
+    /** Checked on every invalidation: a custom predicate or a path too long to index. */
+    private object Unbounded : Bounds
 
     companion object {
         private const val MIN_QUERIES_FOR_REFRESH = 2
@@ -194,8 +206,8 @@ class NavigationIndex : AbstractMutableSet<Mob>() {
             val z = (end.z + mob.z) / 2.0
             val remaining = path.nodeCount - path.nextNodeIndex
             // Limit index memory for very long modded paths; the exact vanilla predicate still runs.
-            if (remaining > MAX_INDEXED_PATH_NODES || !x.isFinite() || !z.isFinite()) return Bounds.UNBOUNDED
-            return Bounds(floor(x / 16.0).toInt(), floor(z / 16.0).toInt(), (remaining + 31) / 16)
+            if (remaining > MAX_INDEXED_PATH_NODES || !x.isFinite() || !z.isFinite()) return Unbounded
+            return Area(floor(x / 16.0).toInt(), floor(z / 16.0).toInt(), (remaining + 31) / 16)
         }
     }
 }

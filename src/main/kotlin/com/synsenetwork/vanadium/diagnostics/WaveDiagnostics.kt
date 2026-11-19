@@ -127,9 +127,11 @@ class WaveDiagnostics internal constructor(
                 }
                 val (thread, progress) = entry
                 append("\n").append(thread.name).append(" [").append(thread.state).append("] ")
-                progress.region?.let { append("region=").append(it) }
-                progress.task?.let { append(" task=").append(it) }
-                thread.stackTrace.take(12).forEach { append("\n  at ").append(it) }
+                val region = progress.region
+                if (region != null) append("region=").append(region)
+                val task = progress.task
+                if (task != null) append(" task=").append(task)
+                for (frame in thread.stackTrace.take(MAX_FRAMES)) append("\n  at ").append(frame)
             }
         }
 
@@ -150,5 +152,6 @@ class WaveDiagnostics internal constructor(
     private companion object {
         val REPORT_INTERVAL_NANOS = TimeUnit.SECONDS.toNanos(30)
         const val MAX_STACKS = 8
+        const val MAX_FRAMES = 12
     }
 }

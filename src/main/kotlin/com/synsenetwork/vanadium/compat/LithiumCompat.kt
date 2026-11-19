@@ -29,7 +29,10 @@ object LithiumCompat {
      */
     private val columnsField: Field? = SectionStorage::class.java.declaredFields
         .firstOrNull { it.name == "columns" && it.type == Long2ObjectOpenHashMap::class.java }
-        ?.apply { isAccessible = true }
+
+    init {
+        columnsField?.isAccessible = true
+    }
 
     /**
      * Called after every `SectionStorage` constructor, after Lithium's. Lithium's listening map and column index
@@ -40,7 +43,9 @@ object LithiumCompat {
     fun <R> concurrentSectionStorage(owner: SectionStorage<*, *>, storage: Long2ObjectMap<R>): Long2ObjectMap<R> {
         if (storage is ConcurrentLongObjectMap<*> || storage is ListeningConcurrentLongObjectMap<*>) return storage
         if (storage.javaClass == Long2ObjectOpenHashMap::class.java) {
-            return ConcurrentLongObjectMap<R>().also { it.putAll(storage) }
+            val concurrent = ConcurrentLongObjectMap<R>()
+            concurrent.putAll(storage)
+            return concurrent
         }
         val columns = columnsField
         check(storage is ListeningLong2ObjectOpenHashMap<R> && columns != null) {
@@ -53,7 +58,9 @@ object LithiumCompat {
         val remove = callbacks.`vanadium$removeCallback`()
         @Suppress("UNCHECKED_CAST")
         val previousColumns = columns.get(owner) as Long2ObjectOpenHashMap<Any?>
-        columns.set(owner, ConcurrentLongObjectOpenHashMap<Any?>().also { it.putAll(previousColumns) })
+        val concurrentColumns = ConcurrentLongObjectOpenHashMap<Any?>()
+        concurrentColumns.putAll(previousColumns)
+        columns.set(owner, concurrentColumns)
         val concurrent = ListeningConcurrentLongObjectMap<R>(
             { key, value, added -> (if (added) add else remove).apply(key, value) },
             SECTION_COLUMN,

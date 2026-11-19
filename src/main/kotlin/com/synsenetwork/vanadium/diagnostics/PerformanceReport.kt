@@ -21,8 +21,9 @@ internal class PerformanceReport(
 
     /** The chat view of [section], one of [sections] for this report's kind; anything else shows the details. */
     fun view(section: String = "summary"): Component {
-        val out = Component.empty().append(text("Vanadium $kind", ChatFormatting.AQUA))
-            .append(text(" · ${format(result.number("seconds"), 1)}s", ChatFormatting.GRAY))
+        val out = Component.empty()
+        out.append(text("Vanadium $kind", ChatFormatting.AQUA))
+        out.append(text(" · ${format(result.number("seconds"), 1)}s", ChatFormatting.GRAY))
         when {
             section == "summary" && kind == "profile" -> profileSummary(out)
             section == "summary" -> benchmarkSummary(out)
@@ -38,10 +39,15 @@ internal class PerformanceReport(
 
     private fun profileSummary(out: MutableComponent) {
         val ticks = profile.getAsJsonObject("ticks")
-        if (ticks.number("count") == 0.0) out.append("\nNo ticks captured.")
-        else out.append("\nTick ").append(metric(ticks.number("avgMs"), "avg", sampleDetails(ticks)))
-                .append(text(" · ", ChatFormatting.DARK_GRAY))
-                .append(metric(ticks.number("p95Ms"), "p95", "95% of measured ticks were at or below this duration.\n${sampleDetails(ticks)}"))
+        if (ticks.number("count") == 0.0) {
+            out.append("\nNo ticks captured.")
+        } else {
+            val samples = sampleDetails(ticks)
+            out.append("\nTick ")
+            out.append(metric(ticks.number("avgMs"), "avg", samples))
+            out.append(text(" · ", ChatFormatting.DARK_GRAY))
+            out.append(metric(ticks.number("p95Ms"), "p95", "95% of measured ticks were at or below this duration.\n$samples"))
+        }
         val stages = stages().take(3)
         if (stages.isNotEmpty()) {
             out.append("\n")
@@ -53,14 +59,16 @@ internal class PerformanceReport(
     }
 
     private fun benchmarkSummary(out: MutableComponent) {
+        val tps = result.number("avgTps")
+        val color = when {
+            tps >= 25 -> ChatFormatting.GREEN
+            tps >= 20 -> ChatFormatting.GOLD
+            else -> ChatFormatting.RED
+        }
         out.append("\n")
-            .append(hover(text("${format(result.number("avgTps"), 1)} TPS", when {
-                result.number("avgTps") >= 25 -> ChatFormatting.GREEN
-                result.number("avgTps") >= 20 -> ChatFormatting.GOLD
-                else -> ChatFormatting.RED
-            }),
-                "Uncapped processing capacity, not the gameplay tick rate.\n${benchmarkDetails()}"))
-            .append(text(" average · ${result.number("ticks").toLong()} ticks", ChatFormatting.GRAY))
+        out.append(hover(text("${format(tps, 1)} TPS", color),
+            "Uncapped processing capacity, not the gameplay tick rate.\n${benchmarkDetails()}"))
+        out.append(text(" average · ${result.number("ticks").toLong()} ticks", ChatFormatting.GRAY))
     }
 
     private fun stagesView(out: MutableComponent) {
@@ -79,9 +87,10 @@ internal class PerformanceReport(
             val world = name.removeSuffix(" / world total")
             val details = phases.entrySet().filter { it.key.startsWith("$world / ") && it.key != name }
                 .sortedByDescending { it.value.asJsonObject.number("totalMs") }
-                .joinToString("\n") { "${it.key.substringAfter(" / ")}: ${format(it.value.asJsonObject.number("totalMs") / tickCount)} ms/tick" }
-            out.append("\n").append(hover(text("$world · ${format(value.asJsonObject.number("totalMs") / tickCount)} ms", ChatFormatting.WHITE),
-                "$details\nWorld totals include stages; do not add overlapping rows."))
+                .joinToString("\n") { "${it.key.substringAfter(" / ")}: ${perTick(it.value.asJsonObject.number("totalMs"))} ms/tick" }
+            val label = text("$world · ${perTick(value.asJsonObject.number("totalMs"))} ms", ChatFormatting.WHITE)
+            out.append("\n")
+            out.append(hover(label, "$details\nWorld totals include stages; do not add overlapping rows."))
         }
         if (worlds.isEmpty()) out.append("\nNo world timings recorded.")
     }
@@ -89,14 +98,21 @@ internal class PerformanceReport(
     private fun profileDetails(out: MutableComponent) {
         val split = profile.getAsJsonObject("split")
         out.append(text("\n$configuration", ChatFormatting.GRAY))
-        out.append("\n").append(hover(text("Tick split", ChatFormatting.WHITE),
-            "Stages include planning/dispatch/waits. Preparation is independent worker jobs.\nThe remainder includes collection and inline work; it is not CPU-only time."))
-            .append(": stages ${format(split.number("stageWaves") * 100, 1)}% · preparation ${format(split.number("preparation") * 100, 1)}% · remainder ${format(split.number("serial") * 100, 1)}%")
+        out.append("\n")
+        out.append(hover(text("Tick split", ChatFormatting.WHITE),
+            "Stages include planning/dispatch/waits. Preparation is independent worker jobs.\n" +
+                "The remainder includes collection and inline work; it is not CPU-only time."))
+        out.append(": stages ${format(split.number("stageWaves") * 100, 1)}%" +
+            " · preparation ${format(split.number("preparation") * 100, 1)}%" +
+            " · remainder ${format(split.number("serial") * 100, 1)}%")
         for ((name, value) in profile.getAsJsonObject("preparations").entrySet()) {
             val jobs = value.asJsonObject
             val duration = jobs.getAsJsonObject("duration")
-            out.append("\n").append(hover(text("$name · ${format(duration.number("totalMs") / tickCount)} ms/tick", ChatFormatting.WHITE),
-                "${jobs.number("jobs").toLong()} jobs across ${duration.number("count").toLong()} calls.\n${sampleDetails(duration)}\nAlready included in tick time; do not add again."))
+            val label = text("$name · ${perTick(duration.number("totalMs"))} ms/tick", ChatFormatting.WHITE)
+            out.append("\n")
+            out.append(hover(label,
+                "${jobs.number("jobs").toLong()} jobs across ${duration.number("count").toLong()} calls.\n" +
+                    "${sampleDetails(duration)}\nAlready included in tick time; do not add again."))
         }
         out.append(text("\nIdle time excluded; profiling adds overhead.", ChatFormatting.GRAY))
     }
@@ -106,12 +122,18 @@ internal class PerformanceReport(
         for (part in sections(kind)) {
             if (part == section) continue
             val command = if (part == "summary") prefix else "$prefix $part"
-            out.append(hover(text("[${part.replaceFirstChar(Char::uppercase)}] ", ChatFormatting.AQUA), "Show $part · $prefix ${if (part == "summary") "" else part}")
-                .withStyle { it.withClickEvent(ClickEvent.RunCommand(command)) })
+            val button = hover(text("[${part.replaceFirstChar(Char::uppercase)}] ", ChatFormatting.AQUA),
+                "Show $part · $prefix ${if (part == "summary") "" else part}")
+            out.append(button.withStyle { it.withClickEvent(ClickEvent.RunCommand(command)) })
         }
-        out.append(hover(text(if (file == null) "[Not saved]" else "[JSON path]", if (file == null) ChatFormatting.YELLOW else ChatFormatting.GRAY),
-            file?.let { "$it\nClick to copy this server-relative path; the full capture is in this file." } ?: "Could not save the result file; the full JSON is in the server log.")
-            .withStyle { if (file == null) it else it.withClickEvent(ClickEvent.CopyToClipboard(file)) })
+        if (file == null) {
+            out.append(hover(text("[Not saved]", ChatFormatting.YELLOW),
+                "Could not save the result file; the full JSON is in the server log."))
+            return
+        }
+        val path = hover(text("[JSON path]", ChatFormatting.GRAY),
+            "$file\nClick to copy this server-relative path; the full capture is in this file.")
+        out.append(path.withStyle { it.withClickEvent(ClickEvent.CopyToClipboard(file)) })
     }
 
     private fun stages() = profile.getAsJsonObject("stages").entrySet()
@@ -129,22 +151,23 @@ internal class PerformanceReport(
             else -> name
         }
         val execution = data.getAsJsonObject("execution")
-        val header = "$label · all dimensions\n${format(execution.number("totalMs") / tickCount)} ms per server tick, including planning, dispatch and waits.\n"
-        val tasks = "${format(data.number("tasks") / tickCount, 1)} tasks/tick"
-        val tail = "Caller tail wait: ${format(data.number("callerTailWaitMs") / tickCount)} ms/tick (already included)\n"
+        val header = "$label · all dimensions\n" +
+            "${perTick(execution.number("totalMs"))} ms per server tick, including planning, dispatch and waits.\n"
+        val tasks = "${perTick(data.number("tasks"), 1)} tasks/tick"
+        val tail = "Caller tail wait: ${perTick(data.number("callerTailWaitMs"))} ms/tick (already included)\n"
         // Entities run as one wave with no regions, so region figures do not apply to them.
         val tooltip = if (data.number("regions") == 0.0) {
             header + "$tasks in one wave, wherever they are (no regions)\n" + tail +
                 "Serial entities and collection are outside this stage timing."
         } else {
-            header + "$tasks · ${format(data.number("regions") / tickCount, 1)} regions/tick\n" +
+            header + "$tasks · ${perTick(data.number("regions"), 1)} regions/tick\n" +
                 "Largest region: ${data.number("maxTasksPerRegion").toLong()} tasks\n" +
                 "Participant utilization: ${format(data.number("utilization") * 100, 1)}% (region wall time / capacity, not CPU usage)\n" +
                 tail +
                 "Individual region durations: ${sampleDetails(data.getAsJsonObject("regionExecution"))}\n" +
                 "Collection and inline fallbacks are outside this stage timing."
         }
-        return hover(text("$label ${format(execution.number("totalMs") / tickCount)} ms", ChatFormatting.WHITE), tooltip)
+        return hover(text("$label ${perTick(execution.number("totalMs"))} ms", ChatFormatting.WHITE), tooltip)
     }
 
     private fun benchmarkDetails(): String {
@@ -155,16 +178,31 @@ internal class PerformanceReport(
             "$configuration\nElapsed/tick includes wall-time overhead; it is not profiled tick work."
     }
 
-    private fun metric(ms: Double, label: String, tooltip: String) = hover(
-        text("${format(ms)} ms $label", when { ms >= 50 -> ChatFormatting.RED; ms >= 40 -> ChatFormatting.GOLD; else -> ChatFormatting.GREEN }),
-        "$tooltip\nColor indicates the 50ms budget at 20 TPS, not change versus a baseline.")
+    private fun metric(ms: Double, label: String, tooltip: String): MutableComponent {
+        val color = when {
+            ms >= 50 -> ChatFormatting.RED
+            ms >= 40 -> ChatFormatting.GOLD
+            else -> ChatFormatting.GREEN
+        }
+        return hover(text("${format(ms)} ms $label", color),
+            "$tooltip\nColor indicates the 50ms budget at 20 TPS, not change versus a baseline.")
+    }
 
-    private fun sampleDetails(samples: JsonObject): String = if (samples.number("count") == 0.0) "No samples." else
-        "${samples.number("count").toLong()} samples · avg ${format(samples.number("avgMs"))} ms\n" +
-            "p50 ${format(samples.number("p50Ms"))} · p95 ${format(samples.number("p95Ms"))} · p99 ${format(samples.number("p99Ms"))} ms" +
-            if (samples.number("count") > samples.number("percentileSamples")) "\nPercentiles cover the first ${samples.number("percentileSamples").toLong()} samples only." else ""
+    private fun sampleDetails(samples: JsonObject): String {
+        val count = samples.number("count")
+        if (count == 0.0) return "No samples."
+        val details = "${count.toLong()} samples · avg ${format(samples.number("avgMs"))} ms\n" +
+            "p50 ${format(samples.number("p50Ms"))} · p95 ${format(samples.number("p95Ms"))} · p99 ${format(samples.number("p99Ms"))} ms"
+        val percentileSamples = samples.number("percentileSamples")
+        if (count <= percentileSamples) return details
+        return details + "\nPercentiles cover the first ${percentileSamples.toLong()} samples only."
+    }
 
-    private fun hover(component: MutableComponent, details: String) = component.withStyle { it.withHoverEvent(HoverEvent.ShowText(Component.literal(details))) }
+    private fun hover(component: MutableComponent, details: String) =
+        component.withStyle { it.withHoverEvent(HoverEvent.ShowText(Component.literal(details))) }
+
+    /** [total] over the whole capture as an average per server tick. */
+    private fun perTick(total: Double, decimals: Int = 2) = format(total / tickCount, decimals)
 
     private fun text(value: String, color: ChatFormatting) = Component.literal(value).withStyle(color)
 
