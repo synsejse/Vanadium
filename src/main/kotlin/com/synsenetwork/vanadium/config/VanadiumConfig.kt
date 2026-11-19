@@ -78,8 +78,6 @@ class VanadiumConfig : ConfigData {
     @field:Comment("Include current task/type labels in slow-wave reports. Adds per-task overhead while diagnostics are enabled.")
     @JvmField var detailedTickDiagnostics = false
 
-    @Transient private var idleWorkersText: String? = null
-    @Transient private var idleWorkersParsed = IdleWorkers.LEAN
     @Transient private val entityRules = TypeRules()
     @Transient private val blockEntityRules = TypeRules()
 
@@ -94,16 +92,9 @@ class VanadiumConfig : ConfigData {
 
     fun hasSerialBlockEntityRules(): Boolean = !blockEntityRules.isEmpty()
 
-    /** [idleWorkers] as a mode; reparsed only when the field changes (it is validated on load and by `set`). */
-    fun idleWorkersMode(): IdleWorkers {
-        val text = idleWorkers
-        if (text !== idleWorkersText) {
-            idleWorkersParsed = requireNotNull(IdleWorkers.parse(text)) {
-                "idleWorkers must be one of ${IdleWorkers.names.joinToString()} (got '$text')."
-            }
-            idleWorkersText = text
-        }
-        return idleWorkersParsed
+    /** [idleWorkers] as a mode. Parsed once per tick; the field is validated on load and by `set`. */
+    fun idleWorkersMode(): IdleWorkers = requireNotNull(IdleWorkers.parse(idleWorkers)) {
+        "idleWorkers must be one of ${IdleWorkers.names.joinToString()} (got '$idleWorkers')."
     }
 
     /** Refresh once per tick so in-place list edits never add scans to individual ticker lookups. */

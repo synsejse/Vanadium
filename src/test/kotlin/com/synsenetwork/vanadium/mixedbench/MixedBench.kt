@@ -84,7 +84,7 @@ class MixedBench : ModInitializer {
         private val spawnArm: String get() = when {
             !Vanadium.config.enabled -> "off"
             !Vanadium.config.parallelSpawning -> "serial-spawning"
-            else -> "participants-${Vanadium.scheduler.spawnParticipants.label}"
+            else -> "participants-${Vanadium.scheduler.spawnParticipantsLabel}"
         }
         private val level = server.overworld()
         private val output: Path = Files.createDirectories(Path.of("mixed-bench"))
@@ -338,7 +338,7 @@ class MixedBench : ModInitializer {
                 addProperty("mode", mode)
                 addProperty("spawnArm", spawnArm)
                 addProperty("parallelSpawning", Vanadium.config.parallelSpawning)
-                addProperty("spawnParticipants", Vanadium.scheduler.spawnParticipants.label)
+                addProperty("spawnParticipants", Vanadium.scheduler.spawnParticipantsLabel)
                 addProperty("players", players)
                 addProperty("bases", baseCount)
                 addProperty("warmupTicks", warmupTicks)

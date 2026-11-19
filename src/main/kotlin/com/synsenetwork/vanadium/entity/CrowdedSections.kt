@@ -1,5 +1,6 @@
 package com.synsenetwork.vanadium.entity
 
+import com.synsenetwork.vanadium.config.DeveloperProperties
 import net.minecraft.world.level.entity.EntityAccess
 import net.minecraft.world.level.entity.EntitySection
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -77,7 +78,7 @@ class CrowdedSections<T : EntityAccess> {
     companion object {
         /** Entities in a section before its box queries go through cells. */
         @JvmField
-        val THRESHOLD: Int = Integer.getInteger("vanadium.crowdedSectionEntities", 24).coerceAtLeast(2)
+        val THRESHOLD: Int = DeveloperProperties.long("vanadium.crowdedSectionEntities", 24, 2L..4096L).toInt()
     }
 }
 

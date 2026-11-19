@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -259,7 +260,7 @@ class TickSchedulerTest {
     fun spawnParticipantCeilingBoundsOnlySpawningWaves() {
         WorkerPool(5).use { pool ->
             // A zero participant cost always estimates every worker, so only the ceiling can lower it.
-            val scheduler = TickScheduler(pool, 1, participantCostNanos = 0.0, spawnParticipants = ParticipantCeiling.of(2))
+            val scheduler = TickScheduler(pool, 1, participantCostNanos = 0.0, spawnParticipants = 2)
             assertEquals(2, scheduler.regionParticipants(Stage.SPAWNING, 100, 1e9))
             assertEquals(6, scheduler.regionParticipants(Stage.CHUNK, 100, 1e9), "other stages keep their estimate")
             assertEquals(1, scheduler.regionParticipants(Stage.SPAWNING, 1, 1e9), "never more than the regions")
@@ -278,7 +279,7 @@ class TickSchedulerTest {
     @Test
     fun spawnParticipantCeilingOfOneRunsInlineWithoutDeferral() {
         WorkerPool(4).use { pool ->
-            val scheduler = TickScheduler(pool, 1, participantCostNanos = 0.0, spawnParticipants = ParticipantCeiling.of(1))
+            val scheduler = TickScheduler(pool, 1, participantCostNanos = 0.0, spawnParticipants = 1)
             val inParallelWave = AtomicInteger()
             val (threads, most) = regionWave(scheduler, Stage.SPAWNING, 6, null) {
                 if (WorkerPool.isParallelWaveCaller() || WorkerPool.isWorkerThread()) inParallelWave.incrementAndGet()
@@ -294,7 +295,10 @@ class TickSchedulerTest {
     fun defaultSchedulerHasNoSpawnCeiling() {
         WorkerPool(3).use { pool ->
             val scheduler = TickScheduler(pool, 1)
-            assertSame(ParticipantCeiling.AUTO, scheduler.spawnParticipants)
+            assertNull(scheduler.spawnParticipants)
+            assertEquals("auto", scheduler.spawnParticipantsLabel)
+            assertEquals("2", TickScheduler(pool, 1, spawnParticipants = 2).spawnParticipantsLabel)
+            assertFailsWith<IllegalArgumentException> { TickScheduler(pool, 1, spawnParticipants = 0) }
             assertEquals(scheduler.participants(100, 1e9), scheduler.regionParticipants(Stage.SPAWNING, 100, 1e9))
             assertEquals(4, regionWave(TickScheduler(pool, 1, participantCostNanos = 0.0), Stage.SPAWNING, 4, CountDownLatch(4)).first.size)
         }

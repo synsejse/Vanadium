@@ -3,8 +3,9 @@ package com.synsenetwork.vanadium.config
 import org.apache.logging.log4j.LogManager
 
 /**
- * `-Dvanadium.*` developer and measurement inputs, read once per JVM. A malformed or out-of-range value never stops
- * the server or silently changes behaviour: it logs a warning and the default applies.
+ * `-Dvanadium.*` developer and measurement inputs, read once per JVM. A malformed or out-of-range value never
+ * silently changes behaviour: it logs a warning and the default applies, except for [participantLimit], which stops
+ * the launch.
  */
 internal object DeveloperProperties {
     private val LOGGER = LogManager.getLogger("Vanadium")
@@ -66,6 +67,22 @@ internal object DeveloperProperties {
                 default
             }
         }
+    }
+
+    /**
+     * [name] as a participant limit: absent, empty or `auto` is null (no limit), a positive integer is the limit.
+     * Anything else fails, `0` included: it would read as both "no limit" and "no threads", and a mistyped experiment
+     * must not quietly measure `auto`.
+     */
+    fun participantLimit(name: String, text: String? = System.getProperty(name)): Int? {
+        val value = text?.trim().orEmpty()
+        if (value.isEmpty() || value.equals("auto", ignoreCase = true)) return null
+        val limit = value.toIntOrNull()
+        require(limit != null && limit >= 1) {
+            "$name must be 'auto' or a participant count of at least 1, the server thread included " +
+                "(1 = inline on the server thread), not '$text'"
+        }
+        return limit
     }
 
     /** Warns once for each [RETIRED] property that is set: it was removed and is ignored. */

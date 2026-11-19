@@ -106,15 +106,13 @@ command line. None is needed for normal play.
 | `vanadium.entityHomes` | `true` | `true` or `false`, any case | `false` claims every entity wave in list order instead of by home; see [Architecture](ARCHITECTURE.md#flat-entity-wave) |
 | `vanadium.workerSlackSpinMicros` | `500` | 0–1,000,000 | Worker spin between waves of a tick with slack; see [Architecture](ARCHITECTURE.md#idle-spinning) |
 | `vanadium.callerPressureSpinMicros` | `10000` | 0–1,000,000 | Longest tail the server thread spins through under pressure before parking; see [Architecture](ARCHITECTURE.md#idle-spinning) |
-| `vanadium.crowdedSectionEntities` | `24` | integer, at least 2 | Entities in a section before it gets a cell grid (`crowdedSectionIndex`) |
-| `vanadium.interactionLogWaves` | `0` | integer | Every N entity waves, log foreign-write counts by kind plus ownership `cycles`/`timeouts`; `0` disables. See [Architecture](ARCHITECTURE.md#flat-entity-wave) |
-| `vanadium.interactionTimeoutMillis` | `100` | integer | Longest wait for another entity's ownership lock before the write proceeds unprotected and is counted as a timeout |
-| `vanadium.callerRequestStallSeconds` | `10` | integer | How long a worker's chunk lookup handed to the wave's caller may wait before a warning names the stalled caller; see [world access](ARCHITECTURE.md#world-access) |
+| `vanadium.crowdedSectionEntities` | `24` | 2–4,096 | Entities in a section before it gets a cell grid (`crowdedSectionIndex`) |
+| `vanadium.interactionLogWaves` | `0` | 0–1,000,000 | Every N entity waves, log foreign-write counts by kind plus ownership `cycles`/`timeouts`; `0` disables. See [Architecture](ARCHITECTURE.md#flat-entity-wave) |
+| `vanadium.interactionTimeoutMillis` | `100` | 1–60,000 | Longest wait for another entity's ownership lock before the write proceeds unprotected and is counted as a timeout |
+| `vanadium.callerRequestStallSeconds` | `10` | 1–3,600 | How long a worker's chunk lookup handed to the wave's caller may wait before a warning names the stalled caller; see [world access](ARCHITECTURE.md#world-access) |
 
-The first six are validated: a malformed, NaN, infinite or out-of-range value logs
-`Ignoring -D…; using the default …` and the default applies (`spawnParticipants` excepted, as above).
-The last four are read with Java's `Integer.getInteger`/`Long.getLong`, so a malformed value silently
-uses the default; `crowdedSectionEntities` raises values below 2 to 2.
+All are validated: a malformed, NaN, infinite or out-of-range value logs
+`Ignoring -D…; using the default …` once and the default applies (`spawnParticipants` excepted, as above).
 
 ### Removed options and properties
 

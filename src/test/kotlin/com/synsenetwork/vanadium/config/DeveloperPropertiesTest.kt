@@ -2,6 +2,8 @@ package com.synsenetwork.vanadium.config
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class DeveloperPropertiesTest {
@@ -62,6 +64,26 @@ class DeveloperPropertiesTest {
         for (text in listOf("", "no", "0", "off", "yes")) assertEquals(true, parse(text), "'$text'")
         assertEquals(5, warnings.size, warnings.toString())
         assertTrue(warnings.all { "vanadium.flag" in it && "true or false" in it }, warnings.toString())
+    }
+
+    @Test
+    fun participantLimitIsAutoOrAPositiveCount() {
+        for (text in listOf(null, "", "  ", "auto", "AUTO", " Auto ")) {
+            assertNull(DeveloperProperties.participantLimit("vanadium.spawnParticipants", text), "'$text'")
+        }
+        assertEquals(4, DeveloperProperties.participantLimit("vanadium.spawnParticipants", " 4 "))
+        assertEquals(1, DeveloperProperties.participantLimit("vanadium.spawnParticipants", "1"))
+    }
+
+    /** 0 could mean "no limit" or "no threads"; neither is guessed, and typos do not silently measure `auto`. */
+    @Test
+    fun participantLimitRejectsZeroNegativeAndMalformedValues() {
+        for (text in listOf("0", "-1", "four", "1.5", "4x", "2147483648")) {
+            val failure = assertFailsWith<IllegalArgumentException>("'$text'") {
+                DeveloperProperties.participantLimit("vanadium.spawnParticipants", text)
+            }
+            assertTrue("vanadium.spawnParticipants" in failure.message.orEmpty())
+        }
     }
 
     @Test

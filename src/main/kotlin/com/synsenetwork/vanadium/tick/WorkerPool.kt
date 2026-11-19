@@ -573,7 +573,7 @@ class WorkerPool internal constructor(
         private const val REQUEST_CHECK_NANOS = 1_000_000_000L
 
         /** How long a [callOnWaveCaller] request may wait before its `stalled` callback runs. */
-        private val REQUEST_STALL_NANOS = java.lang.Long.getLong("vanadium.callerRequestStallSeconds", 10) * 1_000_000_000L
+        private val REQUEST_STALL_NANOS = DeveloperProperties.long("vanadium.callerRequestStallSeconds", 10, 1L..3_600L) * 1_000_000_000L
 
         /** Wave callers' state; read only on the calling thread, outside per-task hot paths. */
         private val CALLER = ThreadLocal.withInitial(::CallerState)

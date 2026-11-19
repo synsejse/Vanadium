@@ -1,6 +1,7 @@
 package com.synsenetwork.vanadium.concurrent
 
 import com.synsenetwork.vanadium.Vanadium
+import com.synsenetwork.vanadium.config.DeveloperProperties
 import com.synsenetwork.vanadium.tick.TickThread
 import com.synsenetwork.vanadium.tick.WorkerPool
 import net.minecraft.world.entity.Entity
@@ -33,7 +34,7 @@ object Interactions {
     @Volatile
     var active = false
 
-    private val locks = OwnerLocks(TimeUnit.MILLISECONDS.toNanos(java.lang.Long.getLong("vanadium.interactionTimeoutMillis", 100)))
+    private val locks = OwnerLocks(TimeUnit.MILLISECONDS.toNanos(DeveloperProperties.long("vanadium.interactionTimeoutMillis", 100, 1L..60_000L)))
 
     /**
      * The pool that applies a large wave's leftover pushes in parallel; null applies them on the server thread.
@@ -60,7 +61,7 @@ object Interactions {
     private const val MAX_FAILED_TICKS = 3
 
     /** Diagnostics: log foreign-write counts every this many waves; 0 disables. */
-    private val LOG_EVERY_WAVES = java.lang.Long.getLong("vanadium.interactionLogWaves", 0)
+    private val LOG_EVERY_WAVES = DeveloperProperties.long("vanadium.interactionLogWaves", 0, 0L..1_000_000L)
     private var waves = 0L
 
     class Context(internal val pushed: DeferredQueue.Local<Entity>) : OwnerLocks.Context() {
