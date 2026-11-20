@@ -61,7 +61,8 @@ class ParallelChunkCache(
             return CompletableFuture.supplyAsync({ getChunk(chunkX, chunkZ, requiredStatus, load) }, mainThreadProcessor).join()
         }
         val pos = ChunkPos.pack(chunkX, chunkZ)
-        loadedFull(pos, requiredStatus)?.let { return it }
+        val full = loadedFull(pos, requiredStatus)
+        if (full != null) return full
         val worker = WorkerPool.isWorkerThread()
         var stalled: Runnable? = null
         if (worker || WorkerPool.isParallelWaveCaller()) {

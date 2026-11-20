@@ -7,17 +7,26 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Mutable;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(SimulationChunkTracker.class)
 public abstract class SimulationChunkTrackerMixin {
-    /**
-     * A shadow-field initializer, not a {@code <init>} RETURN install: the constructor sets this map's default
-     * return value (C2ME changes it) after vanilla's own initializer, and Mixin places this one right after vanilla's,
-     * so the setting reaches the replacement (checked in a mixin export, 2026-11-20). Versioned: {@code ChunkStage}
-     * caches the ticking set.
-     */
     @Shadow
     @Final
     @Mutable
-    protected Long2ByteMap chunks = new ConcurrentLongByteMap(true);
+    protected Long2ByteMap chunks;
+
+    /**
+     * Installed explicitly: Mixin may drop shadow-field initializers once the class adds fields of its own. The
+     * constructor has already set vanilla's map's default level (33, which C2ME raises), so it carries over.
+     * Versioned: {@code ChunkStage} caches the ticking set.
+     */
+    @Inject(method = "<init>", at = @At("RETURN"))
+    private void vanadium$install(CallbackInfo ci) {
+        ConcurrentLongByteMap replacement = new ConcurrentLongByteMap(true);
+        replacement.defaultReturnValue(chunks.defaultReturnValue());
+        chunks = replacement;
+    }
 }

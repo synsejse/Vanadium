@@ -8,22 +8,31 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Mutable;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /** Village distance levels are read by every mob's village checks; reads must not need the monitor. */
 @Mixin(targets = "net.minecraft.world.entity.ai.village.poi.PoiManager$DistanceTracker")
 public abstract class PoiDistanceTrackerMixin extends SectionTracker implements PoiDistanceAccess {
-    /**
-     * A shadow-field initializer, not a {@code <init>} RETURN install: the constructor sets this map's default
-     * return value after vanilla's own initializer, and Mixin places this one right after vanilla's, so the setting
-     * reaches the replacement (checked in a mixin export, 2026-11-20).
-     */
     @Shadow
     @Final
     @Mutable
-    private Long2ByteMap levels = new ConcurrentLongByteMap();
+    private Long2ByteMap levels;
 
     protected PoiDistanceTrackerMixin(int levelCount, int minQueueSize, int minMapSize) {
         super(levelCount, minQueueSize, minMapSize);
+    }
+
+    /**
+     * Installed explicitly: Mixin may drop shadow-field initializers once the class adds fields of its own. The
+     * constructor has already set vanilla's map's default level (7), so it carries over.
+     */
+    @Inject(method = "<init>", at = @At("RETURN"))
+    private void vanadium$install(CallbackInfo ci) {
+        ConcurrentLongByteMap replacement = new ConcurrentLongByteMap();
+        replacement.defaultReturnValue(levels.defaultReturnValue());
+        levels = replacement;
     }
 
     @Override

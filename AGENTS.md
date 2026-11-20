@@ -153,10 +153,8 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - The server thread runs chunk-system work (status changes, mods' load/unload callbacks) when it loads
   during a wave; prefer `WorkerPool.runDeferrable`, or queue callbacks with `runAfterParallelWave`.
 - Do not rely on `@Shadow` field initializers to replace vanilla collections: once a mixin adds other
-  initialized fields, Mixin may drop them. Install replacements explicitly at `<init>` RETURN.
-  `SimulationChunkTrackerMixin` and `PoiDistanceTrackerMixin` keep initializers (and add no fields): their
-  constructors set the map's default return value after vanilla's initializer, which a RETURN install would
-  miss; a mixin export (2026-11-20) places each replacement right after vanilla's own empty map.
+  initialized fields, Mixin may drop them. Install replacements explicitly at `<init>` RETURN, and carry over
+  whatever the constructor configured on vanilla's collection (the chunk and POI tracker maps' default levels).
 
 ## Change and validation discipline
 
