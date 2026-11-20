@@ -21,12 +21,18 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(LevelTicks.class)
 public abstract class LevelTicksMixin<T> implements ScheduledTickAccess<T> {
     @Shadow @Final @Mutable
-    private Queue<ScheduledTick<T>> toRunThisTick = new ScheduledTickStage.Queue<>();
+    private Queue<ScheduledTick<T>> toRunThisTick;
     @Shadow @Final private List<ScheduledTick<T>> alreadyRunThisTick;
     @Shadow @Final private Set<ScheduledTick<?>> toRunThisTickSet;
 
     @Shadow protected abstract void collectTicks(long time, int limit, ProfilerFiller profiler);
     @Shadow protected abstract void cleanupAfterTick();
+
+    /** Installed explicitly: Mixin may drop shadow-field initializers once the class adds fields of its own. */
+    @Inject(method = "<init>", at = @At("RETURN"))
+    private void vanadium$install(CallbackInfo ci) {
+        toRunThisTick = new ScheduledTickStage.Queue<>();
+    }
 
     @Override
     public synchronized List<ScheduledTick<T>> vanadium$collect(long time, int limit) {

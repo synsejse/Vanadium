@@ -43,14 +43,15 @@ public abstract class ServerChunkCacheMixin implements ChunkTickAccess {
     @Shadow
     @Final
     @Mutable
-    private Set<ChunkHolder> chunkHoldersToBroadcast =
-            Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private Set<ChunkHolder> chunkHoldersToBroadcast;
 
     @Unique
     private ChunkStage vanadium$chunkStage;
 
+    /** Installed explicitly: Mixin may drop shadow-field initializers once the class adds fields of its own. */
     @Inject(method = "<init>", at = @At("RETURN"))
     private void vanadium$install(CallbackInfo ci) {
+        chunkHoldersToBroadcast = Collections.newSetFromMap(new ConcurrentHashMap<>());
         vanadium$chunkStage = new ChunkStage((ServerChunkCache) (Object) this, level);
     }
 
