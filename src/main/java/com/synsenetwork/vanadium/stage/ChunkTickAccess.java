@@ -1,8 +1,6 @@
 package com.synsenetwork.vanadium.stage;
 
-import com.synsenetwork.vanadium.tick.ChunkTickBatch;
-
-/** Mixed into {@code ServerChunkCache}: the level's persistent chunk tick tasks. */
+/** Mixed into {@code ServerChunkCache}: the level's spawning and chunk-tick stage. */
 public interface ChunkTickAccess {
-    ChunkTickBatch vanadium$chunkTicks();
+    ChunkStage vanadium$chunkStage();
 }

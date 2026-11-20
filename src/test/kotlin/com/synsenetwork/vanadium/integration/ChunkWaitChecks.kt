@@ -1,7 +1,7 @@
 package com.synsenetwork.vanadium.integration
 
-import com.synsenetwork.vanadium.chunk.BlockEntityNeighbourhood
 import com.synsenetwork.vanadium.chunk.ParallelChunkCache
+import com.synsenetwork.vanadium.stage.BlockEntityStage
 import com.synsenetwork.vanadium.tick.ClaimWave
 import com.synsenetwork.vanadium.tick.DataflowWave
 import com.synsenetwork.vanadium.tick.RegionWave
@@ -64,30 +64,30 @@ internal object ChunkWaitChecks {
         }
         regionNeighborLoad(level, source, claiming = true)
         regionNeighborLoad(level, source, claiming = false)
-        blockEntityNeighbourhood(source)
+        blockEntityNeighbourhood(level, source)
         println("CHUNK_WAIT_CHECKS_PASSED shared=1 tail=1")
     }
 
     /**
-     * Block entities tick on workers only in chunks [BlockEntityNeighbourhood] calls ready, and ready must mean that
+     * Block entities tick on workers only in chunks [BlockEntityStage.ready] accepts, and ready must mean that
      * every neighbouring chunk is FULL: the vault path above then never reaches a chunk a worker has to wait for.
      */
-    private fun blockEntityNeighbourhood(source: ParallelChunkCache) {
+    private fun blockEntityNeighbourhood(level: ServerLevel, source: ParallelChunkCache) {
         val center = ChunkPos(4500, -3001)
         val ring = (-1..1).flatMap { dx -> (-1..1).map { dz -> ChunkPos(center.x() + dx, center.z() + dz) } }
         for (pos in ring) {
             check(source.getVisibleChunkIfPresent(pos.pack()) == null) { "fixture chunk $pos is already tracked" }
         }
-        val neighbourhood = BlockEntityNeighbourhood(source)
+        // A stage of its own: the level's stage keeps its cached answer until its next block-entity phase.
+        val neighbourhood = BlockEntityStage(level, ArrayList())
         check(!neighbourhood.ready(center.pack())) { "an untracked chunk counts as ready" }
         // Block-ticking level for the centre; its neighbours get FULL level and load asynchronously.
         source.addTicketWithRadius(TicketType.FORCED, center, 1)
         try {
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
             source.mainThreadProcessor.managedBlock { System.nanoTime() >= deadline || source.isPositionTicking(center.pack()) }
-            check(neighbourhood.ready(center.pack()) == false) { "the cached answer was not kept until reset" }
-            neighbourhood.reset()
-            check(neighbourhood.ready(center.pack())) { "chunk $center never became ready for block entities" }
+            check(neighbourhood.ready(center.pack()) == false) { "the cached answer was not kept for the phase" }
+            check(BlockEntityStage(level, ArrayList()).ready(center.pack())) { "chunk $center never became ready for block entities" }
             for (pos in ring) {
                 check(source.isAvailable(pos.pack(), ChunkStatus.FULL)) { "chunk $pos is not FULL although $center is ready" }
             }

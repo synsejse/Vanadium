@@ -97,6 +97,11 @@ internal object TickSafetyChecks {
                 ticks.schedule(ScheduledTick("test", first, 3, 0))
                 run(ticks, 3) { _, _ -> calls.incrementAndGet() }
                 check(calls.get() == 3, "serial fallback failed")
+                Vanadium.config.parallelScheduledTicks = true
+                Vanadium.config.enabled = false
+                ticks.schedule(ScheduledTick("test", first, 4, 0))
+                run(ticks, 4) { _, _ -> calls.incrementAndGet() }
+                check(calls.get() == 4, "disabled fallback failed")
             } finally {
                 Vanadium.scheduler = previous
                 Vanadium.config.enabled = enabled

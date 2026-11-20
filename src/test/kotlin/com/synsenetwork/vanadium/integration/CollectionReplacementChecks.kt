@@ -1,5 +1,8 @@
 package com.synsenetwork.vanadium.integration
 
+import com.synsenetwork.vanadium.stage.BlockEntityStage
+import com.synsenetwork.vanadium.stage.ChunkTickAccess
+import com.synsenetwork.vanadium.stage.EntityTickAccess
 import net.minecraft.server.level.ChunkMap
 import net.minecraft.server.level.DistanceManager
 import net.minecraft.server.level.ServerChunkCache
@@ -12,6 +15,7 @@ import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.world.entity.ai.village.poi.PoiManager
 import net.minecraft.world.entity.ai.village.poi.PoiSection
 import net.minecraft.world.entity.ai.village.poi.PoiTypes
+import net.minecraft.world.level.Level
 import net.minecraft.world.level.entity.EntityLookup
 import net.minecraft.world.level.entity.EntityTickList
 import net.minecraft.world.level.storage.SavedDataStorage
@@ -19,6 +23,7 @@ import net.minecraft.world.level.storage.SavedDataStorage
 /**
  * Every vanilla collection Vanadium replaces must hold the replacement at runtime. Mixin can drop `@Shadow`
  * field initializers when a mixin also adds initialized fields, which no compile-time check would notice.
+ * Every level also needs its own stage owners, which the same `<init>` RETURN hooks install.
  */
 internal object CollectionReplacementChecks {
     fun run(level: ServerLevel) {
@@ -42,13 +47,37 @@ internal object CollectionReplacementChecks {
             expect(ClassInstanceMultiMap(Entity::class.java), ClassInstanceMultiMap::class.java, "byClass", "java.util.concurrent.ConcurrentHashMap"),
             expect(ClassInstanceMultiMap(Entity::class.java), ClassInstanceMultiMap::class.java, "allInstances", "java.util.concurrent.CopyOnWriteArrayList"),
             expect(ShowTradesToPlayer(1, 2), ShowTradesToPlayer::class.java, "displayItems", "java.util.concurrent.CopyOnWriteArrayList"),
-            expect(level.getBlockTicks(), null, "toRunThisTick", "com.synsenetwork.vanadium.tick.ScheduledTickQueue"),
             expect(poiSection(), PoiSection::class.java, "byType", "java.util.concurrent.ConcurrentHashMap"),
             poiTypeSet(),
-        )
+        ) + level.server.allLevels.flatMap(::stageOwners)
         check(failures.isEmpty()) { "Vanilla collections were not replaced:\n" + failures.joinToString("\n") }
-        println("COLLECTION_REPLACEMENT_CHECKS_PASSED")
+        println("COLLECTION_REPLACEMENT_CHECKS_PASSED levels=${level.server.allLevels.count()}")
     }
+
+    /** Mismatches in [level]'s stage owners: each installed, and each the level's own. */
+    private fun stageOwners(level: ServerLevel): List<String> {
+        val name = level.dimension().identifier()
+        val failures = ArrayList<String>()
+        if ((level.chunkSource as ChunkTickAccess).`vanadium$chunkStage`() == null) failures.add("$name has no chunk stage")
+        val blockEntityStage = BLOCK_ENTITY_STAGE.get(level)
+        if (blockEntityStage == null) {
+            failures.add("$name has no block-entity stage")
+        } else if (BLOCK_ENTITY_STAGE_LEVEL.get(blockEntityStage) !== level) {
+            failures.add("$name's block-entity stage belongs to another level")
+        }
+        val entityTickList = field(level, ServerLevel::class.java, "entityTickList") as EntityTickAccess
+        if (entityTickList.`vanadium$entityTicks`() == null) failures.add("$name has no entity tick tasks")
+        for ((kind, ticks) in listOf("block" to level.blockTicks, "fluid" to level.fluidTicks)) {
+            val queue = expect(ticks, null, "toRunThisTick", "com.synsenetwork.vanadium.stage.ScheduledTickStage\$Queue")
+            if (queue != null) failures.add("$name $kind ticks: $queue")
+        }
+        return failures
+    }
+
+    private val BLOCK_ENTITY_STAGE = Level::class.java.declaredFields.single { it.type == BlockEntityStage::class.java }
+        .apply { isAccessible = true }
+
+    private val BLOCK_ENTITY_STAGE_LEVEL = BlockEntityStage::class.java.getDeclaredField("level").apply { isAccessible = true }
 
     private fun poiSection(): PoiSection = PoiSection {}.apply {
         add(BlockPos(1, 2, 3), BuiltInRegistries.POINT_OF_INTEREST_TYPE.getOrThrow(PoiTypes.HOME))

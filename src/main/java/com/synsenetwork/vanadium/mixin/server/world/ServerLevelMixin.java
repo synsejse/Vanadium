@@ -9,7 +9,7 @@ import com.synsenetwork.vanadium.navigation.NavigationAccess;
 import com.synsenetwork.vanadium.navigation.NavigationIndex;
 import com.synsenetwork.vanadium.stage.EntityTickAccess;
 import com.synsenetwork.vanadium.stage.EntityTickTasks;
-import com.synsenetwork.vanadium.stage.ScheduledTickAccess;
+import com.synsenetwork.vanadium.stage.ScheduledTickStage;
 import com.synsenetwork.vanadium.tick.Stage;
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet;
 import java.util.Iterator;
@@ -56,6 +56,14 @@ public abstract class ServerLevelMixin implements NavigationAccess, EntityTickAc
     @Mutable
     Set<Mob> navigatingMobs;
 
+    @Shadow
+    @Final
+    private ObjectLinkedOpenHashSet<BlockEventData> blockEvents;
+
+    @Shadow
+    @Final
+    private EntityTickList entityTickList;
+
     @Inject(method = "<init>", at = @At("RETURN"))
     private void initializeNavigations(CallbackInfo ci) {
         navigatingMobs = new NavigationIndex();
@@ -71,47 +79,20 @@ public abstract class ServerLevelMixin implements NavigationAccess, EntityTickAc
         return Vanadium.config.enabled ? vanadium$navigations().candidates(pos).iterator() : mobs.iterator();
     }
 
-    @Shadow
-    @Final
-    private ObjectLinkedOpenHashSet<BlockEventData> blockEvents;
-
     @Redirect(method = "<init>", at = @At(value = "NEW", target = "(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/level/storage/LevelStorageSource$LevelStorageAccess;Lcom/mojang/datafixers/DataFixer;Lnet/minecraft/world/level/levelgen/structure/templatesystem/StructureTemplateManager;Ljava/util/concurrent/Executor;Lnet/minecraft/world/level/chunk/ChunkGenerator;IIZLnet/minecraft/world/level/entity/ChunkStatusUpdateListener;)Lnet/minecraft/server/level/ServerChunkCache;"))
     private ServerChunkCache createChunkCache(ServerLevel world, LevelStorageSource.LevelStorageAccess session, DataFixer dataFixer, StructureTemplateManager structureTemplateManager, Executor workerExecutor, ChunkGenerator chunkGenerator, int viewDistance, int simulationDistance, boolean dsync, ChunkStatusUpdateListener chunkStatusChangeListener) {
         return new ParallelChunkCache(world, session, dataFixer, structureTemplateManager, workerExecutor, chunkGenerator, viewDistance, simulationDistance, dsync, chunkStatusChangeListener);
     }
 
-    /** Keep pending/executed ticks visible until the wave finishes, outside the scheduler monitor. */
     @Redirect(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/ticks/LevelTicks;tick(JILjava/util/function/BiConsumer;)V"))
     private <T> void dispatchScheduledTicks(LevelTicks<T> ticks, long time, int maxTicks, BiConsumer<BlockPos, T> ticker) {
-        if (!Vanadium.config.enabled || !Vanadium.config.parallelScheduledTicks) {
-            ticks.tick(time, maxTicks, ticker);
-            return;
-        }
-        // LevelTicksMixin preserves T when adding the duck interface after Java compilation.
-        @SuppressWarnings("unchecked")
-        ScheduledTickAccess<T> access = (ScheduledTickAccess<T>) ticks;
-        Vanadium.scheduler.begin(Stage.SCHEDULED_TICK);
-        try {
-            for (var tick : access.vanadium$collect(time, maxTicks)) {
-                Vanadium.scheduler.enqueue(Stage.SCHEDULED_TICK, tick.pos().getX() >> 4, tick.pos().getZ() >> 4,
-                        () -> {
-                            if (access.vanadium$claim(tick)) ticker.accept(tick.pos(), tick.type());
-                        }, null);
-            }
-            Vanadium.scheduler.run(Stage.SCHEDULED_TICK);
-        } finally {
-            access.vanadium$finish();
-        }
+        ScheduledTickStage.dispatch(ticks, time, maxTicks, ticker);
     }
 
     @Inject(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/entity/EntityTickList;forEach(Ljava/util/function/Consumer;)V"))
     private void beginEntityTicks(BooleanSupplier shouldKeepTicking, CallbackInfo ci) {
         Vanadium.scheduler.begin(Stage.ENTITY);
     }
-
-    @Shadow
-    @Final
-    private EntityTickList entityTickList;
 
     @Override
     public EntityTickTasks vanadium$entityTicks() {
@@ -126,13 +107,7 @@ public abstract class ServerLevelMixin implements NavigationAccess, EntityTickAc
      */
     @Redirect(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/entity/EntityTickList;forEach(Ljava/util/function/Consumer;)V"))
     private void dispatchEntityTicks(EntityTickList list, Consumer<Entity> body) {
-        EntityTickTasks ticks = ((EntityTickAccess) list).vanadium$entityTicks();
-        if (!Vanadium.config.enabled || !Vanadium.config.parallelEntities) {
-            ticks.getTasks().stop();
-            list.forEach(body);
-            return;
-        }
-        ticks.dispatch(body, ((ServerLevel) (Object) this).tickRateManager().runsNormally());
+        ((EntityTickAccess) list).vanadium$entityTicks().dispatch(body, ((ServerLevel) (Object) this).tickRateManager().runsNormally());
     }
 
     @WrapMethod(method = "blockEvent")

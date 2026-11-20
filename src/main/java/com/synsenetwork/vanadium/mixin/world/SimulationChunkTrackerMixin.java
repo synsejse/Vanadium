@@ -13,6 +13,6 @@ public abstract class SimulationChunkTrackerMixin {
     @Shadow
     @Final
     @Mutable
-    protected Long2ByteMap chunks = new ConcurrentLongByteMap(true); // Versioned: ChunkTickBatch caches the ticking set.
+    protected Long2ByteMap chunks = new ConcurrentLongByteMap(true); // Versioned: ChunkStage caches the ticking set.
 
 }

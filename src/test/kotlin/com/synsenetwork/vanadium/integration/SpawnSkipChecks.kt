@@ -2,6 +2,7 @@ package com.synsenetwork.vanadium.integration
 
 import com.synsenetwork.vanadium.spawning.SpawnCounts
 import com.synsenetwork.vanadium.spawning.SpawnPreparation
+import com.synsenetwork.vanadium.stage.ChunkTickAccess
 import kotlin.random.Random
 import net.minecraft.server.level.ServerChunkCache
 import net.minecraft.server.level.ServerLevel
@@ -36,7 +37,7 @@ internal object SpawnSkipChecks {
         fun reference() = NaturalSpawner.createState(source.chunkMap.distanceManager.naturalSpawnChunkCount, level, chunks,
             LocalMobCapCalculator(source.chunkMap))
         fun stored() = LAST_SPAWN_STATE.get(source) as NaturalSpawner.SpawnState?
-        fun counts() = spawnCounts(source)
+        fun deferred() = DEFERRED.get((source as ChunkTickAccess).`vanadium$chunkStage`().spawnCounts) != null
 
         checks.then("spawn skip fixture") {
             for (chunk in chunkArea) level.setChunkForced(chunk.x(), chunk.z(), true)
@@ -64,7 +65,7 @@ internal object SpawnSkipChecks {
             entities.all { level.getEntity(it.id) === it && (filter == null || filter.test(it)) }
         }
         checks.then("spawn counts with spawn_mobs true") {
-            check(!counts().isDeferred(), "count skipped while spawn_mobs is true")
+            check(!deferred(), "count skipped while spawn_mobs is true")
             val expected = reference()
             check(expected.mobCategoryCounts.values.sum() >= ENTITIES / 2, "fixture mobs not counted: ${expected.mobCategoryCounts}")
             val state = checkNotNull(source.lastSpawnState) { "no spawn state" }
@@ -77,7 +78,7 @@ internal object SpawnSkipChecks {
             level.gameRules.set(GameRules.SPAWN_MOBS, false, level.server)
         }
         checks.then("spawn count skipped with spawn_mobs false") {
-            check(counts().isDeferred(), "count made with spawn_mobs false and nothing reading it")
+            check(deferred(), "count made with spawn_mobs false and nothing reading it")
             val placeholder = checkNotNull(stored()) { "no stored spawn state" }
             check(placeholder.mobCategoryCounts.isEmpty() && placeholder.spawnPotential.charges.isEmpty(), "placeholder holds counts")
             val expected = reference()
@@ -90,17 +91,19 @@ internal object SpawnSkipChecks {
             // The server thread, between ticks, gets the count made now.
             val state = checkNotNull(source.lastSpawnState) { "server-thread read returned null" }
             check(state !== placeholder && stored() === state, "count not stored as lastSpawnState")
-            check(!counts().isDeferred(), "still deferred after a count")
+            check(!deferred(), "still deferred after a count")
             SpawnCountChecks.same(expected, state, "read while skipped")
             check(source.lastSpawnState === state, "second read recounted")
         }
         checks.then("spawn counts every tick once read") {
-            check(!counts().isDeferred(), "count skipped after it was read")
+            check(!deferred(), "count skipped after it was read")
             SpawnCountChecks.same(reference(), checkNotNull(stored()), "after a read")
         }
         // The fixture's centre chunk is simulated and spawnable: tickSpawningChunk's dispatch order there.
-        checks.awaitAsync("spawn dispatch chunk ticking", 100) { SpawnDispatchChecks.ready(level, ChunkPos(CHUNK_X, CHUNK_Z)) }
-        checks.then("spawn dispatch order") { SpawnDispatchChecks.run(level, ChunkPos(CHUNK_X, CHUNK_Z)) }
+        checks.awaitAsync("spawn dispatch chunk ticking", 100) { StageDispatchChecks.ready(level, ChunkPos(CHUNK_X, CHUNK_Z)) }
+        checks.then("spawn dispatch order") { StageDispatchChecks.spawning(level, ChunkPos(CHUNK_X, CHUNK_Z)) }
+        // Its neighbours are forced too, so its block entities may tick in the wave.
+        checks.then("block-entity dispatch") { StageDispatchChecks.blockEntities(level, ChunkPos(CHUNK_X, CHUNK_Z)) }
         checks.then("spawn skip cleanup") {
             level.gameRules.set(GameRules.SPAWN_MOBS, previousRule, level.server)
             entities.forEach { if (!it.isRemoved) it.discard() }
@@ -111,8 +114,6 @@ internal object SpawnSkipChecks {
 
     private val LAST_SPAWN_STATE = ServerChunkCache::class.java.getDeclaredField("lastSpawnState").apply { isAccessible = true }
 
-    private val SPAWN_COUNTS = ServerChunkCache::class.java.declaredFields.single { it.type == SpawnCounts::class.java }
-        .apply { isAccessible = true }
-
-    private fun spawnCounts(source: ServerChunkCache): SpawnCounts = checkNotNull(SPAWN_COUNTS.get(source) as SpawnCounts?) { "no spawn counts" }
+    /** The placeholder [SpawnCounts] stores in place of a count; null while the stored state is real. */
+    private val DEFERRED = SpawnCounts::class.java.getDeclaredField("deferred").apply { isAccessible = true }
 }

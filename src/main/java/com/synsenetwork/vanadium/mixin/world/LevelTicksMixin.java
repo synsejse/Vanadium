@@ -1,7 +1,7 @@
 package com.synsenetwork.vanadium.mixin.world;
 
 import com.synsenetwork.vanadium.stage.ScheduledTickAccess;
-import com.synsenetwork.vanadium.tick.ScheduledTickQueue;
+import com.synsenetwork.vanadium.stage.ScheduledTickStage;
 import java.util.List;
 import java.util.Queue;
 import java.util.Set;
@@ -21,7 +21,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(LevelTicks.class)
 public abstract class LevelTicksMixin<T> implements ScheduledTickAccess<T> {
     @Shadow @Final @Mutable
-    private Queue<ScheduledTick<T>> toRunThisTick = new ScheduledTickQueue<>();
+    private Queue<ScheduledTick<T>> toRunThisTick = new ScheduledTickStage.Queue<>();
     @Shadow @Final private List<ScheduledTick<T>> alreadyRunThisTick;
     @Shadow @Final private Set<ScheduledTick<?>> toRunThisTickSet;
 

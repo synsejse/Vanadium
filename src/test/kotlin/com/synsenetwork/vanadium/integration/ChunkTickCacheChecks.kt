@@ -12,7 +12,7 @@ internal object ChunkTickCacheChecks {
      * Ticket changes after the pass can make them differ for a tick, so callers wait for agreement.
      */
     fun matches(level: ServerLevel, chunkX: Int, chunkZ: Int, ticking: Boolean): Boolean {
-        val cached = (level.chunkSource as ChunkTickAccess).`vanadium$chunkTicks`().cachedPositions()
+        val cached = (level.chunkSource as ChunkTickAccess).`vanadium$chunkStage`().cachedPositions()
         val distinct = LongOpenHashSet(cached)
         check(distinct.size == cached.size) { "the chunk tick cache holds a position twice" }
         val fresh = LongOpenHashSet()

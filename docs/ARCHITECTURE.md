@@ -7,13 +7,14 @@ server-owned scheduler and worker pool; it is not a server-per-region engine.
 
 | Package | Responsibility |
 | --- | --- |
-| `tick` | Collection, adaptive planning, stage scheduling, wave execution and the worker pool |
+| `tick` | Adaptive planning, stage scheduling, wave execution and the worker pool |
+| `stage` | What each stage queues: one owner per level and stage (`EntityTickTasks`, `ChunkStage`, `BlockEntityStage`, `ScheduledTickStage`) |
 | `entity` | Entity section index and crowded-section cell grids |
 | `concurrent` | Entity ownership (`Interactions`, `OwnerLocks`), POI claims, striped locks, per-thread world random streams and random-tick LCG |
-| `chunk` | Loaded-full-chunk publication, server-thread load locks, block-entity neighbourhoods, packet preparation |
+| `chunk` | Loaded-full-chunk publication, server-thread load locks, packet preparation |
 | `tracking` | Nearby-player ranges and tracker diffs |
 | `navigation` | Navigation invalidation index and path-type cache |
-| `spawning` | Mob counting, lazy count state and deferrable spawning tasks |
+| `spawning` | Mob counting and lazy count state |
 | `diagnostics` | Tick profiles, JFR events, wave watchdog, crash-report section, benchmarks, summaries and result files |
 | `collections` | Fastutil-compatible adapters over JDK/JCTools collections |
 | `compat` | Lithium's section-storage replacement; C2ME and Lithium mixin cancellation (Java) |
@@ -38,13 +39,19 @@ load-lock tables own no threads. Integrated-server reopen must create a new life
 
 Entities are the exception to region scheduling: see [Flat entity wave](#flat-entity-wave).
 
+Each stage's collection lives in one Kotlin owner, created with the vanilla object that owns the stage:
+`EntityTickTasks` per entity tick list, `ChunkStage` (spawning and chunk ticks) per chunk cache, and
+`BlockEntityStage` per server level. `ScheduledTickStage` keeps no state; each `LevelTicks` holds its due
+ticks in a `ScheduledTickStage.Queue`. The mixins only forward vanilla's calls to them; the owners decide
+what runs inline, what is queued and what falls back to vanilla.
+
 Disabled stages retain serial fallbacks. Structural synchronization and loaded-chunk
 indexing remain installed even with `enabled=false`. Projectiles, entities in portals and
 configured exact-ID exceptions ([serial type rules](CONFIGURATION.md#serial-type-rules)) tick
 serially. A serial passenger routes its whole vehicle tree through the serial path.
 
 Block entities also tick serially, on the server thread before the wave, while a neighbouring chunk
-of theirs is still loading (`BlockEntityNeighbourhood`). Vanilla ticks them once their chunk's ticket
+of theirs is still loading (`BlockEntityStage.ready`). Vanilla ticks them once their chunk's ticket
 level allows block ticking, before its ticking future (which needs every neighbour FULL) completes, and
 a tick may read past the chunk's edge: `BlockEntity.setChanged` notifies comparators up to two blocks
 out through a solid block, unchecked. On a worker that read would wait for the server thread to load
@@ -60,7 +67,7 @@ list reports adds and removes (from any thread, also mid-wave) and they apply at
 an entity added during a tick first ticks next tick, as with vanilla's snapshot. Serial classification
 is cached per entity: its type rules are recomputed when the configured rules change (compared by
 identity), its portal and passenger part when portal entry or a mount is reported for it or a passenger,
-and every tick for entities that are serial only through that part. `ChunkTickBatch` caches the
+and every tick for entities that are serial only through that part. `ChunkStage` caches the
 entity-ticking chunk positions until the simulation-level map's write version changes; each task
 resolves its holder and ticking chunk when it runs. Workers never mutate stage queues.
 
@@ -461,8 +468,8 @@ With `parallelSpawning = false` and parallel chunk ticks, `tickSpawningChunk` ru
 each visited chunk's thunder runs inline at its original call, before that chunk's eligibility
 checks and spawn attempt, and the attempt follows inline, in vanilla's shuffled order. Nothing is
 queued in the spawning stage, so its wave is empty; the stage barriers before the block-ticking
-pass stay. Earlier builds queued thunder in the wave and ran a one-task scheduler wave per spawning
-chunk to finish it before the attempt.
+pass stay. `ChunkStage` lists what runs inline and what is queued for every combination of `enabled`,
+`parallelChunkTicks` and `parallelSpawning`.
 
 The slices of Lithium's section iteration are ranges of the entity section index's column slots: every
 column keeps a slot in a dense array (a removed column's slot takes the last one), so the caller cuts
