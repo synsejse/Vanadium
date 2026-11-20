@@ -69,8 +69,14 @@ class ParallelChunkCache(
             // Anything else needs the server thread, mid-wave: chunk-system work would overlap the other
             // participants, so a deferrable task reruns after the wave instead.
             val holder = getVisibleChunkIfPresent(pos)
-            if (holder != null) completed(holder, requiredStatus)?.let { return it } else if (!load) return null
-            WorkerPool.deferToServerThread("chunk ($chunkX, $chunkZ) at $requiredStatus")?.let { throw it }
+            if (holder != null) {
+                val chunk = completed(holder, requiredStatus)
+                if (chunk != null) return chunk
+            } else if (!load) {
+                return null
+            }
+            val deferral = WorkerPool.deferToServerThread("chunk ($chunkX, $chunkZ) at $requiredStatus")
+            if (deferral != null) throw deferral
             if (worker) {
                 warnWorkerWait(chunkX, chunkZ, requiredStatus)
                 stalled = Runnable { warnStalledWait(chunkX, chunkZ, requiredStatus) }

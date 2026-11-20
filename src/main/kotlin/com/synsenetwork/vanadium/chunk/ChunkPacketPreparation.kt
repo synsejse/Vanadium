@@ -37,7 +37,7 @@ class ChunkPacketPreparation : AutoCloseable {
             val count = minOf(MAX_PREPARED_CHUNKS, chunks.size)
             val payloads = arrayOfNulls<ByteArray>(count)
             Vanadium.scheduler.prepare(PreparationKind.CHUNK_PACKETS, List(count) { i -> Runnable { payloads[i] = serializeSections(chunks[i]) } })
-            for (i in 0 until count) batch[chunks[i]] = payloads[i]!!
+            for (i in 0 until count) batch[chunks[i]] = checkNotNull(payloads[i]) { "the preparation wave skipped chunk $i" }
         }
 
         @JvmStatic
