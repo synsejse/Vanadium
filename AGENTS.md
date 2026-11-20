@@ -100,7 +100,7 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - Worlds are processed sequentially through one shared scheduler. Enqueue/reset operations
   belong to the server thread; workers read/run regions only within a wave.
 - Create a fresh scheduler/pool per server lifecycle and close the pool after the final wave.
-  Chunk managers own their maintenance executors; `ChunkLockTable` owns no background threads.
+  Chunk managers own their maintenance executors; `ChunkLoadLocks` owns no background threads.
 - Entities tick in one flat wave with no regions: any two entity ticks may overlap,
   however close. A tick owns its vehicle tree; pushes go to the target's inbox; every other write to
   another tree, to blocks or to listeners must run inside an `Interactions` scope (`enter`/`enterShared`
@@ -130,8 +130,8 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
   serves it between its own tasks and in the tail; hold no lock the server thread may wait for.
 - Do not wait at a worker barrier while holding a monitor needed by those workers.
   Scheduled ticks are collected under vanilla scheduling and dispatched after its monitor releases.
-- Keep lock ordering deterministic. Preserve reservation/eviction atomicity in `ChunkLockTable`.
-  Only the server thread takes chunk load locks (`ChunkLoadRouter`): any other holder would wait
+- Keep lock ordering deterministic. Preserve reservation/eviction atomicity in `ChunkLoadLocks`,
+  and take its chunk load locks only on the server thread: any other holder would wait
   for the server thread while holding one.
 - Full chunks are published by `LevelChunk.setLoaded` before their load completes; recheck that
   map under the load lock, and never publish unloaded or null chunks.

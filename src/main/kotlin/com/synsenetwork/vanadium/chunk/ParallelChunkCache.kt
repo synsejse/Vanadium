@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Unconditional loaded-FULL lookups; vanilla/C2ME synchronous misses run on the server thread under load locks
- * ([ChunkLoadRouter]).
+ * ([ChunkLoadLocks]).
  */
 class ParallelChunkCache(
     level: ServerLevel,
@@ -43,10 +43,8 @@ class ParallelChunkCache(
 ) : ServerChunkCache(level, storage, dataFixer, structureManager, workerExecutor, generator, viewDistance,
     simulationDistance, syncWrites, statusListener) {
 
-    private val loadingLocks = ChunkLockTable()
-
     /** Taken only on the server thread, which is the only thread that can finish a miss. */
-    private val loads = ChunkLoadRouter(loadingLocks) { mainThreadProcessor.isSameThread }
+    private val loadLocks = ChunkLoadLocks { mainThreadProcessor.isSameThread }
 
     /** Full chunks published by `LevelChunk.setLoaded`; removal matches the published instance. */
     private val loadedChunks = NonBlockingHashMapLong<LevelChunk>()
@@ -54,7 +52,7 @@ class ParallelChunkCache(
     private val loadLockMaintenance = Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "Vanadium-ChunkMaintenance-${level.dimension().identifier().path}").apply { isDaemon = true }
     }.apply {
-        scheduleWithFixedDelay(loadingLocks::evictIdle, LOCK_EVICT_SECONDS, LOCK_EVICT_SECONDS, TimeUnit.SECONDS)
+        scheduleWithFixedDelay(loadLocks::evictIdle, LOCK_EVICT_SECONDS, LOCK_EVICT_SECONDS, TimeUnit.SECONDS)
     }
 
     override fun getChunk(chunkX: Int, chunkZ: Int, requiredStatus: ChunkStatus, load: Boolean): ChunkAccess? {
@@ -79,7 +77,7 @@ class ParallelChunkCache(
             }
         }
         // A worker's lookup runs on the wave's caller, the server thread, which serves it between its tasks.
-        return loads.load(pos, { getChunkUnderLoadLock(chunkX, chunkZ, pos, requiredStatus, load) }, stalled)
+        return loadLocks.load(pos, { getChunkUnderLoadLock(chunkX, chunkZ, pos, requiredStatus, load) }, stalled)
     }
 
     /** Under the load lock: the previous holder's full chunk was published by setLoaded before its load completed. */
@@ -156,7 +154,7 @@ class ParallelChunkCache(
         } finally {
             loadLockMaintenance.close()
             synchronized(loadedChunks) { loadedChunks.clear() }
-            loadingLocks.evictIdle()
+            loadLocks.evictIdle()
         }
     }
 

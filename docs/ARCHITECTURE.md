@@ -322,7 +322,7 @@ bits and the type), so lookups take no lock and stores allocate nothing.
   takes its lock in place; FULL publication is rechecked after acquiring the load lock. Never
   publish null or non-FULL results. Minecraft's own background workers bounce synchronous loading
   to the server thread.
-- Only the server thread takes load locks (`ChunkLoadRouter`). Only it can finish a miss (C2ME
+- Only the server thread takes load locks (`ChunkLoadLocks`). Only it can finish a miss (C2ME
   adds new holders, ticket updates and FULL promotion there), so a lock held by any other thread
   would be held while waiting for the server thread, and the server thread asking for the same
   chunk would wait for it in turn: the deadlock this replaced. Other threads outside waves run
@@ -346,7 +346,7 @@ bits and the type), so lookups take no lock and stores allocate nothing.
   would then overlap the workers. `WorkerPool.runAfterParallelWave` queues other such
   server-thread work until the wave's tasks have all finished. Spawning is deferrable: it prechecks the chunk's referenced structure starts, so the
   usual deferral (joins and exploration) happens before any spawn attempt.
-- `ChunkLockTable` reserves entries atomically against eviction. Unlock before dropping a
+- `ChunkLoadLocks` reserves entries atomically against eviction. Unlock before dropping a
   reservation; maintenance must not evict a held or pending lock.
 - Per-holder synchronization protects chunk block/light updates. Dirty notifications queue
   to the server thread; workers never mutate the ordered eager-save set or wait for disk IO.
