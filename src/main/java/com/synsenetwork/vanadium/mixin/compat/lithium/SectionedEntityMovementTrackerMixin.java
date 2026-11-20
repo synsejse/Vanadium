@@ -9,9 +9,9 @@ import org.spongepowered.asm.mixin.Mixin;
 
 /**
  * Registration changes a tracker's sections and lists, which entity ticks reach through
- * {@link EntitySectionMovementTrackingMixin}; it holds the same lock. The tracker's other methods run from its
- * hoppers' ticks (block-entity stage, where hoppers sharing a tracker are neighbours and never overlap) or
- * from section methods that already hold the lock.
+ * {@link com.synsenetwork.vanadium.mixin.world.level.entity.EntitySectionMovementTrackingMixin}; it holds the
+ * same lock. The tracker's other methods run from its hoppers' ticks (block-entity stage, where hoppers sharing a
+ * tracker are neighbours and never overlap) or from section methods that already hold the lock.
  */
 @Mixin(SectionedEntityMovementTracker.class)
 public abstract class SectionedEntityMovementTrackerMixin {

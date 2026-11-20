@@ -27,15 +27,15 @@ public class VanadiumMixinPlugin implements IMixinConfigPlugin {
     private static final Logger LOGGER = LogManager.getLogger();
 
     static final String SYNC_ALL = "com.synsenetwork.vanadium.mixin.SyncAllMixin";
-    static final String RAND_VALUE = "com.synsenetwork.vanadium.mixin.world.RandValueMixin";
+    static final String RAND_VALUE = "com.synsenetwork.vanadium.mixin.RandValueMixin";
     private static final Set<String> RAND_VALUE_OWNERS = Set.of("net/minecraft/world/level/Level", "net/minecraft/server/level/ServerLevel");
     static final String RAND_VALUE_STATE = "com/synsenetwork/vanadium/concurrent/PerThreadRandValue";
     static final String RAND_VALUE_GET = "(Lnet/minecraft/world/level/Level;)I";
     static final String RAND_VALUE_SET = "(Lnet/minecraft/world/level/Level;I)V";
-    static final String POI_TAKE_AT = "com.synsenetwork.vanadium.mixin.compat.lithium.PoiTakeAtMixin";
+    static final String POI_TAKE_AT = "com.synsenetwork.vanadium.mixin.world.entity.ai.village.poi.PoiTakeAtMixin";
     private static final String TAKE_AT = "lithium$takeAt";
     static final String TAKE_AT_HOOK = "vanadium$claimOrEmpty";
-    static final String POI_UNLOAD = "com.synsenetwork.vanadium.mixin.compat.c2me.PoiUnloadMixin";
+    static final String POI_UNLOAD = "com.synsenetwork.vanadium.mixin.world.entity.ai.village.poi.PoiUnloadMixin";
     private static final String SHOULD_UNLOAD_POI = "c2me$shouldUnloadPoi";
     static final String SHOULD_UNLOAD_POI_HOOK = "vanadium$keepResident";
     /**

@@ -4,8 +4,8 @@ import com.llamalad7.mixinextras.injector.wrapoperation.Operation
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.chunk.ParallelChunkCache
 import com.synsenetwork.vanadium.collections.ConcurrentLongByteMap
-import com.synsenetwork.vanadium.mixin.server.world.DistanceManagerAccessor
-import com.synsenetwork.vanadium.mixin.world.SimulationChunkTrackerAccessor
+import com.synsenetwork.vanadium.mixin.server.level.DistanceManagerAccessor
+import com.synsenetwork.vanadium.mixin.server.level.SimulationChunkTrackerAccessor
 import com.synsenetwork.vanadium.spawning.SpawnCounts
 import com.synsenetwork.vanadium.tick.Stage
 import com.synsenetwork.vanadium.tick.WorkerPool
