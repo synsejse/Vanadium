@@ -9,6 +9,7 @@ import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.entity.EntityAccess
 import net.minecraft.world.level.entity.EntitySection
 import net.minecraft.world.level.entity.Visibility
+import net.minecraft.world.phys.AABB
 import org.jctools.maps.NonBlockingHashMapLong
 import java.lang.management.ManagementFactory
 import java.lang.reflect.Proxy
@@ -30,7 +31,7 @@ object SectionIndexBench {
     private var sink = 0L
 
     private interface Index {
-        fun query(xMin: Int, yMin: Int, zMin: Int, xMax: Int, yMax: Int, zMax: Int, output: AbortableIterationConsumer<EntitySection<EntityAccess>>)
+        fun query(box: AABB, output: AbortableIterationConsumer<EntitySection<EntityAccess>>)
     }
 
     @JvmStatic
@@ -62,35 +63,33 @@ object SectionIndexBench {
         }
         val layouts = listOf<Pair<String, Index>>(
             "column" to object : Index {
-                override fun query(xMin: Int, yMin: Int, zMin: Int, xMax: Int, yMax: Int, zMax: Int,
-                                   output: AbortableIterationConsumer<EntitySection<EntityAccess>>) =
-                    current.forEachAccessibleNonEmpty(xMin, yMin, zMin, xMax, yMax, zMax, output)
+                override fun query(box: AABB, output: AbortableIterationConsumer<EntitySection<EntityAccess>>) =
+                    current.forEachAccessibleNonEmpty(box, output)
             },
             "two-map" to object : Index {
-                override fun query(xMin: Int, yMin: Int, zMin: Int, xMax: Int, yMax: Int, zMax: Int,
-                                   output: AbortableIterationConsumer<EntitySection<EntityAccess>>) =
-                    legacy.forEachAccessibleNonEmpty(xMin, yMin, zMin, xMax, yMax, zMax, output)
+                override fun query(box: AABB, output: AbortableIterationConsumer<EntitySection<EntityAccess>>) =
+                    legacy.forEachAccessibleNonEmpty(box, output)
             },
         )
         val cpus = Runtime.getRuntime().availableProcessors()
         println("warmupMs=$WARMUP_MILLIS measured=$MEASURED/thread sections=${keys.size} area=${AREA}x$AREA cpus=$cpus java=${System.getProperty("java.version")}")
         println("query,threads,layout,ns/query,bytes/query,sections/query")
-        // Block radius around a random point: 37 is a 35-block target search plus the 2-block grace, 3 a push.
-        for ((name, radius) in listOf("target35" to 37, "push" to 3)) {
+        // Block radius around a random point: a 35-block target search and a push (each query adds vanilla's 2-block grace).
+        for ((name, radius) in listOf("target35" to 35, "push" to 1)) {
             for (threads in intArrayOf(1, 4)) {
                 for ((layout, index) in layouts) {
                     val results = runThreads(threads, bean) { seed, measured ->
                         val rng = Random(seed)
                         var visited = 0L
                         val output = AbortableIterationConsumer<EntitySection<EntityAccess>> { visited += it.size(); Continuation.CONTINUE }
-                        val span = AREA * 16 - 2 * radius
+                        val span = AREA * 16 - 2 * (radius + 2)
                         repeat(measured) {
                             val x = rng.nextInt(span) - span / 2
                             val z = rng.nextInt(span) - span / 2
                             val y = 64 + rng.nextInt(-8, 8)
-                            index.query(SectionPos.blockToSectionCoord(x - radius), SectionPos.blockToSectionCoord(y - 8),
-                                SectionPos.blockToSectionCoord(z - radius), SectionPos.blockToSectionCoord(x + radius),
-                                SectionPos.blockToSectionCoord(y + 4), SectionPos.blockToSectionCoord(z + radius), output)
+                            // Both layouts get the same box, one allocation per query.
+                            index.query(AABB((x - radius).toDouble(), (y - 4).toDouble(), (z - radius).toDouble(),
+                                (x + radius).toDouble(), (y + 4).toDouble(), (z + radius).toDouble()), output)
                         }
                         visited
                     }
@@ -151,8 +150,14 @@ object SectionIndexBench {
             columns.put(chunk, next)
         }
 
-        fun forEachAccessibleNonEmpty(xMin: Int, yMin: Int, zMin: Int, xMax: Int, yMax: Int, zMax: Int,
-                                      output: AbortableIterationConsumer<EntitySection<EntityAccess>>) {
+        /** Vanilla's section box around [box], as [EntitySectionIndex.forEachAccessibleNonEmpty] uses it. */
+        fun forEachAccessibleNonEmpty(box: AABB, output: AbortableIterationConsumer<EntitySection<EntityAccess>>) {
+            val xMin = SectionPos.posToSectionCoord(box.minX - 2.0)
+            val yMin = SectionPos.posToSectionCoord(box.minY - 4.0)
+            val zMin = SectionPos.posToSectionCoord(box.minZ - 2.0)
+            val xMax = SectionPos.posToSectionCoord(box.maxX + 2.0)
+            val yMax = SectionPos.posToSectionCoord(box.maxY + 0.0)
+            val zMax = SectionPos.posToSectionCoord(box.maxZ + 2.0)
             for (x in xMin..xMax) {
                 if (zMin < 0 && zMax >= 0) {
                     for (z in 0..zMax) if (visitColumn(x, z, yMin, yMax, output)) return

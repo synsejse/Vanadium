@@ -49,9 +49,12 @@ class ColumnScanTest {
         return index
     }
 
-    /** What a whole-level scan visits: each accessible, non-empty section's entity stream, in the index's order. */
-    private fun reference(index: EntitySectionIndex<EntityAccess>): List<Int> =
-        index.accessibleSections().flatMap { section -> section.entities.toList() }.map { ids.getValue(it) }
+    /** What a whole-level scan visits: each accessible, non-empty section's entity stream, in the index's slot order. */
+    private fun reference(index: EntitySectionIndex<EntityAccess>): List<Int> {
+        val slots = index.columnSlots()
+        val sections = (0 until index.columnSlotCount()).flatMap { slots[it]!!.sections.asList() }
+        return sections.filter { !it.isEmpty && it.status.isAccessible }.flatMap { it.entities.toList() }.map { ids.getValue(it) }
+    }
 
     private fun Iterable<EntityAccess>.ids() = map { ids.getValue(it) }
 
@@ -67,9 +70,10 @@ class ColumnScanTest {
         assertFalse(iterator.hasNext())
         assertFailsWith<NoSuchElementException> { iterator.next() }
         // Hidden and empty sections are not scanned; the count matches only accessible entities.
-        val accessible = index.accessibleSections()
-        assertEquals(accessible.sumOf { it.size() }, expected.size)
-        assertEquals(accessible.size, accessible.count { !it.isEmpty && it.status.isAccessible })
+        val accessible = index.chunksWithSections().sumOf { chunk ->
+            index.sectionsInChunk(chunk).filter { !it.isEmpty && it.status.isAccessible }.sumOf { it.size() }
+        }
+        assertEquals(accessible, expected.size)
         // Every column is in exactly one slot.
         val columns = index.chunksWithSections()
         assertEquals(columns.size, index.accessibleEntities().size)

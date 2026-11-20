@@ -112,6 +112,7 @@ public abstract class EntitySectionStorageMixin<T extends EntityAccess> implemen
      */
     @Overwrite
     public EntitySection<T> getOrCreateSection(long key) {
+        // Looked up here first so that a hit does not allocate the bound createSection reference.
         EntitySection<T> section = vanadium$index.get(key);
         return section != null ? section : vanadium$index.getOrCreate(key, this::createSection);
     }

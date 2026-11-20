@@ -59,7 +59,7 @@ class EntitySectionIndexTest {
             val box = intArrayOf(x0, y0, z0, x0 + random.nextInt(0, 6), y0 + random.nextInt(0, 8), z0 + random.nextInt(0, 6))
             val expected = vanillaQuery(sorted, box).filter { it != empty }
             val actual = ArrayList<Long>()
-            index.forEachAccessibleNonEmpty(box[0], box[1], box[2], box[3], box[4], box[5]) {
+            index.forEachAccessibleNonEmpty(sectionBox(box)) {
                 actual.add(keyOf.getValue(it))
                 Continuation.CONTINUE
             }
@@ -183,7 +183,7 @@ class EntitySectionIndexTest {
                         reads++
                         for ((x, z) in columns) {
                             seen.clear()
-                            index.forEachAccessibleNonEmpty(x, lo - 1, z, x, hi + 1, z) {
+                            index.forEachAccessibleNonEmpty(sectionBox(intArrayOf(x, lo - 1, z, x, hi + 1, z))) {
                                 seen.add(it as Tagged)
                                 Continuation.CONTINUE
                             }
@@ -251,7 +251,7 @@ class EntitySectionIndexTest {
                 val x0 = random.nextInt(-44, 40); val y0 = random.nextInt(-6, 8); val z0 = random.nextInt(-44, 40)
                 val box = intArrayOf(x0, y0, z0, x0 + random.nextInt(0, 40), y0 + random.nextInt(0, 6), z0 + random.nextInt(0, 40))
                 val actual = ArrayList<Long>()
-                index.forEachAccessibleNonEmpty(box[0], box[1], box[2], box[3], box[4], box[5]) {
+                index.forEachAccessibleNonEmpty(sectionBox(box)) {
                     actual.add(keyOf.getValue(it))
                     Continuation.CONTINUE
                 }
@@ -286,7 +286,7 @@ class EntitySectionIndexTest {
             EntitySection<EntityAccess>(EntityAccess::class.java, Visibility.TICKING).apply { add(entity) }
         }
         var visited = 0
-        index.forEachAccessibleNonEmpty(0, 0, 0, 3, 0, 0) {
+        index.forEachAccessibleNonEmpty(sectionBox(intArrayOf(0, 0, 0, 3, 0, 0))) {
             visited++
             if (visited == 2) Continuation.ABORT else Continuation.CONTINUE
         }
@@ -317,22 +317,33 @@ class EntitySectionIndexTest {
     fun entityQueriesMatchVanillaSectionLambdas() {
         val random = Random(11)
         val index = EntitySectionIndex<EntityAccess>()
+        val sorted = LongAVLTreeSet() // Vanilla's sectionIds.
         repeat(400) {
             val x = random.nextDouble(-70.0, 70.0); val y = random.nextDouble(-40.0, 120.0); val z = random.nextDouble(-70.0, 70.0)
             val key = SectionPos.asLong(BlockPos.containing(x, y, z))
             index.getOrCreate(key) { EntitySection(EntityAccess::class.java, Visibility.TICKING) }
                 .add(boxed(AABB(x, y, z, x + 0.6, y + 1.8, z + 0.6), random.nextBoolean()))
+            sorted.add(key)
         }
         index.getOrCreate(SectionPos.asLong(0, 0, 0)) { EntitySection(EntityAccess::class.java, Visibility.HIDDEN) }
             .add(boxed(AABB(1.0, 1.0, 1.0, 2.0, 2.0, 2.0), true)) // Inaccessible: skipped by both.
+        sorted.add(SectionPos.asLong(0, 0, 0))
         val type = EntityTypeTest.forClass<EntityAccess, Marked>(Marked::class.java)
         repeat(300) {
             val x = random.nextDouble(-80.0, 80.0); val y = random.nextDouble(-50.0, 130.0); val z = random.nextDouble(-80.0, 80.0)
             val box = AABB(x, y, z, x + random.nextDouble(0.0, 24.0), y + random.nextDouble(0.0, 24.0), z + random.nextDouble(0.0, 24.0))
-            fun vanilla(visit: (EntitySection<EntityAccess>) -> Continuation) = index.forEachAccessibleNonEmpty(
-                SectionPos.posToSectionCoord(box.minX - 2.0), SectionPos.posToSectionCoord(box.minY - 4.0),
-                SectionPos.posToSectionCoord(box.minZ - 2.0), SectionPos.posToSectionCoord(box.maxX + 2.0),
-                SectionPos.posToSectionCoord(box.maxY + 0.0), SectionPos.posToSectionCoord(box.maxZ + 2.0), visit)
+            // Vanilla's forEachAccessibleNonEmptySection: its section box around the query box, over its sorted keys.
+            fun vanilla(visit: (EntitySection<EntityAccess>) -> Continuation) {
+                val sectionBox = intArrayOf(
+                    SectionPos.posToSectionCoord(box.minX - 2.0), SectionPos.posToSectionCoord(box.minY - 4.0),
+                    SectionPos.posToSectionCoord(box.minZ - 2.0), SectionPos.posToSectionCoord(box.maxX + 2.0),
+                    SectionPos.posToSectionCoord(box.maxY + 0.0), SectionPos.posToSectionCoord(box.maxZ + 2.0))
+                for (key in vanillaQuery(sorted, sectionBox)) {
+                    val section = checkNotNull(index[key]) { "section $key is missing" }
+                    if (section.isEmpty || !section.status.isAccessible) continue
+                    if (visit(section).shouldAbort()) return
+                }
+            }
 
             val expected = ArrayList<EntityAccess>()
             vanilla { it.getEntities(box, AbortableIterationConsumer.forConsumer(expected::add)) }
@@ -365,6 +376,15 @@ class EntitySectionIndexTest {
             }
         }
     }
+
+    /**
+     * A block box whose vanilla section box (two blocks wider and four lower than the box, see [EntitySectionIndex])
+     * is exactly the section-coordinate [box] (`xMin, yMin, zMin, xMax, yMax, zMax`): it spans the sections' centres.
+     */
+    private fun sectionBox(box: IntArray): AABB = AABB(
+        box[0] * 16 + 8.0, box[1] * 16 + 8.0, box[2] * 16 + 8.0,
+        box[3] * 16 + 8.0, box[4] * 16 + 8.0, box[5] * 16 + 8.0,
+    )
 
     /** Vanilla `forEachAccessibleNonEmptySection` key order, before the per-section checks. */
     private fun vanillaQuery(sorted: LongAVLTreeSet, box: IntArray): List<Long> {
