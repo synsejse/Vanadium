@@ -13,7 +13,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 
-class SectionEntitiesTest {
+class ColumnScanTest {
     private val ids = IdentityHashMap<EntityAccess, Int>()
 
     private fun entity(): EntityAccess {
@@ -59,8 +59,9 @@ class SectionEntitiesTest {
     fun fullIterationMatchesSections() {
         val index = index(Random(7))
         val expected = reference(index)
-        assertEquals(expected, index.accessibleEntities().ids())
-        assertEquals(expected, index.accessibleEntities().columns().let { it.range(0, it.size, null) }.ids())
+        val scan = index.accessibleEntities()
+        assertEquals(expected, scan.ids())
+        assertEquals(expected, scan.range(0, scan.size, null).ids())
         val iterator = index.accessibleEntities().iterator()
         repeat(expected.size) { iterator.next() } // next() without hasNext() still advances.
         assertFalse(iterator.hasNext())
@@ -71,14 +72,14 @@ class SectionEntitiesTest {
         assertEquals(accessible.size, accessible.count { !it.isEmpty && it.status.isAccessible })
         // Every column is in exactly one slot.
         val columns = index.chunksWithSections()
-        assertEquals(columns.size, index.accessibleEntities().columns().size)
+        assertEquals(columns.size, index.accessibleEntities().size)
     }
 
     @Test
     fun consecutiveRangesConcatenateToTheFullOrder() {
         val random = Random(11)
         val index = index(random)
-        val columns = index.accessibleEntities().columns()
+        val columns = index.accessibleEntities()
         val expected = reference(index)
         val even = Predicate<EntityAccess> { ids.getValue(it) % 2 == 0 }
         val expectedEven = expected.filter { it % 2 == 0 }
@@ -96,20 +97,20 @@ class SectionEntitiesTest {
         assertEquals(emptyList(), columns.range(5, 5, null).ids())
         assertEquals(emptyList(), columns.range(columns.size, columns.size, null).ids())
         assertEquals(emptyList(), EntitySectionIndex<EntityAccess>().accessibleEntities().ids())
-        assertEquals(0, EntitySectionIndex<EntityAccess>().accessibleEntities().columns().size)
+        assertEquals(0, EntitySectionIndex<EntityAccess>().accessibleEntities().size)
     }
 
     @Test
     fun scansRecordColumnWeightsForBalancedSplits() {
         val index = index(Random(5))
         val expected = reference(index)
-        val first = index.accessibleEntities().columns()
+        val first = index.accessibleEntities()
         assertEquals(0L, first.weight(), "no scan has run yet")
         // A split before any scan still covers every column.
         assertEquals(first.size, first.split(8, 2).last())
         first.range(0, first.size / 2, null).ids()
         first.range(first.size / 2, first.size, null).ids()
-        val columns = index.accessibleEntities().columns()
+        val columns = index.accessibleEntities()
         assertEquals(expected.size.toLong(), columns.weight(), "two half scans saw every entity once")
         val weights = (0 until columns.size).map { columns.range(it, it + 1, null).count() }
         for (parts in listOf(2, 3, 8, 37)) {
@@ -145,7 +146,7 @@ class SectionEntitiesTest {
             }
             if (it % 250 == 0) {
                 val chunks = live.map { k -> net.minecraft.world.level.ChunkPos.pack(SectionPos.x(k), SectionPos.z(k)) }.toSet()
-                val columns = index.accessibleEntities().columns()
+                val columns = index.accessibleEntities()
                 assertEquals(chunks.size, columns.size, "one slot per column")
                 // Every live section's entity, each once.
                 val scanned = columns.range(0, columns.size, null).ids()

@@ -2,7 +2,7 @@ package com.synsenetwork.vanadium.integration
 
 import com.mojang.authlib.GameProfile
 import com.synsenetwork.vanadium.Vanadium
-import com.synsenetwork.vanadium.entity.AccessibleEntities
+import com.synsenetwork.vanadium.entity.ColumnScan
 import com.synsenetwork.vanadium.spawning.SpawnPreparation
 import com.synsenetwork.vanadium.tick.TickScheduler
 import com.synsenetwork.vanadium.tick.WorkerPool
@@ -118,8 +118,8 @@ internal object SpawnCountChecks {
         // The captured input is Lithium's sliceable section iteration, possibly inside C2ME's filter. The reference
         // count went through it, so each column's entity count (the next split's weights) is known.
         val captured = SpawnPreparation.capture(289, level, chunks, caps())
-        val columns = (unwrap(captured) as? AccessibleEntities<*>
-            ?: error("spawn count input ${captured.javaClass.name} is not the sliceable section iteration")).columns()
+        val columns = unwrap(captured) as? ColumnScan<*>
+            ?: error("spawn count input ${captured.javaClass.name} is not the sliceable section iteration")
         val scanned = columns.weight()
         check(scanned >= fixture.size && scanned >= 1024, "only $scanned entities in accessible sections")
         val filter = c2meFilter(captured)

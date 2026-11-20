@@ -185,7 +185,7 @@ class EntitySectionIndex<T : EntityAccess> {
      * Entities of every accessible, non-empty section, column by column in slot order; for whole-level scans such
      * as spawn counting. Splittable into slot ranges while no section is created or removed.
      */
-    fun accessibleEntities(): AccessibleEntities<T> = AccessibleEntities(this)
+    fun accessibleEntities(): ColumnScan<T> = ColumnScan(this)
 
     /** The column slots as they are now: a stable view while no section is created or removed. */
     internal fun columnSlots(): Array<Column<T>?> = slots

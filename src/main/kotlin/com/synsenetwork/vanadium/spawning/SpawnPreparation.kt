@@ -1,7 +1,7 @@
 package com.synsenetwork.vanadium.spawning
 
 import com.synsenetwork.vanadium.Vanadium
-import com.synsenetwork.vanadium.entity.AccessibleEntities
+import com.synsenetwork.vanadium.entity.ColumnScan
 import com.synsenetwork.vanadium.tick.PreparationKind
 import java.lang.reflect.Field
 import java.util.function.Predicate
@@ -70,16 +70,16 @@ object SpawnPreparation {
         val wrapper = C2ME_FILTER
         if (wrapper != null && wrapper.matches(entities)) {
             val delegate = wrapper.delegate(entities)
-            if (delegate is Collection<Entity> || delegate is AccessibleEntities<*>) {
+            if (delegate is Collection<Entity> || delegate is ColumnScan<*>) {
                 filter = wrapper.predicate(entities)
                 source = delegate
             }
         }
         // Lithium's section iteration: split the index's column slots, weighted by what the previous count saw in
         // each, without reading any column here. The jobs walk their columns themselves.
-        if (source is AccessibleEntities<*>) {
+        if (source is ColumnScan<*>) {
             @Suppress("UNCHECKED_CAST")
-            val columns = (source as AccessibleEntities<Entity>).columns()
+            val columns = source as ColumnScan<Entity>
             val cost = columns.weight() + columns.size.toLong() * COLUMN_COST
             if (cost < MIN_PARALLEL_ENTITIES) return createState(chunkCount, level, columns.range(0, columns.size, filter), chunks, localCaps)
             val parts = minOf(Vanadium.scheduler.workerCount.toLong() + 1, (cost + TARGET_ENTITIES_PER_JOB - 1) / TARGET_ENTITIES_PER_JOB)
