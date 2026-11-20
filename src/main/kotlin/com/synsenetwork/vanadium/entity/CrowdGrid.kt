@@ -38,12 +38,12 @@ import net.minecraft.world.phys.AABB
  * one member's moves never overlap. Writes that ran unprotected after an ownership timeout or cycle break are
  * counted by [unprotectedWrites]: a grid built before the count changed is bypassed and rebuilt.
  */
-class CrowdedSection<T : EntityAccess>(sectionKey: Long, @JvmField val epoch: Long) {
+class CrowdGrid<T : EntityAccess>(sectionKey: Long, @JvmField val epoch: Long) {
     class Member<T : EntityAccess> internal constructor(
         @JvmField val entity: T,
         /** Position in the section's list order. */
         @JvmField val order: Long,
-        @JvmField val grid: CrowdedSection<T>,
+        @JvmField val grid: CrowdGrid<T>,
     ) {
         /** The cells this member is listed in while no move of it is open; written under the grid's monitor. */
         @Volatile
@@ -185,9 +185,9 @@ class CrowdedSection<T : EntityAccess>(sectionKey: Long, @JvmField val epoch: Lo
      */
     private inline fun candidates(box: AABB, visit: (T) -> Boolean): Continuation? {
         val range = rangeOf(box)
-        val x0 = range and 7; val x1 = (range ushr 3) and 7
-        val z0 = (range ushr 6) and 7; val z1 = (range ushr 9) and 7
-        val y0 = (range ushr 12) and 3; val y1 = (range ushr 14) and 3
+        val x0 = minX(range); val x1 = maxX(range)
+        val z0 = minZ(range); val z1 = maxZ(range)
+        val y0 = minY(range); val y1 = maxY(range)
         val count = (x1 - x0 + 1) * (z1 - z0 + 1) * (y1 - y0 + 1)
         if (count > MAX_QUERY_CELLS) return null
         val cells = cells
@@ -360,7 +360,7 @@ class CrowdedSection<T : EntityAccess>(sectionKey: Long, @JvmField val epoch: Lo
         private const val OPEN_MASK = (1L shl OPEN_BITS) - 1L
         private const val VERSION = 1L shl OPEN_BITS
         private val EMPTY = arrayOfNulls<Member<*>>(0)
-        private val SEQ: VarHandle = MethodHandles.lookup().findVarHandle(CrowdedSection::class.java, "seq", java.lang.Long.TYPE)
+        private val SEQ: VarHandle = MethodHandles.lookup().findVarHandle(CrowdGrid::class.java, "seq", java.lang.Long.TYPE)
 
         /** 2-block cells; NaN maps to 0 (it intersects nothing anyway). */
         private fun horizontal(offset: Double): Int {
@@ -374,6 +374,7 @@ class CrowdedSection<T : EntityAccess>(sectionKey: Long, @JvmField val epoch: Lo
             return if (!(cell > 0.0)) 0 else if (cell >= 3.0) 3 else cell.toInt()
         }
 
+        /** A range of cells: X and Z bounds in 3 bits each, then Y bounds in 2 bits each. */
         private fun pack(x0: Int, x1: Int, y0: Int, y1: Int, z0: Int, z1: Int): Int =
             x0 or (x1 shl 3) or (z0 shl 6) or (z1 shl 9) or (y0 shl 12) or (y1 shl 14)
 
@@ -381,23 +382,31 @@ class CrowdedSection<T : EntityAccess>(sectionKey: Long, @JvmField val epoch: Lo
 
         private fun contains(range: Int, cell: Int): Boolean {
             val x = cell / 32; val z = (cell / 4) and 7; val y = cell and 3
-            return x >= (range and 7) && x <= ((range ushr 3) and 7) &&
-                z >= ((range ushr 6) and 7) && z <= ((range ushr 9) and 7) &&
-                y >= ((range ushr 12) and 3) && y <= ((range ushr 14) and 3)
+            return x >= minX(range) && x <= maxX(range) &&
+                z >= minZ(range) && z <= maxZ(range) &&
+                y >= minY(range) && y <= maxY(range)
         }
 
         private fun hull(a: Int, b: Int): Int = pack(
-            minOf(a and 7, b and 7), maxOf((a ushr 3) and 7, (b ushr 3) and 7),
-            minOf((a ushr 12) and 3, (b ushr 12) and 3), maxOf((a ushr 14) and 3, (b ushr 14) and 3),
-            minOf((a ushr 6) and 7, (b ushr 6) and 7), maxOf((a ushr 9) and 7, (b ushr 9) and 7),
+            minOf(minX(a), minX(b)), maxOf(maxX(a), maxX(b)),
+            minOf(minY(a), minY(b)), maxOf(maxY(a), maxY(b)),
+            minOf(minZ(a), minZ(b)), maxOf(maxZ(a), maxZ(b)),
         )
 
         private inline fun forEachCell(range: Int, action: (Int) -> Unit) {
-            for (x in (range and 7)..((range ushr 3) and 7)) {
-                for (z in ((range ushr 6) and 7)..((range ushr 9) and 7)) {
-                    for (y in ((range ushr 12) and 3)..((range ushr 14) and 3)) action(cell(x, y, z))
+            for (x in minX(range)..maxX(range)) {
+                for (z in minZ(range)..maxZ(range)) {
+                    for (y in minY(range)..maxY(range)) action(cell(x, y, z))
                 }
             }
         }
     }
 }
+
+// A packed cell range (see CrowdGrid.pack). Inline, so each compiles to its shift and mask rather than a call.
+@Suppress("NOTHING_TO_INLINE") private inline fun minX(range: Int): Int = range and 7
+@Suppress("NOTHING_TO_INLINE") private inline fun maxX(range: Int): Int = (range ushr 3) and 7
+@Suppress("NOTHING_TO_INLINE") private inline fun minZ(range: Int): Int = (range ushr 6) and 7
+@Suppress("NOTHING_TO_INLINE") private inline fun maxZ(range: Int): Int = (range ushr 9) and 7
+@Suppress("NOTHING_TO_INLINE") private inline fun minY(range: Int): Int = (range ushr 12) and 3
+@Suppress("NOTHING_TO_INLINE") private inline fun maxY(range: Int): Int = (range ushr 14) and 3

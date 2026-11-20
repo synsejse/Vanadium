@@ -6,7 +6,7 @@ import com.synsenetwork.vanadium.concurrent.InteractionAccess;
 import com.synsenetwork.vanadium.concurrent.Interactions;
 import com.synsenetwork.vanadium.concurrent.OwnerLocks;
 import com.synsenetwork.vanadium.entity.CrowdAccess;
-import com.synsenetwork.vanadium.entity.CrowdedSection;
+import com.synsenetwork.vanadium.entity.CrowdGrid;
 import com.synsenetwork.vanadium.navigation.NavigationIndex;
 import java.util.concurrent.atomic.AtomicReference;
 import net.minecraft.world.entity.Entity;
@@ -51,20 +51,20 @@ public abstract class EntityMixin implements InteractionAccess, CrowdAccess {
     }
 
     @Unique
-    private volatile CrowdedSection.@Nullable Member<?> vanadium$crowd;
+    private volatile CrowdGrid.@Nullable Member<?> vanadium$crowd;
 
     @Override
-    public CrowdedSection.@Nullable Member<?> vanadium$crowd() {
+    public CrowdGrid.@Nullable Member<?> vanadium$crowd() {
         return vanadium$crowd;
     }
 
     @Override
-    public void vanadium$setCrowd(CrowdedSection.@Nullable Member<?> member) {
+    public void vanadium$setCrowd(CrowdGrid.@Nullable Member<?> member) {
         vanadium$crowd = member;
     }
 
     /**
-     * Keeps a crowded section's cells in step with this box ({@link CrowdedSection}). Outside crowded sections
+     * Keeps a crowded section's cells in step with this box ({@link CrowdGrid}). Outside crowded sections
      * this is one field read. Inside, a write from another tick waits for this entity's own tick as a position
      * write does, so one entity's box moves never overlap; a box that stays in its cells takes no lock.
      */
@@ -85,12 +85,12 @@ public abstract class EntityMixin implements InteractionAccess, CrowdAccess {
     @Unique
     @SuppressWarnings({"unchecked", "rawtypes"})
     private void vanadium$moveInCells(AABB bb, Operation<Void> original) {
-        CrowdedSection.Member member = vanadium$crowd;
+        CrowdGrid.Member member = vanadium$crowd;
         if (member == null) {
             original.call(bb);
             return;
         }
-        CrowdedSection grid = member.grid;
+        CrowdGrid grid = member.grid;
         int range = grid.rangeOf(bb);
         if (range == member.range || !grid.beginMove(member, range)) {
             original.call(bb);

@@ -1,8 +1,8 @@
 package com.synsenetwork.vanadium.mixin.world.entity;
 
+import com.synsenetwork.vanadium.entity.CrowdGrids;
+import com.synsenetwork.vanadium.entity.CrowdGridsAccess;
 import com.synsenetwork.vanadium.entity.CrowdSlotAccess;
-import com.synsenetwork.vanadium.entity.CrowdedSections;
-import com.synsenetwork.vanadium.entity.CrowdedSectionsAccess;
 import com.synsenetwork.vanadium.entity.EntitySectionIndex;
 import it.unimi.dsi.fastutil.longs.Long2ObjectFunction;
 import it.unimi.dsi.fastutil.longs.LongSet;
@@ -37,11 +37,11 @@ import org.spongepowered.asm.mixin.Unique;
  * {@code minimal_nonvanilla.spawning}, whose own storage mixin is cancelled in {@code compat/Lithium}, is
  * implemented here.
  *
- * <p>Each section is linked to this storage's {@link CrowdedSections}, which indexes crowded sections for box
+ * <p>Each section is linked to this storage's {@link CrowdGrids}, which indexes crowded sections for box
  * queries; the server's entity manager refreshes it after each level tick.
  */
 @Mixin(EntitySectionStorage.class)
-public abstract class EntitySectionStorageMixin<T extends EntityAccess> implements ChunkAwareEntityIterable<T>, CrowdedSectionsAccess {
+public abstract class EntitySectionStorageMixin<T extends EntityAccess> implements ChunkAwareEntityIterable<T>, CrowdGridsAccess {
     @Shadow @Final private Class<T> entityClass;
     @Shadow @Final private Long2ObjectFunction<Visibility> intialSectionVisibility;
 
@@ -49,10 +49,10 @@ public abstract class EntitySectionStorageMixin<T extends EntityAccess> implemen
     private final EntitySectionIndex<T> vanadium$index = new EntitySectionIndex<>();
 
     @Unique
-    private final CrowdedSections<T> vanadium$crowds = new CrowdedSections<>();
+    private final CrowdGrids<T> vanadium$crowds = new CrowdGrids<>();
 
     @Override
-    public CrowdedSections<?> vanadium$crowds() {
+    public CrowdGrids<?> vanadium$crowds() {
         return vanadium$crowds;
     }
 
@@ -112,6 +112,7 @@ public abstract class EntitySectionStorageMixin<T extends EntityAccess> implemen
      */
     @Overwrite
     public EntitySection<T> getOrCreateSection(long key) {
+        // Looked up here first so that a hit does not allocate the bound createSection reference.
         EntitySection<T> section = vanadium$index.get(key);
         return section != null ? section : vanadium$index.getOrCreate(key, this::createSection);
     }

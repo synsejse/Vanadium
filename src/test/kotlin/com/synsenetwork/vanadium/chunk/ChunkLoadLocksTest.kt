@@ -7,21 +7,83 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.function.Supplier
+import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
- * A wave must not deadlock or stall on a chunk load requested from inside it. The reported deadlock: a worker took a
- * chunk's load lock and waited for a load only the server thread can finish, while the server thread, a participant
- * in the same wave, waited for that lock.
+ * The per-chunk locks exclude per chunk and survive eviction while held. A wave must not deadlock or stall on a chunk
+ * load requested from inside it. The reported deadlock: a worker took a chunk's load lock and waited for a load only
+ * the server thread can finish, while the server thread, a participant in the same wave, waited for that lock.
  */
-class ChunkLoadRouterTest {
+class ChunkLoadLocksTest {
+    // The lock tests count every thread as the server thread, so each load takes its chunk's lock.
+
+    @Test
+    fun sameChunkLockIsMutuallyExclusiveEvenWhileEvicting() {
+        val locks = ChunkLoadLocks { true }
+        val inside = AtomicInteger()
+        val overlap = AtomicBoolean(false)
+        val ops = AtomicInteger()
+        val stop = AtomicBoolean(false)
+        // Hammer eviction concurrently to stress the reserve-vs-evict race.
+        val evictor = thread { while (!stop.get()) locks.evictIdle() }
+        val threads = 8
+        val pool = Executors.newFixedThreadPool(threads)
+        val done = CountDownLatch(threads)
+        repeat(threads) {
+            pool.submit {
+                try {
+                    repeat(5000) {
+                        locks.load(42L, Supplier {
+                            if (inside.incrementAndGet() != 1) overlap.set(true)
+                            ops.incrementAndGet()
+                            inside.decrementAndGet()
+                        })
+                    }
+                } finally {
+                    done.countDown()
+                }
+            }
+        }
+        assertTrue(done.await(30, TimeUnit.SECONDS), "workers did not finish in time")
+        stop.set(true)
+        evictor.join(2000)
+        pool.shutdownNow()
+        assertFalse(overlap.get(), "two threads were inside the same chunk lock at once")
+        assertEquals(threads * 5000, ops.get())
+    }
+
+    @Test
+    fun differentChunksDoNotBlockEachOther() {
+        val locks = ChunkLoadLocks { true }
+        val acquired = AtomicBoolean(false)
+        locks.load(1L, Supplier {
+            thread { locks.load(2L, Supplier { acquired.set(true) }) }.join(2000)
+        })
+        assertTrue(acquired.get(), "locking a different chunk blocked on an unrelated chunk's lock")
+    }
+
+    @Test
+    fun idleLocksAreEvictedButHeldLocksAreNot() {
+        val locks = ChunkLoadLocks { true }
+        locks.load(7L, Supplier {})
+        assertEquals(1, locks.size, "lock is retained until eviction runs")
+        locks.load(9L, Supplier {
+            locks.evictIdle()
+            assertEquals(1, locks.size, "only the idle lock is evicted")
+        })
+        locks.evictIdle()
+        assertEquals(0, locks.size)
+    }
     /** A chunk that, as with C2ME, only the server thread can finish loading; elsewhere a load waits for it. */
     private class ServerOnlyChunk {
         @Volatile
@@ -48,7 +110,7 @@ class ChunkLoadRouterTest {
             chunk
         }
 
-        val router = ChunkLoadRouter(ChunkLockTable()) { Thread.currentThread() === server }
+        val locks = ChunkLoadLocks { Thread.currentThread() === server }
 
         /** Whether the worker's lookup is in flight: queued for the caller, or (before the fix) loading itself. */
         fun workerAsked(): Boolean = WorkerPool.callerHasRequests() || loadingOffServer.count == 0L
@@ -63,10 +125,10 @@ class ChunkLoadRouterTest {
         val task = Runnable {
             start.await(STUCK_SECONDS, TimeUnit.SECONDS)
             if (WorkerPool.isWorkerThread()) {
-                results["worker"] = system.router.load(POS, system.load)
+                results["worker"] = system.locks.load(POS, system.load)
             } else {
                 awaitTrue("the worker's lookup") { system.workerAsked() }
-                results["server"] = system.router.load(POS, system.load)
+                results["server"] = system.locks.load(POS, system.load)
             }
         }
         runOnServerThread(system) { pool -> pool.runWave(listOf(task, task)) }
@@ -83,7 +145,7 @@ class ChunkLoadRouterTest {
         val task = Runnable {
             start.await(STUCK_SECONDS, TimeUnit.SECONDS)
             // The caller's own task ends at once: nothing it does would load for the worker.
-            if (WorkerPool.isWorkerThread()) result.set(system.router.load(POS, system.load) === system.chunk)
+            if (WorkerPool.isWorkerThread()) result.set(system.locks.load(POS, system.load) === system.chunk)
         }
         runOnServerThread(system) { pool -> pool.runWave(listOf(task, task)) }
         assertTrue(result.get())
@@ -104,7 +166,7 @@ class ChunkLoadRouterTest {
             if (claims.getAndIncrement() < 2) start.await(STUCK_SECONDS, TimeUnit.SECONDS)
             if (WorkerPool.isWorkerThread()) {
                 if (workerAsked.compareAndSet(false, true)) {
-                    system.router.load(POS, system.load)
+                    system.locks.load(POS, system.load)
                 } else {
                     // Leave the remaining tasks to the caller until it has run its second one.
                     callerSecond.await(STUCK_SECONDS, TimeUnit.SECONDS)

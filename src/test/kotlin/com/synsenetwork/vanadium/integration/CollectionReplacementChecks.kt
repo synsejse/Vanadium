@@ -3,6 +3,7 @@ package com.synsenetwork.vanadium.integration
 import com.synsenetwork.vanadium.stage.BlockEntityStage
 import com.synsenetwork.vanadium.stage.ChunkTickAccess
 import com.synsenetwork.vanadium.stage.EntityTickAccess
+import it.unimi.dsi.fastutil.longs.Long2ByteMap
 import net.minecraft.server.level.ChunkMap
 import net.minecraft.server.level.DistanceManager
 import net.minecraft.server.level.ServerChunkCache
@@ -30,14 +31,18 @@ internal object CollectionReplacementChecks {
         val source = level.chunkSource
         val chunkMap = source.chunkMap
         val distanceManager = field(chunkMap, ChunkMap::class.java, "distanceManager")
+        val simulationTracker = field(distanceManager, DistanceManager::class.java, "simulationChunkTracker")
+        val poiTracker = field(level.poiManager, PoiManager::class.java, "distanceTracker")
         val failures = listOfNotNull(
             expect(source, ServerChunkCache::class.java, "chunkHoldersToBroadcast", "java.util.concurrent.ConcurrentHashMap\$KeySetView", "java.util.Collections\$SetFromMap"),
             expect(chunkMap, ChunkMap::class.java, "entityMap", "com.synsenetwork.vanadium.collections.ConcurrentIntObjectMap"),
             expect(chunkMap, ChunkMap::class.java, "pendingGenerationTasks", "java.util.concurrent.CopyOnWriteArrayList"),
-            expect(field(distanceManager, DistanceManager::class.java, "simulationChunkTracker"), null, "chunks",
-                "com.synsenetwork.vanadium.collections.ConcurrentLongByteMap"),
-            expect(field(level.poiManager, PoiManager::class.java, "distanceTracker"), null, "levels",
-                "com.synsenetwork.vanadium.collections.ConcurrentLongByteMap"),
+            expect(distanceManager, DistanceManager::class.java, "chunksToUpdateFutures", "java.util.Collections\$SetFromMap"),
+            expect(distanceManager, DistanceManager::class.java, "ticketsToRelease", "com.synsenetwork.vanadium.collections.ConcurrentLongSet"),
+            expect(simulationTracker, null, "chunks", "com.synsenetwork.vanadium.collections.ConcurrentLongByteMap"),
+            expectDefault(simulationTracker, "chunks", SIMULATION_DEFAULT_LEVEL),
+            expect(poiTracker, null, "levels", "com.synsenetwork.vanadium.collections.ConcurrentLongByteMap"),
+            expectDefault(poiTracker, "levels", POI_DEFAULT_LEVEL),
             expect(field(level, ServerLevel::class.java, "entityTickList"), EntityTickList::class.java, "active",
                 "com.synsenetwork.vanadium.collections.ConcurrentIntObjectMap"),
             expect(field(level, ServerLevel::class.java, "entityTickList"), EntityTickList::class.java, "passive",
@@ -106,4 +111,19 @@ internal object CollectionReplacementChecks {
         val actual = field(owner, type, name).javaClass.name
         return if (actual in expected) null else "${(type ?: owner.javaClass).simpleName}.$name is $actual"
     }
+
+    /**
+     * Null when the map in [name] answers [expected] for absent keys. The constructor sets that default on vanilla's
+     * map before the `<init>` RETURN install replaces it; a replacement that missed it would answer 0.
+     */
+    private fun expectDefault(owner: Any, name: String, expected: Byte): String? {
+        val actual = (field(owner, null, name) as Long2ByteMap).defaultReturnValue()
+        return if (actual == expected) null else "${owner.javaClass.simpleName}.$name answers $actual for absent keys, not $expected"
+    }
+
+    /** `SimulationChunkTracker`'s default level: vanilla's 33, which C2ME's no-tick view distance raises by one. */
+    private const val SIMULATION_DEFAULT_LEVEL: Byte = 34
+
+    /** `PoiManager.DistanceTracker`'s default level (vanilla's). */
+    private const val POI_DEFAULT_LEVEL: Byte = 7
 }

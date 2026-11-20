@@ -47,7 +47,7 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - **Kotlin vs. Java:** Mixin classes must be Java. So are the duck interfaces they implement
   (`vanadium$`-prefixed methods: `NavigationAccess`, `NavigationState`, `InteractionAccess`,
   `PoiDistanceAccess`, `PoiTicketAccess`, `PoiSectionAccess`, `SectionStorageAccess`, `EntityTickAccess`, `ChunkTickAccess`, `ScheduledTickAccess`, `CrowdAccess`, `CrowdSlotAccess`,
-  `CrowdedSectionsAccess`) and code that runs during Mixin
+  `CrowdGridsAccess`) and code that runs during Mixin
   bootstrap (`mixin/VanadiumMixinPlugin.java`, `compat/C2ME.java`, `compat/Lithium.java`). Everything else is Kotlin.
   Kotlin APIs called from mixins are static on the JVM: `@JvmField`/`@JvmStatic`, or a `lateinit`
   property of an `object` (`Vanadium.config`, `Vanadium.scheduler`); call `vanadium$` methods from
@@ -64,7 +64,7 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - `stage/`: what each stage queues, one Kotlin owner per level and stage, created at its vanilla owner's
   `<init>` RETURN: `EntityTickTasks`/`PersistentTickTasks` (entity wave), `ChunkStage` (spawning and chunk
   ticks), `BlockEntityStage`, `ScheduledTickStage`. Stage mixins are thin hooks that forward to them.
-- `entity/`: lock-free entity section index; `CrowdedSection` cell grids prefilter box queries in crowded
+- `entity/`: lock-free entity section index; `CrowdGrid` cell grids prefilter box queries in crowded
   sections (every write to an entity's box or section must keep them in step: see its invariant).
 - `chunk/`: chunk cache (`ParallelChunkCache`), server-thread load routing and per-position loading
   locks, chunk packet preparation.
@@ -100,7 +100,7 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - Worlds are processed sequentially through one shared scheduler. Enqueue/reset operations
   belong to the server thread; workers read/run regions only within a wave.
 - Create a fresh scheduler/pool per server lifecycle and close the pool after the final wave.
-  Chunk managers own their maintenance executors; `ChunkLockTable` owns no background threads.
+  Chunk managers own their maintenance executors; `ChunkLoadLocks` owns no background threads.
 - Entities tick in one flat wave with no regions: any two entity ticks may overlap,
   however close. A tick owns its vehicle tree; pushes go to the target's inbox; every other write to
   another tree, to blocks or to listeners must run inside an `Interactions` scope (`enter`/`enterShared`
@@ -130,8 +130,8 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
   serves it between its own tasks and in the tail; hold no lock the server thread may wait for.
 - Do not wait at a worker barrier while holding a monitor needed by those workers.
   Scheduled ticks are collected under vanilla scheduling and dispatched after its monitor releases.
-- Keep lock ordering deterministic. Preserve reservation/eviction atomicity in `ChunkLockTable`.
-  Only the server thread takes chunk load locks (`ChunkLoadRouter`): any other holder would wait
+- Keep lock ordering deterministic. Preserve reservation/eviction atomicity in `ChunkLoadLocks`,
+  and take its chunk load locks only on the server thread: any other holder would wait
   for the server thread while holding one.
 - Full chunks are published by `LevelChunk.setLoaded` before their load completes; recheck that
   map under the load lock, and never publish unloaded or null chunks.
@@ -153,11 +153,8 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - The server thread runs chunk-system work (status changes, mods' load/unload callbacks) when it loads
   during a wave; prefer `WorkerPool.runDeferrable`, or queue callbacks with `runAfterParallelWave`.
 - Do not rely on `@Shadow` field initializers to replace vanilla collections: once a mixin adds other
-  initialized fields, Mixin may drop them. Install replacements explicitly at `<init>` RETURN.
-  The initializers still in `DistanceManagerMixin`, `SimulationChunkTrackerMixin`, `SavedDataStorageMixin` and
-  `PoiDistanceTrackerMixin` are safe today: classes
-  exported from a live run (2026-11-19, Mixin 0.8.7) place each right after vanilla's own empty collection,
-  before any use, because Mixin inserts initializers after the constructor's last write to a field they set.
+  initialized fields, Mixin may drop them. Install replacements explicitly at `<init>` RETURN, and carry over
+  whatever the constructor configured on vanilla's collection (the chunk and POI tracker maps' default levels).
 
 ## Change and validation discipline
 

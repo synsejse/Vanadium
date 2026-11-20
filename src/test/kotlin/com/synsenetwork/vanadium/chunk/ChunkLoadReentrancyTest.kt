@@ -28,11 +28,10 @@ class ChunkLoadReentrancyTest {
     private class Loads {
         @Volatile
         var server: Thread? = null
-        val locks = ChunkLockTable()
-        val router = ChunkLoadRouter(locks) { Thread.currentThread() === server }
+        val locks = ChunkLoadLocks { Thread.currentThread() === server }
         val trace: MutableList<Ran> = Collections.synchronizedList(ArrayList())
 
-        fun <T> load(pos: Long, what: String, body: () -> T): T = router.load(pos, Supplier {
+        fun <T> load(pos: Long, what: String, body: () -> T): T = locks.load(pos, Supplier {
             trace += Ran(what, Thread.currentThread() === server)
             body()
         })

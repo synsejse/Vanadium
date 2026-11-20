@@ -9,7 +9,7 @@ import com.synsenetwork.vanadium.diagnostics.ServerTickEvent
 import com.synsenetwork.vanadium.diagnostics.TickBenchmark
 import com.synsenetwork.vanadium.diagnostics.TickProfiler
 import com.synsenetwork.vanadium.diagnostics.WaveDiagnostics
-import com.synsenetwork.vanadium.entity.CrowdedSection
+import com.synsenetwork.vanadium.entity.CrowdGrid
 import com.synsenetwork.vanadium.navigation.NavigationAccess
 import com.synsenetwork.vanadium.tick.IdleWorkers
 import com.synsenetwork.vanadium.tick.ServerSpin
@@ -51,7 +51,7 @@ object Vanadium : ModInitializer {
         val holder = AutoConfig.register(VanadiumConfig::class.java) { definition, type -> VanadiumConfigSerializer(definition, type) }
         config = holder.config
         // Crowded-section grids are bypassed and rebuilt after an entity write ran without its owner's lock.
-        CrowdedSection.unprotectedWrites = LongSupplier { Interactions.timeouts + Interactions.cycles }
+        CrowdGrid.unprotectedWrites = LongSupplier { Interactions.timeouts + Interactions.cycles }
 
         CommandRegistrationCallback.EVENT.register { dispatcher, _, _ -> VanadiumCommand.register(dispatcher) }
         ServerLifecycleEvents.SERVER_STARTING.register(::onServerStarting)

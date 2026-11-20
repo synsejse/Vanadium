@@ -5,32 +5,32 @@ import net.minecraft.world.level.entity.EntitySection
 import java.util.function.Predicate
 
 /**
- * Entities of the accessible, non-empty sections of one [EntitySectionIndex], for whole-level scans
- * (Lithium's chunk-aware spawn counting). Lazy: nothing is read until [iterator] or a [columns] range runs.
+ * Entities of the accessible, non-empty sections of one [EntitySectionIndex], for whole-level scans (Lithium's
+ * chunk-aware spawn counting), read through the index's column slots as they were at construction. Iterating it,
+ * or a [range] of slots, works on any thread while no section is created or removed (a counting wave runs nothing
+ * else); concatenating consecutive ranges visits the same entities in the same order as one full pass. Each range
+ * records how many entities each of its columns held, so the next scan's [split] is balanced without walking the
+ * level first.
  */
-class AccessibleEntities<T : EntityAccess> internal constructor(private val index: EntitySectionIndex<T>) : Iterable<T> {
-    /** The index's column slots as they are now, for splitting one scan into ranges without reading any column. */
-    fun columns(): ColumnScan<T> = ColumnScan(index)
-
-    override fun iterator(): Iterator<T> = columns().let { ColumnScan.Range(it, 0, it.size, null) }
-}
-
-/**
- * The column slots of an [EntitySectionIndex] at construction. A [range] of slots can be iterated on any thread
- * while no section is created or removed (a counting wave runs nothing else); concatenating consecutive ranges
- * visits the same entities in the same order as one full range. Each range records how many entities each of
- * its columns held, so the next scan's [split] is balanced without walking the level first.
- */
-class ColumnScan<T : EntityAccess> internal constructor(index: EntitySectionIndex<T>) {
+class ColumnScan<T : EntityAccess> internal constructor(index: EntitySectionIndex<T>) : Iterable<T> {
     private val slots = index.columnSlots()
 
     /** Column slots in this scan. */
     val size = minOf(index.columnSlotCount(), slots.size)
 
     /** Entities per slot as of the previous scan (0 when unknown). Shared with that scan's ranges. */
-    private val weights = index.slotWeights.let { weights ->
-        if (weights.size >= size) weights else weights.copyOf(slots.size).also { index.slotWeights = it }
+    private val weights: IntArray
+
+    init {
+        var weights = index.slotWeights
+        if (weights.size < size) {
+            weights = weights.copyOf(slots.size)
+            index.slotWeights = weights
+        }
+        this.weights = weights
     }
+
+    override fun iterator(): Iterator<T> = Range(this, 0, size, null)
 
     /** Entities `from` until `to` of the slot order that pass [filter]. Each call to `iterator()` is one pass. */
     fun range(from: Int, to: Int, filter: Predicate<in T>?): Iterable<T> = Iterable { Range(this, from, to, filter) }

@@ -78,18 +78,23 @@ class EntitySectionIndex<T : EntityAccess> {
      * The section at [key], creating it with [create] if absent. [create] runs under this index's lock
      * and must not call back into it; the new section is published only after [create] returns.
      */
-    fun getOrCreate(key: Long, create: LongFunction<EntitySection<T>>): EntitySection<T> =
-        get(key) ?: synchronized(this) {
+    fun getOrCreate(key: Long, create: LongFunction<EntitySection<T>>): EntitySection<T> {
+        val existing = get(key)
+        if (existing != null) return existing
+        synchronized(this) {
             val chunk = chunkKey(key)
             val y = SectionPos.y(key)
             val column = columns[chunk]
-            val at = column?.indexOf(y) ?: -1
-            if (at >= 0) return column!!.sections[at]
+            if (column != null) {
+                val at = column.indexOf(y)
+                if (at >= 0) return column.sections[at]
+            }
             val section = create.apply(key)
             publish(chunk, inserted(column, y, section))
             count++
-            section
+            return section
         }
+    }
 
     fun remove(key: Long) {
         synchronized(this) {
@@ -108,12 +113,6 @@ class EntitySectionIndex<T : EntityAccess> {
     }
 
     fun size(): Int = count
-
-    /** Accessible, non-empty sections overlapping the section-coordinate box, in vanilla order. */
-    fun forEachAccessibleNonEmpty(
-        xMin: Int, yMin: Int, zMin: Int, xMax: Int, yMax: Int, zMax: Int,
-        output: AbortableIterationConsumer<EntitySection<T>>,
-    ) = walk(xMin, yMin, zMin, xMax, yMax, zMax, output, null, null, null)
 
     /** `EntitySectionStorage.forEachAccessibleNonEmptySection`: the sections near [bb], in vanilla order. */
     fun forEachAccessibleNonEmpty(bb: AABB, output: AbortableIterationConsumer<EntitySection<T>>) =
@@ -185,24 +184,12 @@ class EntitySectionIndex<T : EntityAccess> {
      * Entities of every accessible, non-empty section, column by column in slot order; for whole-level scans such
      * as spawn counting. Splittable into slot ranges while no section is created or removed.
      */
-    fun accessibleEntities(): AccessibleEntities<T> = AccessibleEntities(this)
+    fun accessibleEntities(): ColumnScan<T> = ColumnScan(this)
 
     /** The column slots as they are now: a stable view while no section is created or removed. */
     internal fun columnSlots(): Array<Column<T>?> = slots
 
     internal fun columnSlotCount(): Int = slotCount
-
-    /** Accessible, non-empty sections as they are now, in [accessibleEntities]'s order. */
-    fun accessibleSections(): ArrayList<EntitySection<T>> {
-        val result = ArrayList<EntitySection<T>>(count)
-        val slots = slots
-        for (i in 0 until slotCount) {
-            for (section in slots[i]!!.sections) {
-                if (!section.isEmpty && section.status.isAccessible) result.add(section)
-            }
-        }
-        return result
-    }
 
     fun chunksWithSections(): LongSet {
         val chunks = LongOpenHashSet()
