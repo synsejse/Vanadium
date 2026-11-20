@@ -34,6 +34,8 @@ internal object CollectionReplacementChecks {
             expect(source, ServerChunkCache::class.java, "chunkHoldersToBroadcast", "java.util.concurrent.ConcurrentHashMap\$KeySetView", "java.util.Collections\$SetFromMap"),
             expect(chunkMap, ChunkMap::class.java, "entityMap", "com.synsenetwork.vanadium.collections.ConcurrentIntObjectMap"),
             expect(chunkMap, ChunkMap::class.java, "pendingGenerationTasks", "java.util.concurrent.CopyOnWriteArrayList"),
+            expect(distanceManager, DistanceManager::class.java, "chunksToUpdateFutures", "java.util.Collections\$SetFromMap"),
+            expect(distanceManager, DistanceManager::class.java, "ticketsToRelease", "com.synsenetwork.vanadium.collections.ConcurrentLongSet"),
             expect(field(distanceManager, DistanceManager::class.java, "simulationChunkTracker"), null, "chunks",
                 "com.synsenetwork.vanadium.collections.ConcurrentLongByteMap"),
             expect(field(level.poiManager, PoiManager::class.java, "distanceTracker"), null, "levels",
