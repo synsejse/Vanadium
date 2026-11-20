@@ -19,7 +19,7 @@ server-owned scheduler and worker pool; it is not a server-per-region engine.
 | `collections` | Fastutil-compatible adapters over JDK/JCTools collections |
 | `compat` | Lithium's section-storage replacement; C2ME and Lithium mixin cancellation (Java) |
 | `commands`, `config` | Brigadier commands, TOML configuration, live options, serial-type rules and JVM properties |
-| `mixin` | Java integration with vanilla, C2ME and Lithium |
+| `mixin` | Java integration with vanilla, C2ME and Lithium, each mixin in its target class's official package (`mixin/server/level/ServerLevelMixin`); Lithium-class mixins in `mixin/compat/lithium` |
 
 [AGENTS.md](../AGENTS.md#source-map) maps the same packages to source paths and says which classes
 must stay Java.
