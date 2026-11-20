@@ -24,7 +24,7 @@ internal object TrackingChecks {
         val mob = Pig(EntityTypes.PIG, level)
         for (interval in listOf(net.minecraft.world.entity.UpdateInterval.periodic(3), net.minecraft.world.entity.UpdateInterval.NEVER)) {
             val tracked = with(level.chunkSource.chunkMap) { TrackedEntity(mob, 64, interval, true) }
-            val entry = (tracked as com.synsenetwork.vanadium.mixin.server.world.TrackedEntityAccessor).`vanadium$entry`()
+            val entry = (tracked as com.synsenetwork.vanadium.mixin.server.level.TrackedEntityAccessor).`vanadium$entry`()
             mob.setPos(120.0, 100.0, -120.0)
             NearbyTrackers.forceResync(entry)
             check(entry.positionBase == mob.trackingPosition(), "resync did not refresh the position baseline")

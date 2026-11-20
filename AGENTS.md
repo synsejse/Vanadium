@@ -76,16 +76,25 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - `navigation/`: navigation invalidation index, path-type cache, and Java navigation duck interfaces.
 - `spawning/`: spawn counting and lazy count state.
 - `diagnostics/`: tick profiles, JFR events, wave watchdog, crash-report section, benchmark capture, summaries, and result files.
-- `mixin/server/world/`, `mixin/world/`: stage injection points and vanilla world access changes.
-- Remaining `mixin/` packages: synchronization and concurrent collection replacements.
+- `mixin/`: each mixin and accessor sits in its target class's package relative to `net.minecraft`
+  (`ServerLevel` → `mixin/server/level/ServerLevelMixin`); a nested class's mixin uses the outer class's
+  package, and a multi-target mixin uses its targets' deepest common package, or the `mixin/` root when they
+  share none (`SyncAllMixin`, `RandValueMixin`). Class names stay as they are.
+  - Stage hooks: `server/level/` (`ServerLevelMixin`, `ServerChunkCacheMixin`, `SimulationChunkTrackerMixin`),
+    `world/level/LevelMixin`, `world/level/entity/EntityTickListMixin`, `world/entity/EntityTickRuleMixin`,
+    `world/ticks/LevelTicksMixin`.
+  - Synchronization: `SyncAllMixin` (its targets get synchronized methods from the plugin) and
+    `RandValueMixin` at the root; the rest (`Interactions` scopes, locks, concurrent collection
+    replacements) sits with its vanilla target.
 - `mixin/VanadiumMixinPlugin.java`: the Mixin config plugin: ASM synchronization of `SyncAllMixin` targets, the
   per-thread `randValue` rewrite (`RandValueMixin`) and the optional POI hook checks; it matches mixins by name.
 - `compat/C2ME.java`: MixinSquared cancellation of two C2ME thread-detection mixins.
 - `compat/LithiumCompat.kt` (POI section-storage and column-index replacement), `compat/Lithium.java`
-  (MixinSquared canceller), `mixin/compat/lithium/`: Lithium support (required, compiled against the
-  pinned jar); `lithium:options` in `fabric.mod.json` disables the Lithium options whose job Vanadium
-  does itself.
-- `mixin/compat/c2me/`: C2ME POI-unload veto.
+  (MixinSquared canceller), `mixin/compat/lithium/` (mixins of Lithium classes): Lithium support (required,
+  compiled against the pinned jar); `lithium:options` in `fabric.mod.json` disables the Lithium options whose
+  job Vanadium does itself. Compatibility mixins of vanilla classes follow the vanilla package:
+  `PoiTakeAtMixin` (Lithium's `takeAt`) and `PoiUnloadMixin` (C2ME's POI-unload veto) in
+  `mixin/world/entity/ai/village/poi/`, `EntitySectionMovementTrackingMixin` in `mixin/world/level/entity/`.
 - `config/`, `commands/`: TOML config (and its retired-key warnings), live options, validated
   `-Dvanadium.*` properties (`DeveloperProperties`), and Brigadier command registration. Every option,
   property and command is documented once in [CONFIGURATION.md](docs/CONFIGURATION.md).

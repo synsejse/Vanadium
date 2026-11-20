@@ -1,8 +1,8 @@
 package com.synsenetwork.vanadium.tracking
 
 import com.synsenetwork.vanadium.Vanadium
-import com.synsenetwork.vanadium.mixin.server.network.ServerEntityAccessor
-import com.synsenetwork.vanadium.mixin.server.world.TrackedEntityAccessor
+import com.synsenetwork.vanadium.mixin.server.level.ServerEntityAccessor
+import com.synsenetwork.vanadium.mixin.server.level.TrackedEntityAccessor
 import com.synsenetwork.vanadium.tick.PreparationKind
 import com.synsenetwork.vanadium.tick.Stage
 import it.unimi.dsi.fastutil.ints.IntArrayList
