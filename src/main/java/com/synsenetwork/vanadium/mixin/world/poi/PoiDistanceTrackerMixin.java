@@ -12,6 +12,11 @@ import org.spongepowered.asm.mixin.Shadow;
 /** Village distance levels are read by every mob's village checks; reads must not need the monitor. */
 @Mixin(targets = "net.minecraft.world.entity.ai.village.poi.PoiManager$DistanceTracker")
 public abstract class PoiDistanceTrackerMixin extends SectionTracker implements PoiDistanceAccess {
+    /**
+     * A shadow-field initializer, not a {@code <init>} RETURN install: the constructor sets this map's default
+     * return value after vanilla's own initializer, and Mixin places this one right after vanilla's, so the setting
+     * reaches the replacement (checked in a mixin export, 2026-11-20).
+     */
     @Shadow
     @Final
     @Mutable

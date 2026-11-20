@@ -13,6 +13,9 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Mutable;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * Cached reads are lock-free: {@code ServerLevel.getWorldBorder()} resolves saved data on every
@@ -24,7 +27,13 @@ public abstract class SavedDataStorageMixin {
     @Shadow
     @Final
     @Mutable
-    private Map<SavedDataType<?>, Optional<SavedData>> cache = new ConcurrentHashMap<>();
+    private Map<SavedDataType<?>, Optional<SavedData>> cache;
+
+    /** Installed explicitly: Mixin may drop shadow-field initializers once the class adds fields of its own. */
+    @Inject(method = "<init>", at = @At("RETURN"))
+    private void vanadium$install(CallbackInfo ci) {
+        cache = new ConcurrentHashMap<>();
+    }
 
     @SuppressWarnings("unchecked")
     @WrapMethod(method = {"computeIfAbsent", "get"})

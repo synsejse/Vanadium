@@ -18,6 +18,9 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Mutable;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(DistanceManager.class)
 public abstract class DistanceManagerMixin {
@@ -25,16 +28,23 @@ public abstract class DistanceManagerMixin {
     @Shadow
     @Final
     @Mutable
-    Set<ChunkHolder> chunksToUpdateFutures = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    Set<ChunkHolder> chunksToUpdateFutures;
 
     @Shadow
     @Final
     @Mutable
-    LongSet ticketsToRelease = new ConcurrentLongSet();
+    LongSet ticketsToRelease;
 
     @Shadow
     @Final
     private SimulationChunkTracker simulationChunkTracker;
+
+    /** Installed explicitly: Mixin may drop shadow-field initializers once the class adds fields of its own. */
+    @Inject(method = "<init>", at = @At("RETURN"))
+    private void vanadium$install(CallbackInfo ci) {
+        chunksToUpdateFutures = Collections.newSetFromMap(new ConcurrentHashMap<>());
+        ticketsToRelease = new ConcurrentLongSet();
+    }
 
     /** Iterates the concurrent level map directly; vanilla's fastIterable converts every entry. */
     @WrapMethod(method = "forEachEntityTickingChunk")

@@ -154,10 +154,9 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
   during a wave; prefer `WorkerPool.runDeferrable`, or queue callbacks with `runAfterParallelWave`.
 - Do not rely on `@Shadow` field initializers to replace vanilla collections: once a mixin adds other
   initialized fields, Mixin may drop them. Install replacements explicitly at `<init>` RETURN.
-  The initializers still in `DistanceManagerMixin`, `SimulationChunkTrackerMixin`, `SavedDataStorageMixin` and
-  `PoiDistanceTrackerMixin` are safe today: classes
-  exported from a live run (2026-11-19, Mixin 0.8.7) place each right after vanilla's own empty collection,
-  before any use, because Mixin inserts initializers after the constructor's last write to a field they set.
+  `SimulationChunkTrackerMixin` and `PoiDistanceTrackerMixin` keep initializers (and add no fields): their
+  constructors set the map's default return value after vanilla's initializer, which a RETURN install would
+  miss; a mixin export (2026-11-20) places each replacement right after vanilla's own empty map.
 
 ## Change and validation discipline
 
