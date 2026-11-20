@@ -16,14 +16,11 @@ import org.spongepowered.asm.mixin.Mixin;
 public abstract class VillagerMixin {
     @WrapMethod(method = "gossip")
     private void vanadium$gossip(ServerLevel level, Villager target, long time, Operation<Void> original) {
-        if (Interactions.active && Interactions.enterPair(target, Interactions.Kind.PAIR)) {
-            try {
-                original.call(level, target, time);
-            } finally {
-                Interactions.exitPair();
-            }
-        } else {
+        boolean scoped = Interactions.active && Interactions.enterPair(target, Interactions.Write.PAIR);
+        try {
             original.call(level, target, time);
+        } finally {
+            if (scoped) Interactions.exitPair();
         }
     }
 }

@@ -77,7 +77,6 @@ object Vanadium : ModInitializer {
         }
         val pool = WorkerPool(workers)
         this.pool = pool
-        Interactions.drainPool = pool
         scheduler = TickScheduler(pool, config.isolation, spawnParticipants)
         if (spawnParticipants != null) {
             LOGGER.warn("Experimental: natural spawn attempts use at most {} of {} threads (-D{})",
@@ -122,7 +121,6 @@ object Vanadium : ModInitializer {
         TickProfiler.onServerStopped()
         diagnostics?.close()
         ServerSpin.disarm()
-        Interactions.drainPool = null
         pool?.close()
         diagnostics = null
         pool = null

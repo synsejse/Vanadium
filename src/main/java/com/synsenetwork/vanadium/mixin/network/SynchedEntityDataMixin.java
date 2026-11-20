@@ -23,14 +23,11 @@ public abstract class SynchedEntityDataMixin {
 
     @WrapMethod(method = "set(Lnet/minecraft/network/syncher/EntityDataAccessor;Ljava/lang/Object;Z)V")
     private <T> void vanadium$set(EntityDataAccessor<T> accessor, T value, boolean force, Operation<Void> original) {
-        if (Interactions.active && entity instanceof Entity owner && Interactions.enter(owner, Interactions.Kind.DATA)) {
-            try {
-                original.call(accessor, value, force);
-            } finally {
-                Interactions.exit();
-            }
-        } else {
+        boolean scoped = Interactions.active && entity instanceof Entity owner && Interactions.enter(owner, Interactions.Write.DATA);
+        try {
             original.call(accessor, value, force);
+        } finally {
+            if (scoped) Interactions.exit();
         }
     }
 }

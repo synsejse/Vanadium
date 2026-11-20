@@ -41,74 +41,44 @@ class OwnerLocks(private val timeoutNanos: Long) {
     /** Waits abandoned after [timeoutNanos]: a lock outside the protocol was probably involved. */
     val timeouts = AtomicLong()
 
-    /** One thread's position in the protocol. Not thread-safe: each thread uses its own. */
+    /** One thread's position in the protocol: plain state that only [OwnerLocks] changes. Each thread uses its own. */
     open class Context {
-        private var own: Lock? = null
-        private var ownHeld = false
-        private var held = arrayOfNulls<Lock>(4)
+        /** The lock of the task running on this thread, held or released for a foreign scope. */
+        @JvmField internal var ownLock: Lock? = null
+
+        /** Whether this thread holds [ownLock]: false inside a foreign scope, or after a wait for it gave up. */
+        @JvmField internal var ownHeld = false
 
         /** Foreign scopes currently open on this thread. */
-        var depth = 0
-            private set
+        @JvmField internal var depth = 0
 
-        /** The lock of the task running on this thread, held or released for a foreign scope. */
-        val ownLock: Lock? get() = own
-
-        internal fun begin(locks: OwnerLocks, lock: Lock) {
-            check(own == null && depth == 0) { "an owner task is already running on this thread" }
-            own = lock
-            ownHeld = locks.acquire(lock)
-        }
-
-        internal fun end() {
-            check(depth == 0) { "owner task ended inside a foreign scope" }
-            if (ownHeld) own!!.unlock()
-            own = null
-            ownHeld = false
-        }
-
-        internal fun enter(locks: OwnerLocks, target: Lock) {
-            if (depth == 0 && ownHeld) {
-                own!!.unlock()
-                ownHeld = false
-            }
-            if (depth == held.size) held = held.copyOf(depth * 2)
-            held[depth++] = target.takeIf(locks::acquire)
-        }
-
-        internal fun enterPair(locks: OwnerLocks, other: Lock, ownFirst: Boolean) {
-            val own = checkNotNull(own) { "no owner task for a pair scope" }
-            if (depth == 0 && ownHeld) {
-                own.unlock()
-                ownHeld = false
-            }
-            if (depth + 2 > held.size) held = held.copyOf(held.size * 2)
-            val first = if (ownFirst) own else other
-            held[depth++] = first.takeIf(locks::acquire)
-            val second = if (ownFirst) other else own
-            held[depth++] = second.takeIf(locks::acquire)
-        }
-
-        internal fun exit(locks: OwnerLocks) {
-            check(depth > 0) { "no foreign scope to exit" }
-            held[--depth]?.unlock()
-            held[depth] = null
-            if (depth == 0) own?.let { ownHeld = locks.acquire(it) }
-        }
+        /** The lock each open scope took, by depth; null where its wait gave up. */
+        @JvmField internal var held = arrayOfNulls<Lock>(4)
     }
 
     /** Starts a task that owns [lock]'s object; waits for a foreign write to it to finish. */
-    fun beginOwn(context: Context, lock: Lock) = context.begin(this, lock)
+    fun beginOwn(context: Context, lock: Lock) {
+        check(context.ownLock == null && context.depth == 0) { "an owner task is already running on this thread" }
+        context.ownLock = lock
+        context.ownHeld = acquire(lock)
+    }
 
-    fun endOwn(context: Context) = context.end()
+    fun endOwn(context: Context) {
+        check(context.depth == 0) { "owner task ended inside a foreign scope" }
+        releaseOwn(context)
+        context.ownLock = null
+    }
 
     /**
      * Opens a scope for writing to the object guarded by [target], or to shared state with no single owner
      * when [target] is null. Scopes nest; each needs one [exitForeign].
      */
-    fun enterForeign(context: Context, target: Lock?) = context.enter(this, target ?: shared)
-
-    fun exitForeign(context: Context) = context.exit(this)
+    fun enterForeign(context: Context, target: Lock?) {
+        if (context.depth == 0) releaseOwn(context)
+        if (context.depth == context.held.size) context.held = context.held.copyOf(context.depth * 2)
+        val lock = target ?: shared
+        context.held[context.depth++] = if (acquire(lock)) lock else null
+    }
 
     /**
      * Opens a scope that owns both the caller's object and [other]'s, for an operation the two owners can
@@ -116,7 +86,32 @@ class OwnerLocks(private val timeoutNanos: Long) {
      * ([ownFirst] on exactly one of them), so they queue instead of each holding one lock and waiting for the
      * other. Counts as two scopes: needs two [exitForeign] calls.
      */
-    fun enterPair(context: Context, other: Lock, ownFirst: Boolean) = context.enterPair(this, other, ownFirst)
+    fun enterPair(context: Context, other: Lock, ownFirst: Boolean) {
+        val own = checkNotNull(context.ownLock) { "no owner task for a pair scope" }
+        if (context.depth == 0) releaseOwn(context)
+        if (context.depth + 2 > context.held.size) context.held = context.held.copyOf(context.held.size * 2)
+        val first = if (ownFirst) own else other
+        val second = if (ownFirst) other else own
+        context.held[context.depth++] = if (acquire(first)) first else null
+        context.held[context.depth++] = if (acquire(second)) second else null
+    }
+
+    /** Closes the innermost scope; closing the last takes the owner's lock back. */
+    fun exitForeign(context: Context) {
+        check(context.depth > 0) { "no foreign scope to exit" }
+        val depth = --context.depth
+        context.held[depth]?.unlock()
+        context.held[depth] = null
+        val own = context.ownLock
+        if (depth == 0 && own != null) context.ownHeld = acquire(own)
+    }
+
+    /** Releases the owner's lock if this thread holds it: at a first foreign scope, and when the task ends. */
+    private fun releaseOwn(context: Context) {
+        if (!context.ownHeld) return
+        context.ownHeld = false
+        context.ownLock?.unlock()
+    }
 
     private fun acquire(lock: Lock): Boolean {
         if (lock.tryLock()) return true

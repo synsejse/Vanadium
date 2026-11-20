@@ -42,7 +42,7 @@ internal object SectionMoveChecks {
 
     private fun wave(pool: WorkerPool, ticks: List<Pair<Entity, (Entity) -> Unit>>) {
         val tasks = ticks.map { (entity, body) -> Runnable { Interactions.tick(entity, Consumer(body)) } }
-        Interactions.runWave { pool.runWave(tasks) }
+        Interactions.runWave({ pool.runWave(tasks) }, pool)
     }
 
     private fun zombies(level: ServerLevel, box: AABB) = level.getEntities(EntityTypeTest.forClass(Zombie::class.java), box) { true }

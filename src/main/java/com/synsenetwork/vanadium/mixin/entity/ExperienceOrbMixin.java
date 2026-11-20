@@ -14,7 +14,7 @@ import org.spongepowered.asm.mixin.Mixin;
 public abstract class ExperienceOrbMixin {
     @WrapMethod(method = "merge")
     private void vanadium$merge(ExperienceOrb other, Operation<Void> original) {
-        if (Interactions.active && Interactions.enterPair(other, Interactions.Kind.PAIR)) {
+        if (Interactions.active && Interactions.enterPair(other, Interactions.Write.PAIR)) {
             try {
                 if (!other.isRemoved() && !((ExperienceOrb) (Object) this).isRemoved()) original.call(other);
             } finally {

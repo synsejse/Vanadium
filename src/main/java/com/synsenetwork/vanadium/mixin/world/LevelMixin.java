@@ -41,7 +41,7 @@ public abstract class LevelMixin {
     /** Block changes made by entity ticks are shared writes, one at a time. */
     @WrapMethod(method = "setBlock(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;II)Z")
     private boolean vanadium$setBlock(BlockPos pos, BlockState state, int flags, int limit, Operation<Boolean> original) {
-        boolean scoped = Interactions.active && Interactions.enterShared(Interactions.Kind.BLOCK);
+        boolean scoped = Interactions.active && Interactions.enterShared(Interactions.Write.BLOCK);
         try {
             return original.call(pos, state, flags, limit);
         } finally {
