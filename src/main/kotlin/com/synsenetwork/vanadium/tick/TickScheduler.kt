@@ -79,6 +79,14 @@ class TickScheduler internal constructor(
     /** The world being ticked, or the last one started, for the watchdog crash report. */
     internal val currentDimension: String get() = dimension
 
+    /**
+     * The stage last begun in [currentDimension], or null before its first, for the watchdog crash report. One plain
+     * write per stage and world, which every stage's collection, preparations and wave follow: the watchdog thread
+     * may read a stale value, which costs nothing until it fires.
+     */
+    internal var currentStage: Stage? = null
+        private set
+
     /** [WorkerPool.latestWaveProgress], for the watchdog crash report. */
     internal fun latestWaveProgress(): String = pool.latestWaveProgress()
 
@@ -149,6 +157,7 @@ class TickScheduler internal constructor(
 
     fun setDimension(dimension: String) {
         this.dimension = dimension
+        currentStage = null
         if (profile != null) worldStart = System.nanoTime()
     }
 
@@ -158,6 +167,7 @@ class TickScheduler internal constructor(
 
     /** Starts a stage's tick: for a region stage, ages idle chunks and clears leftover work. */
     fun begin(stage: Stage) {
+        currentStage = stage
         if (profile != null) preparationStarts[stage] = System.nanoTime()
         grids[stage]?.beginTick()
     }

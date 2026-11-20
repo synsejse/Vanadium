@@ -57,7 +57,7 @@ class WatchdogReportTest {
     }
 
     @Test
-    fun unwatchedWaveStillReportsDimensionProgressAndStacks() {
+    fun unwatchedWaveReportsStageDimensionProgressAndStacks() {
         val entered = CountDownLatch(2)
         val release = CountDownLatch(1)
         val pool = WorkerPool(1)
@@ -65,6 +65,9 @@ class WatchdogReportTest {
         try {
             val scheduler = TickScheduler(pool, 2)
             scheduler.setDimension("test:unwatched")
+            val before = WatchdogReport.details(scheduler, Thread.getAllStackTraces()).toMap()
+            assertEquals("dimension=test:unwatched; no stage begun in it yet", before["Wave"])
+            scheduler.begin(Stage.CHUNK)
             val blocked = Runnable {
                 entered.countDown()
                 if (!release.await(5, TimeUnit.SECONDS)) throw AssertionError("fixture timeout")
@@ -74,7 +77,7 @@ class WatchdogReportTest {
             assertTrue(entered.await(5, TimeUnit.SECONDS))
 
             val details = WatchdogReport.details(scheduler, Thread.getAllStackTraces()).toMap()
-            assertTrue("dimension=test:unwatched; stage not recorded" in details.getValue("Wave"), details.toString())
+            assertTrue(details.getValue("Wave").startsWith("stage=CHUNK dimension=test:unwatched (the stage last begun"), details.toString())
             assertTrue(details.getValue("Latest parallel wave").startsWith("0 of 3 tasks finished, 1 unclaimed, 2 participants"), details.toString())
             val busy = details.getValue("Busy workers")
             assertTrue("Vanadium-Worker-1 [" in busy && javaClass.name in busy, busy)
@@ -83,6 +86,9 @@ class WatchdogReportTest {
             wave.get(5, TimeUnit.SECONDS)
             val finished = WatchdogReport.details(scheduler, Thread.getAllStackTraces()).toMap()
             assertTrue(finished.getValue("Latest parallel wave").startsWith("3 of 3 tasks finished, 0 unclaimed"), finished.toString())
+            scheduler.setDimension("test:next")
+            val next = WatchdogReport.details(scheduler, Thread.getAllStackTraces()).toMap()
+            assertEquals("dimension=test:next; no stage begun in it yet", next["Wave"], "a stage outlived its world")
         } finally {
             release.countDown()
             caller.shutdownNow()
