@@ -2,7 +2,7 @@ package com.synsenetwork.vanadium.integration
 
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.concurrent.PerThreadRandomSource
-import com.synsenetwork.vanadium.tick.EntityTickAccess
+import com.synsenetwork.vanadium.stage.EntityTickAccess
 import com.synsenetwork.vanadium.tick.TickScheduler
 import com.synsenetwork.vanadium.tick.WorkerPool
 import net.minecraft.core.BlockPos

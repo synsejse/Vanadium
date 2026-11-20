@@ -1,7 +1,10 @@
-package com.synsenetwork.vanadium.tick
+package com.synsenetwork.vanadium.stage
 
 import com.synsenetwork.vanadium.diagnostics.TickProfile
 import com.synsenetwork.vanadium.diagnostics.WaveDiagnostics
+import com.synsenetwork.vanadium.tick.Stage
+import com.synsenetwork.vanadium.tick.WaveHomes
+import com.synsenetwork.vanadium.tick.WorkerPool
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger

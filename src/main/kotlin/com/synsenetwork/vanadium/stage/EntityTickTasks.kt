@@ -1,8 +1,11 @@
-package com.synsenetwork.vanadium.tick
+package com.synsenetwork.vanadium.stage
 
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.concurrent.Interactions
 import com.synsenetwork.vanadium.config.DeveloperProperties
+import com.synsenetwork.vanadium.tick.Stage
+import com.synsenetwork.vanadium.tick.TickScheduler
+import com.synsenetwork.vanadium.tick.WaveHomes
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.world.entity.AreaEffectCloud

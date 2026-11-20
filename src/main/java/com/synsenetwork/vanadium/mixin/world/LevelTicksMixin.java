@@ -1,6 +1,6 @@
 package com.synsenetwork.vanadium.mixin.world;
 
-import com.synsenetwork.vanadium.tick.ScheduledTickAccess;
+import com.synsenetwork.vanadium.stage.ScheduledTickAccess;
 import com.synsenetwork.vanadium.tick.ScheduledTickQueue;
 import java.util.List;
 import java.util.Queue;

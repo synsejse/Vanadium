@@ -1,6 +1,6 @@
 package com.synsenetwork.vanadium.mixin.entity;
 
-import com.synsenetwork.vanadium.tick.EntityTickAccess;
+import com.synsenetwork.vanadium.stage.EntityTickAccess;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.Level;

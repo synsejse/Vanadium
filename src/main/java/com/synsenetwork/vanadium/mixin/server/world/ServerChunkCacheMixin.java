@@ -7,7 +7,7 @@ import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.spawning.SpawnCounts;
 import com.synsenetwork.vanadium.spawning.SpawnTasks;
-import com.synsenetwork.vanadium.tick.ChunkTickAccess;
+import com.synsenetwork.vanadium.stage.ChunkTickAccess;
 import com.synsenetwork.vanadium.tick.ChunkTickBatch;
 import com.synsenetwork.vanadium.tick.Stage;
 import java.util.Collections;

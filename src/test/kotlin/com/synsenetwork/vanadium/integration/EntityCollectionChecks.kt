@@ -3,8 +3,8 @@ package com.synsenetwork.vanadium.integration
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.concurrent.Interactions
 import com.synsenetwork.vanadium.live.runCommand
-import com.synsenetwork.vanadium.tick.EntityTickAccess
-import com.synsenetwork.vanadium.tick.PersistentTickTasks
+import com.synsenetwork.vanadium.stage.EntityTickAccess
+import com.synsenetwork.vanadium.stage.PersistentTickTasks
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.entity.Entity

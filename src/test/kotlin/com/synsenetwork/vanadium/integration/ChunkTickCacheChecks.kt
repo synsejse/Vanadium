@@ -1,6 +1,6 @@
 package com.synsenetwork.vanadium.integration
 
-import com.synsenetwork.vanadium.tick.ChunkTickAccess
+import com.synsenetwork.vanadium.stage.ChunkTickAccess
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.level.ChunkPos
