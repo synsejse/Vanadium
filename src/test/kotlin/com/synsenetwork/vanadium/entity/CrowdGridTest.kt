@@ -32,26 +32,26 @@ import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-class CrowdedSectionTest {
+class CrowdGridTest {
     /** An entity whose box writes follow `EntityMixin.vanadium$moveInCells`. */
     open class Fake(box: AABB) : EntityAccess, CrowdAccess {
         @JvmField var box: AABB = box
 
-        @Volatile private var crowd: CrowdedSection.Member<*>? = null
+        @Volatile private var crowd: CrowdGrid.Member<*>? = null
 
         @Volatile @JvmField var gone = false
 
         /** Bumped after every removal and before every add, by the entity's writer. */
         @JvmField val changes = AtomicInteger()
 
-        override fun `vanadium$crowd`(): CrowdedSection.Member<*>? = crowd
-        override fun `vanadium$setCrowd`(member: CrowdedSection.Member<*>?) {
+        override fun `vanadium$crowd`(): CrowdGrid.Member<*>? = crowd
+        override fun `vanadium$setCrowd`(member: CrowdGrid.Member<*>?) {
             crowd = member
         }
 
         @Suppress("UNCHECKED_CAST")
         fun move(next: AABB) {
-            val member = crowd as CrowdedSection.Member<EntityAccess>?
+            val member = crowd as CrowdGrid.Member<EntityAccess>?
             if (member == null) {
                 box = next
                 return
@@ -87,7 +87,7 @@ class CrowdedSectionTest {
     /** A section list plus its grid, updated as `EntitySectionMixin` does (copy-on-write list, as Vanadium's). */
     private class Section(key: Long) {
         val list = CopyOnWriteArrayList<EntityAccess>()
-        val grid = CrowdedSection<EntityAccess>(key, 0L)
+        val grid = CrowdGrid<EntityAccess>(key, 0L)
 
         fun add(entity: EntityAccess) = synchronized(grid) {
             list.add(entity)
@@ -113,7 +113,7 @@ class CrowdedSectionTest {
 
     @AfterTest
     fun resetEpoch() {
-        CrowdedSection.unprotectedWrites = LongSupplier { 0L }
+        CrowdGrid.unprotectedWrites = LongSupplier { 0L }
     }
 
     private fun randomBox(random: Random, spread: Double = 4.0): AABB {
@@ -230,7 +230,7 @@ class CrowdedSectionTest {
         assertEquals(listOf<EntityAccess>(entity), collect { section.grid.query(before, it)!! })
         assertEquals(emptyList(), collect { section.grid.query(after, it)!! })
         @Suppress("UNCHECKED_CAST")
-        val member = entity.`vanadium$crowd`() as CrowdedSection.Member<EntityAccess>
+        val member = entity.`vanadium$crowd`() as CrowdGrid.Member<EntityAccess>
         val target = AABB(-3.5, 50.0, 45.0, -3.0, 51.0, 45.5)
         assertTrue(section.grid.beginMove(member, section.grid.rangeOf(target)))
         assertNull(section.grid.query(before) { Continuation.CONTINUE }, "a read during an open move validated")
@@ -239,7 +239,7 @@ class CrowdedSectionTest {
         section.grid.endMove(member)
         assertEquals(listOf<EntityAccess>(entity), collect { section.grid.query(after, it)!! })
         assertEquals(emptyList(), collect { section.grid.query(before, it)!! })
-        CrowdedSection.unprotectedWrites = LongSupplier { 1L }
+        CrowdGrid.unprotectedWrites = LongSupplier { 1L }
         assertNull(section.grid.query(after) { Continuation.CONTINUE }, "a grid older than an unprotected write validated")
     }
 
@@ -255,9 +255,9 @@ class CrowdedSectionTest {
     }
 
     @Test
-    fun crowdedSectionsBuildAndDropAtTheThreshold() {
-        val threshold = CrowdedSections.THRESHOLD
-        val crowds = CrowdedSections<EntityAccess>()
+    fun crowdGridsBuildAndDropAtTheThreshold() {
+        val threshold = CrowdGrids.THRESHOLD
+        val crowds = CrowdGrids<EntityAccess>()
         val section = EntitySection(EntityAccess::class.java, Visibility.TICKING)
         val slot = crowds.slot(section, key)
         val live = java.util.function.LongFunction<EntitySection<EntityAccess>?> { if (it == key) section else null }
@@ -291,7 +291,7 @@ class CrowdedSectionTest {
         assertEquals(1, crowds.indexedCount())
 
         // An unprotected write: the grid stops validating and is rebuilt at the next refresh.
-        CrowdedSection.unprotectedWrites = LongSupplier { 3L }
+        CrowdGrid.unprotectedWrites = LongSupplier { 3L }
         assertNull(grid.query(entities[0].box) { Continuation.CONTINUE })
         crowds.refresh(true, live)
         val rebuilt = assertNotNull(slot.grid)

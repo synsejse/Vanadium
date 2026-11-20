@@ -47,7 +47,7 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - **Kotlin vs. Java:** Mixin classes must be Java. So are the duck interfaces they implement
   (`vanadium$`-prefixed methods: `NavigationAccess`, `NavigationState`, `InteractionAccess`,
   `PoiDistanceAccess`, `PoiTicketAccess`, `PoiSectionAccess`, `SectionStorageAccess`, `EntityTickAccess`, `ChunkTickAccess`, `ScheduledTickAccess`, `CrowdAccess`, `CrowdSlotAccess`,
-  `CrowdedSectionsAccess`) and code that runs during Mixin
+  `CrowdGridsAccess`) and code that runs during Mixin
   bootstrap (`mixin/VanadiumMixinPlugin.java`, `compat/C2ME.java`, `compat/Lithium.java`). Everything else is Kotlin.
   Kotlin APIs called from mixins are static on the JVM: `@JvmField`/`@JvmStatic`, or a `lateinit`
   property of an `object` (`Vanadium.config`, `Vanadium.scheduler`); call `vanadium$` methods from
@@ -64,7 +64,7 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - `stage/`: what each stage queues, one Kotlin owner per level and stage, created at its vanilla owner's
   `<init>` RETURN: `EntityTickTasks`/`PersistentTickTasks` (entity wave), `ChunkStage` (spawning and chunk
   ticks), `BlockEntityStage`, `ScheduledTickStage`. Stage mixins are thin hooks that forward to them.
-- `entity/`: lock-free entity section index; `CrowdedSection` cell grids prefilter box queries in crowded
+- `entity/`: lock-free entity section index; `CrowdGrid` cell grids prefilter box queries in crowded
   sections (every write to an entity's box or section must keep them in step: see its invariant).
 - `chunk/`: chunk cache (`ParallelChunkCache`), server-thread load routing and per-position loading
   locks, chunk packet preparation.

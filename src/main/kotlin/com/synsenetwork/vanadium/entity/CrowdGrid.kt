@@ -38,12 +38,12 @@ import net.minecraft.world.phys.AABB
  * one member's moves never overlap. Writes that ran unprotected after an ownership timeout or cycle break are
  * counted by [unprotectedWrites]: a grid built before the count changed is bypassed and rebuilt.
  */
-class CrowdedSection<T : EntityAccess>(sectionKey: Long, @JvmField val epoch: Long) {
+class CrowdGrid<T : EntityAccess>(sectionKey: Long, @JvmField val epoch: Long) {
     class Member<T : EntityAccess> internal constructor(
         @JvmField val entity: T,
         /** Position in the section's list order. */
         @JvmField val order: Long,
-        @JvmField val grid: CrowdedSection<T>,
+        @JvmField val grid: CrowdGrid<T>,
     ) {
         /** The cells this member is listed in while no move of it is open; written under the grid's monitor. */
         @Volatile
@@ -360,7 +360,7 @@ class CrowdedSection<T : EntityAccess>(sectionKey: Long, @JvmField val epoch: Lo
         private const val OPEN_MASK = (1L shl OPEN_BITS) - 1L
         private const val VERSION = 1L shl OPEN_BITS
         private val EMPTY = arrayOfNulls<Member<*>>(0)
-        private val SEQ: VarHandle = MethodHandles.lookup().findVarHandle(CrowdedSection::class.java, "seq", java.lang.Long.TYPE)
+        private val SEQ: VarHandle = MethodHandles.lookup().findVarHandle(CrowdGrid::class.java, "seq", java.lang.Long.TYPE)
 
         /** 2-block cells; NaN maps to 0 (it intersects nothing anyway). */
         private fun horizontal(offset: Double): Int {

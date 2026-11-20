@@ -3,9 +3,9 @@ package com.synsenetwork.vanadium.mixin.world.entity;
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.synsenetwork.vanadium.Vanadium;
+import com.synsenetwork.vanadium.entity.CrowdGrid;
 import com.synsenetwork.vanadium.entity.CrowdSlot;
 import com.synsenetwork.vanadium.entity.CrowdSlotAccess;
-import com.synsenetwork.vanadium.entity.CrowdedSection;
 import net.minecraft.util.AbortableIterationConsumer;
 import net.minecraft.util.ClassInstanceMultiMap;
 import net.minecraft.util.Continuation;
@@ -20,7 +20,7 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 
 /**
- * Box queries in crowded sections read only the entities near the box ({@link CrowdedSection}); everything
+ * Box queries in crowded sections read only the entities near the box ({@link CrowdGrid}); everything
  * else, and any query whose read overlapped a write, runs vanilla's scan. Adds and removes update the
  * section's list and its grid under the grid's monitor, so a validated read sees both at one instant and
  * members keep the list's order.
@@ -45,7 +45,7 @@ public abstract class EntitySectionMixin<T extends EntityAccess> implements Crow
     @WrapMethod(method = "add")
     private void vanadium$add(T entity, Operation<Void> original) {
         CrowdSlot<T> slot = vanadium$crowdSlot;
-        CrowdedSection<T> grid = slot == null ? null : slot.grid;
+        CrowdGrid<T> grid = slot == null ? null : slot.grid;
         if (grid == null) {
             original.call(entity);
             if (slot != null) slot.offer();
@@ -60,7 +60,7 @@ public abstract class EntitySectionMixin<T extends EntityAccess> implements Crow
     @WrapMethod(method = "remove")
     private boolean vanadium$remove(T entity, Operation<Boolean> original) {
         CrowdSlot<T> slot = vanadium$crowdSlot;
-        CrowdedSection<T> grid = slot == null ? null : slot.grid;
+        CrowdGrid<T> grid = slot == null ? null : slot.grid;
         if (grid == null) return original.call(entity);
         synchronized (grid) {
             boolean removed = original.call(entity);
@@ -73,7 +73,7 @@ public abstract class EntitySectionMixin<T extends EntityAccess> implements Crow
     @WrapMethod(method = "getEntities(Lnet/minecraft/world/phys/AABB;Lnet/minecraft/util/AbortableIterationConsumer;)Lnet/minecraft/util/Continuation;")
     private Continuation vanadium$getEntities(AABB bb, AbortableIterationConsumer<T> entities, Operation<Continuation> original) {
         CrowdSlot<T> slot = vanadium$crowdSlot;
-        CrowdedSection<T> grid = slot == null ? null : slot.grid;
+        CrowdGrid<T> grid = slot == null ? null : slot.grid;
         if (grid != null && Vanadium.config.crowdedSectionIndex) {
             Continuation result = grid.query(bb, entities);
             if (result != null) return result;
@@ -85,7 +85,7 @@ public abstract class EntitySectionMixin<T extends EntityAccess> implements Crow
     private <U extends T> Continuation vanadium$getEntitiesOfType(EntityTypeTest<T, U> type, AABB bb, AbortableIterationConsumer<? super U> consumer,
                                                                  Operation<Continuation> original) {
         CrowdSlot<T> slot = vanadium$crowdSlot;
-        CrowdedSection<T> grid = slot == null ? null : slot.grid;
+        CrowdGrid<T> grid = slot == null ? null : slot.grid;
         // Vanilla's empty-class shortcut is cheaper than any prefilter; sparse classes are cheap to scan anyway.
         if (grid != null && Vanadium.config.crowdedSectionIndex && storage.find(type.getBaseClass()).size() >= MIN_TYPED) {
             Continuation result = grid.query(type, bb, consumer);

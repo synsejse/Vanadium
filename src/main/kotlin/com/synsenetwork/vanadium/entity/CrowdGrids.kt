@@ -8,7 +8,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.function.LongFunction
 
 /**
- * Which sections of one entity section storage are indexed by a [CrowdedSection]. Sections reaching
+ * Which sections of one entity section storage are indexed by a [CrowdGrid]. Sections reaching
  * [THRESHOLD] entities queue themselves on add; [refresh] builds their grids. It runs on the server thread
  * after the level's ticks (`PersistentEntitySectionManager.tick`), when no box is being written: a grid built
  * while an entity wrote its box unprotected by the grid could miss that write. A grid is dropped, from any
@@ -17,7 +17,7 @@ import java.util.function.LongFunction
  *
  * Storages nobody refreshes (the client's) never queue anything.
  */
-class CrowdedSections<T : EntityAccess> {
+class CrowdGrids<T : EntityAccess> {
     @Volatile
     private var armed = false
     private val queue = ConcurrentLinkedQueue<CrowdSlot<T>>()
@@ -42,7 +42,7 @@ class CrowdedSections<T : EntityAccess> {
      */
     fun refresh(enabled: Boolean, sections: LongFunction<EntitySection<T>?>) {
         armed = enabled
-        val epoch = CrowdedSection.unprotectedWrites.asLong
+        val epoch = CrowdGrid.unprotectedWrites.asLong
         var kept = 0
         for (i in indexed.indices) {
             val slot = indexed[i]
@@ -65,7 +65,7 @@ class CrowdedSections<T : EntityAccess> {
     private fun build(slot: CrowdSlot<T>, epoch: Long): Boolean {
         val section = slot.section
         if (section.size() < THRESHOLD) return false
-        val grid = CrowdedSection<T>(slot.key, epoch)
+        val grid = CrowdGrid<T>(slot.key, epoch)
         synchronized(grid) {
             val entities = section.entities.iterator()
             while (entities.hasNext()) grid.addLocked(entities.next())
@@ -82,16 +82,16 @@ class CrowdedSections<T : EntityAccess> {
     }
 }
 
-/** One entity section's link to its storage's [CrowdedSections]; created with the section. */
+/** One entity section's link to its storage's [CrowdGrids]; created with the section. */
 class CrowdSlot<T : EntityAccess> internal constructor(
     @JvmField val section: EntitySection<T>,
     @JvmField val key: Long,
-    private val owner: CrowdedSections<T>,
+    private val owner: CrowdGrids<T>,
 ) {
     /** Published at refresh; cleared when dropped. */
     @Volatile
     @JvmField
-    var grid: CrowdedSection<T>? = null
+    var grid: CrowdGrid<T>? = null
 
     internal val queued = AtomicBoolean()
 
@@ -99,14 +99,14 @@ class CrowdSlot<T : EntityAccess> internal constructor(
     fun offer() = owner.offer(this)
 
     /** After a removal under [grid]'s monitor: drops the grid when the section emptied out. */
-    fun removedLocked(grid: CrowdedSection<T>) {
-        if (section.size() < CrowdedSections.THRESHOLD / 2) {
+    fun removedLocked(grid: CrowdGrid<T>) {
+        if (section.size() < CrowdGrids.THRESHOLD / 2) {
             grid.dropLocked()
             if (this.grid === grid) this.grid = null
         }
     }
 
-    internal fun drop(grid: CrowdedSection<T>) {
+    internal fun drop(grid: CrowdGrid<T>) {
         synchronized(grid) { grid.dropLocked() }
         if (this.grid === grid) this.grid = null
     }

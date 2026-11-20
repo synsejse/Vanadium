@@ -2,7 +2,7 @@ package com.synsenetwork.vanadium.bench
 
 import com.sun.management.ThreadMXBean
 import com.synsenetwork.vanadium.entity.CrowdAccess
-import com.synsenetwork.vanadium.entity.CrowdedSection
+import com.synsenetwork.vanadium.entity.CrowdGrid
 import net.minecraft.core.BlockPos
 import net.minecraft.core.SectionPos
 import net.minecraft.util.AbortableIterationConsumer
@@ -24,7 +24,7 @@ import kotlin.random.Random
 
 /**
  * Push-sized box queries (each entity's own box) in one entity section holding n mobs on flat ground: the
- * full scan Vanadium's copy-on-write section list gets without a grid, against [CrowdedSection]'s cells with
+ * full scan Vanadium's copy-on-write section list gets without a grid, against [CrowdGrid]'s cells with
  * the scan as fallback. Readers query while writers move entities at full speed (far more moves per query
  * than a tick makes). Synthetic; no Minecraft server or performance assertions.
  */
@@ -36,16 +36,16 @@ object CrowdQueryBench {
     private var sink = 0L
 
     private class Mob(@JvmField var box: AABB) : EntityAccess, CrowdAccess {
-        @Volatile private var crowd: CrowdedSection.Member<*>? = null
-        override fun `vanadium$crowd`(): CrowdedSection.Member<*>? = crowd
-        override fun `vanadium$setCrowd`(member: CrowdedSection.Member<*>?) {
+        @Volatile private var crowd: CrowdGrid.Member<*>? = null
+        override fun `vanadium$crowd`(): CrowdGrid.Member<*>? = crowd
+        override fun `vanadium$setCrowd`(member: CrowdGrid.Member<*>?) {
             crowd = member
         }
 
         /** As `EntityMixin.vanadium$moveInCells`. */
         @Suppress("UNCHECKED_CAST")
         fun move(next: AABB) {
-            val member = crowd as CrowdedSection.Member<EntityAccess>?
+            val member = crowd as CrowdGrid.Member<EntityAccess>?
             if (member == null) {
                 box = next
                 return
@@ -79,7 +79,7 @@ object CrowdQueryBench {
     private class Setup(n: Int, cells: Boolean) {
         val key = SectionPos.asLong(0, -4, 0) // Blocks y -64..-49; mobs stand at -60 as on a superflat world.
         val list = CopyOnWriteArrayList<EntityAccess>()
-        val grid = if (cells) CrowdedSection<EntityAccess>(key, 0L) else null
+        val grid = if (cells) CrowdGrid<EntityAccess>(key, 0L) else null
         val mobs = List(n) { i ->
             val r = Random(i)
             Mob(box(r.nextDouble(0.3, 15.7), r.nextDouble(0.3, 15.7)))

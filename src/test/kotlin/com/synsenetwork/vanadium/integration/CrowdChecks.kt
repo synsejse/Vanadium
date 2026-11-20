@@ -1,9 +1,9 @@
 package com.synsenetwork.vanadium.integration
 
 import com.synsenetwork.vanadium.Vanadium
+import com.synsenetwork.vanadium.entity.CrowdGrid
+import com.synsenetwork.vanadium.entity.CrowdGrids
 import com.synsenetwork.vanadium.entity.CrowdSlotAccess
-import com.synsenetwork.vanadium.entity.CrowdedSection
-import com.synsenetwork.vanadium.entity.CrowdedSections
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -150,7 +150,7 @@ internal object CrowdChecks {
     /** Pigs (a few more than an indexed section needs) within 0.3 blocks of the pen's centre, at fixed offsets. */
     private fun spawnPacked(level: ServerLevel, pen: Pair<Int, Int>, into: MutableList<Mob>) {
         val c = center(pen.first, pen.second)
-        val count = CrowdedSections.THRESHOLD + 6
+        val count = CrowdGrids.THRESHOLD + 6
         repeat(count) { i ->
             val pig = StillPig(level)
             val angle = i * 2.399963 // Golden angle: distinct directions.
@@ -177,14 +177,14 @@ internal object CrowdChecks {
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun grid(level: ServerLevel, entity: Entity): CrowdedSection<Entity>? {
+    private fun grid(level: ServerLevel, entity: Entity): CrowdGrid<Entity>? {
         val section = storage(level).getSection(SectionPos.asLong(entity.blockPosition())) ?: return null
         return (section as CrowdSlotAccess<Entity>).`vanadium$crowdSlot`()?.grid
     }
 
     /** Between waves: nothing moves while both paths and brute force answer. */
     private fun checkQueries(level: ServerLevel, crowd: List<Mob>, random: Random) {
-        check(crowd.size >= CrowdedSections.THRESHOLD)
+        check(crowd.size >= CrowdGrids.THRESHOLD)
         val grid = grid(level, crowd[0]) ?: error("the crowded section lost its grid")
         val boxes = ArrayList<AABB>()
         for (mob in crowd) boxes.add(mob.boundingBox)

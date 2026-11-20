@@ -297,7 +297,7 @@ visits only columns intersecting an entity query, preserving vanilla's packed-ke
 chunk column is one immutable entry (sorted Ys and their sections) replaced on change, so a column
 costs one lock-free map read and readers never see half of a write. Entity box queries pass their box,
 type and consumer down to each section instead of vanilla's per-query section lambda.
-A section holding 24 or more entities also gets a `CrowdedSection` grid (2×4×2-block cells; built on
+A section holding 24 or more entities also gets a `CrowdGrid` (2×4×2-block cells; built on
 the server thread after the level's ticks, when no box is being written; dropped below half that). It
 only prefilters small box queries such as pushing, which otherwise read every entity's box in the
 section while those entities move on other cores. Candidates still get vanilla's test on the live box
