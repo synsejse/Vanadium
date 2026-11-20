@@ -1,8 +1,11 @@
-package com.synsenetwork.vanadium.tick
+package com.synsenetwork.vanadium.stage
 
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.concurrent.Interactions
 import com.synsenetwork.vanadium.config.DeveloperProperties
+import com.synsenetwork.vanadium.tick.Stage
+import com.synsenetwork.vanadium.tick.TickScheduler
+import com.synsenetwork.vanadium.tick.WaveHomes
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.world.entity.AreaEffectCloud
@@ -41,15 +44,23 @@ class EntityTickTasks(private val list: EntityTickList, private val active: Int2
      * entity but players and vehicles carrying one (`TickRateManager.isEntityFrozen`), so a wave would wake workers
      * only to check each entity. The tick list then runs [body] serially on this thread, exactly as vanilla does;
      * tracking keeps collecting membership changes, and the next normal tick dispatches them.
+     *
+     * With parallel entities off the tasks drop their state ([PersistentTickTasks.stop]) and [body] runs serially.
      */
     fun dispatch(body: Consumer<Entity>, runsNormally: Boolean) {
+        val config = Vanadium.config
+        if (!config.enabled || !config.parallelEntities) {
+            tasks.stop()
+            list.forEach(body)
+            return
+        }
         if (!runsNormally) {
             list.forEach(body)
             return
         }
         val scheduler = Vanadium.scheduler
         val homes = if (HOMES) scheduler.workerCount + 1 else 0
-        tasks.dispatch(Vanadium.config.serialEntityRulesKey(), scheduler.detailedDiagnostics, homes, body)
+        tasks.dispatch(config.serialEntityRulesKey(), scheduler.detailedDiagnostics, homes, body)
         val profile = scheduler.profile
         if (profile != null) tasks.recordLastWave(profile, Stage.ENTITY)
     }

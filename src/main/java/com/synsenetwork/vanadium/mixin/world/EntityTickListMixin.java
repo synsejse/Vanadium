@@ -1,8 +1,8 @@
 package com.synsenetwork.vanadium.mixin.world;
 
 import com.synsenetwork.vanadium.collections.ConcurrentIntObjectMap;
-import com.synsenetwork.vanadium.tick.EntityTickAccess;
-import com.synsenetwork.vanadium.tick.EntityTickTasks;
+import com.synsenetwork.vanadium.stage.EntityTickAccess;
+import com.synsenetwork.vanadium.stage.EntityTickTasks;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.entity.EntityTickList;

@@ -59,19 +59,22 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
   Lithium's per-world callback map): override every method that would read the unused superclass
   storage, or, where the superclass storage is kept, guard every access to it.
 - `Vanadium.kt`: config, server lifecycle ownership of the shared scheduler/pool, command registration.
-- `tick/`: adaptive region planning (`RegionGrid`), claim and dataflow waves, batched stage collection,
-  stage scheduler, caller-participating spin-then-park worker pool.
+- `tick/`: wave machinery only: adaptive region planning (`RegionGrid`), claim and dataflow waves, stage
+  scheduler, caller-participating spin-then-park worker pool.
+- `stage/`: what each stage queues, one Kotlin owner per level and stage, created at its vanilla owner's
+  `<init>` RETURN: `EntityTickTasks`/`PersistentTickTasks` (entity wave), `ChunkStage` (spawning and chunk
+  ticks), `BlockEntityStage`, `ScheduledTickStage`. Stage mixins are thin hooks that forward to them.
 - `entity/`: lock-free entity section index; `CrowdedSection` cell grids prefilter box queries in crowded
   sections (every write to an entity's box or section must keep them in step: see its invariant).
 - `chunk/`: chunk cache (`ParallelChunkCache`), server-thread load routing and per-position loading
-  locks, block-entity neighbourhoods, chunk packet preparation.
+  locks, chunk packet preparation.
 - `collections/`: fastutil-compatible adapters over JDK/JCTools collections, including the concrete
   subtypes above and `PackedPositionKeys` (hash encoding for packed-position keys).
 - `concurrent/`: entity ownership for the flat entity wave (`Interactions`, `OwnerLocks`, `DeferredQueue`
   inboxes, `StableDistance`), POI claims (`PoiClaims`), striped locks and per-thread random sources.
 - `tracking/`: area maps and nearby-player indexing for entity tracking.
 - `navigation/`: navigation invalidation index, path-type cache, and Java navigation duck interfaces.
-- `spawning/`: spawn counting, lazy count state, and deferrable per-chunk spawning tasks.
+- `spawning/`: spawn counting and lazy count state.
 - `diagnostics/`: tick profiles, JFR events, wave watchdog, crash-report section, benchmark capture, summaries, and result files.
 - `mixin/server/world/`, `mixin/world/`: stage injection points and vanilla world access changes.
 - Remaining `mixin/` packages: synchronization and concurrent collection replacements.
@@ -151,8 +154,8 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
   during a wave; prefer `WorkerPool.runDeferrable`, or queue callbacks with `runAfterParallelWave`.
 - Do not rely on `@Shadow` field initializers to replace vanilla collections: once a mixin adds other
   initialized fields, Mixin may drop them. Install replacements explicitly at `<init>` RETURN.
-  The initializers still in `ServerChunkCacheMixin`, `DistanceManagerMixin`, `LevelTicksMixin`,
-  `SimulationChunkTrackerMixin`, `SavedDataStorageMixin` and `PoiDistanceTrackerMixin` are safe today: classes
+  The initializers still in `DistanceManagerMixin`, `SimulationChunkTrackerMixin`, `SavedDataStorageMixin` and
+  `PoiDistanceTrackerMixin` are safe today: classes
   exported from a live run (2026-11-19, Mixin 0.8.7) place each right after vanilla's own empty collection,
   before any use, because Mixin inserts initializers after the constructor's last write to a field they set.
 

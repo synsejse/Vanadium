@@ -4,7 +4,7 @@ import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.concurrent.InteractionAccess
 import com.synsenetwork.vanadium.concurrent.Interactions
 import com.synsenetwork.vanadium.concurrent.Interactions.Write
-import com.synsenetwork.vanadium.tick.EntityTickAccess
+import com.synsenetwork.vanadium.stage.EntityTickAccess
 import com.synsenetwork.vanadium.tick.WorkerPool
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel

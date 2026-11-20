@@ -1,7 +1,7 @@
 package com.synsenetwork.vanadium.integration
 
 import com.synsenetwork.vanadium.chunk.ParallelChunkCache
-import com.synsenetwork.vanadium.spawning.SpawnTasks
+import com.synsenetwork.vanadium.stage.ChunkTickAccess
 import com.synsenetwork.vanadium.tick.WorkerPool
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
@@ -50,21 +50,21 @@ internal object ServerThreadChunkChecks {
             }
 
             // Spawning: whichever participant takes a task, every spawn runs once, on the server thread, after the wave.
-            val spawns = SpawnTasks(source)
+            val spawns = (level.chunkSource as ChunkTickAccess).`vanadium$chunkStage`()
             val ran = ConcurrentLinkedQueue<Thread>()
             val server = Thread.currentThread()
             val spawn = Runnable { ran.add(Thread.currentThread()) }
-            pool.runWave(listOf(spawns.task(fixture, spawn), spawns.task(fixture, spawn)))
+            pool.runWave(listOf(spawns.SpawnTask(fixture, spawn), spawns.SpawnTask(fixture, spawn)))
             val direct = ran.size
             check(ran.all { it === server }, "a spawn ran on a worker with its structure start missing")
             // The server thread defers too: loading there mid-wave would run chunk-system work beside the helper.
             check(direct == 0, "the server thread spawned with a structure start missing while a helper ran")
-            spawns.runDeferred()
-            check(spawns.lastDeferred == 2 && ran.size == 2,
-                "spawn deferral lost or repeated work: direct=$direct deferred=${spawns.lastDeferred} ran=${ran.size}")
+            val deferred = spawns.runDeferred()
+            check(deferred == 2 && ran.size == 2,
+                "spawn deferral lost or repeated work: direct=$direct deferred=$deferred ran=${ran.size}")
             check(ran.all { it === server }, "a deferred spawn did not run on the server thread")
             check(source.getVisibleChunkIfPresent(far.pack()) == null, "worker lookups scheduled the missing chunk")
-            println("SERVER_THREAD_CHUNK_CHECKS_PASSED deferred=${spawns.lastDeferred}")
+            println("SERVER_THREAD_CHUNK_CHECKS_PASSED deferred=$deferred")
         }
     }
 

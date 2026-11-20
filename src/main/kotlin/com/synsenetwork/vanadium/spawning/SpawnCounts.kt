@@ -9,7 +9,8 @@ import net.minecraft.world.level.NaturalSpawner
 import net.minecraft.world.level.gamerules.GameRules
 
 /**
- * One level's natural-spawn count (`ServerChunkCache.tickChunks`' `NaturalSpawner.createState`), skipped while
+ * One level's natural-spawn count (`ServerChunkCache.tickChunks`' `NaturalSpawner.createState`), owned by its
+ * [com.synsenetwork.vanadium.stage.ChunkStage] and skipped while
  * nothing can use it.
  *
  * Vanilla 26.3 counts every tick, even when `spawn_mobs` is false. The count then decides nothing: the spawn
@@ -35,13 +36,14 @@ class SpawnCounts(private val level: ServerLevel, private val chunkMap: ChunkMap
     private var deferredChunkCount = 0
     private var deferredChunks: NaturalSpawner.ChunkGetter? = null
 
-    /** Replaces `tickChunks`' `createState`. */
+    /** Replaces `tickChunks`' `createState`: vanilla's count without parallel spawning, else a parallel one or none. */
     fun prepare(chunkCount: Int, chunks: NaturalSpawner.ChunkGetter, localCaps: LocalMobCapCalculator): NaturalSpawner.SpawnState {
         val config = Vanadium.config
-        if (!config.enabled || !config.parallelSpawning || observed || !level.server.isDedicatedServer ||
-            level.gameRules.get(GameRules.SPAWN_MOBS)) {
+        val parallel = config.enabled && config.parallelSpawning
+        if (!parallel || observed || !level.server.isDedicatedServer || level.gameRules.get(GameRules.SPAWN_MOBS)) {
             deferred = null
             deferredChunks = null
+            if (!parallel) return NaturalSpawner.createState(chunkCount, level, chunks, localCaps)
             return SpawnPreparation.count(chunkCount, level, chunks, localCaps, chunkMap)
         }
         // Keep the placeholder compatible with other mods' wrappers around vanilla counting.
@@ -68,7 +70,4 @@ class SpawnCounts(private val level: ServerLevel, private val chunkMap: ChunkMap
         deferredChunks = null
         return state
     }
-
-    /** For tests: whether the stored state is a placeholder. */
-    fun isDeferred(): Boolean = deferred != null
 }

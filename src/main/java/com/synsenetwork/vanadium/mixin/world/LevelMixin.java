@@ -3,22 +3,17 @@ package com.synsenetwork.vanadium.mixin.world;
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.synsenetwork.vanadium.Vanadium;
-import com.synsenetwork.vanadium.chunk.BlockEntityNeighbourhood;
 import com.synsenetwork.vanadium.concurrent.Interactions;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.state.BlockState;
 import com.synsenetwork.vanadium.concurrent.PerThreadRandomSource;
+import com.synsenetwork.vanadium.stage.BlockEntityStage;
 import com.synsenetwork.vanadium.tick.Stage;
 import java.util.List;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.TickingBlockEntity;
-import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.levelgen.RandomSupport;
 import org.objectweb.asm.Opcodes;
 import org.spongepowered.asm.mixin.Final;
@@ -57,73 +52,45 @@ public abstract class LevelMixin {
     @Final
     protected List<TickingBlockEntity> blockEntityTickers;
 
+    /** Server levels only: the level's BLOCK_ENTITY stage. Client levels keep vanilla's ticking. */
     @Unique
-    private final ConcurrentLinkedQueue<TickingBlockEntity> vanadium$pendingTickers = new ConcurrentLinkedQueue<>();
+    private BlockEntityStage vanadium$blockEntityStage;
 
-    /** Server levels only, created at their first block-entity phase; see {@link BlockEntityNeighbourhood}. */
-    @Unique
-    private BlockEntityNeighbourhood vanadium$neighbourhood;
+    @Inject(method = "<init>", at = @At("RETURN"))
+    private void vanadium$install(CallbackInfo ci) {
+        if ((Object) this instanceof ServerLevel level) {
+            vanadium$blockEntityStage = new BlockEntityStage(level, blockEntityTickers);
+        }
+    }
 
     @Inject(method = "addBlockEntityTicker", at = @At("HEAD"), cancellable = true)
     private void queueBlockEntityTicker(TickingBlockEntity ticker, CallbackInfo ci) {
-        if ((Object) this instanceof ServerLevel) {
-            vanadium$pendingTickers.add(ticker);
+        BlockEntityStage stage = vanadium$blockEntityStage;
+        if (stage != null) {
+            stage.add(ticker);
             ci.cancel();
         }
     }
 
     @Inject(method = "tickBlockEntities", at = @At("HEAD"))
     private void beginBlockEntityTicks(CallbackInfo ci) {
-        if ((Object) this instanceof ServerLevel) {
-            // Only the server thread mutates the active list. Registrations during a wave
-            // stay queued until the next block-entity phase, as with vanilla pending tickers.
-            TickingBlockEntity ticker;
-            while ((ticker = vanadium$pendingTickers.poll()) != null) {
-                blockEntityTickers.add(ticker);
-            }
-            if (vanadium$neighbourhood == null) {
-                vanadium$neighbourhood = new BlockEntityNeighbourhood(((ServerLevel) (Object) this).getChunkSource());
-            }
-            vanadium$neighbourhood.reset();
-            Vanadium.scheduler.begin(Stage.BLOCK_ENTITY);
-        }
+        BlockEntityStage stage = vanadium$blockEntityStage;
+        if (stage != null) stage.begin();
     }
 
     @Inject(method = "tickBlockEntities", at = @At(value = "FIELD", target = "Lnet/minecraft/world/level/Level;tickingBlockEntities:Z", opcode = Opcodes.PUTFIELD, ordinal = 1))
     private void finishBlockEntityTicks(CallbackInfo ci) {
-        if ((Object) this instanceof ServerLevel) {
-            Vanadium.scheduler.run(Stage.BLOCK_ENTITY);
-        }
+        if (vanadium$blockEntityStage != null) Vanadium.scheduler.run(Stage.BLOCK_ENTITY);
     }
 
     @Redirect(method = "tickBlockEntities", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/block/entity/TickingBlockEntity;tick()V"))
     private void dispatchBlockEntityTick(TickingBlockEntity ticker) {
-        // Mixin merges this method into Level, so this can be a ServerLevel at runtime.
-        //noinspection ConstantValue
-        if (!((Object) this instanceof ServerLevel)
-                || !Vanadium.config.enabled || !Vanadium.config.parallelBlockEntities
-                || !(ticker instanceof LevelChunk.RebindableTickingBlockEntityWrapper wrapped)
-                || !(wrapped.ticker instanceof LevelChunk.BoundTickingBlockEntity<?> direct)) {
+        BlockEntityStage stage = vanadium$blockEntityStage;
+        if (stage == null) {
             ticker.tick();
             return;
         }
-        BlockEntity blockEntity = direct.blockEntity;
-        if (Vanadium.config.hasSerialBlockEntityRules()
-                && Vanadium.config.isSerialBlockEntity(BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(blockEntity.getType()))) {
-            ticker.tick();
-            return;
-        }
-        int chunkX = blockEntity.getBlockPos().getX() >> 4;
-        int chunkZ = blockEntity.getBlockPos().getZ() >> 4;
-        if (vanadium$neighbourhood != null && !vanadium$neighbourhood.ready(ChunkPos.pack(chunkX, chunkZ))) {
-            // A neighbouring chunk is still loading: a read past this chunk's edge would load it on the server
-            // thread, so tick here, as vanilla does, rather than make a worker wait for it mid-wave.
-            ticker.tick();
-            return;
-        }
-        Vanadium.scheduler.enqueue(Stage.BLOCK_ENTITY, chunkX, chunkZ, ticker::tick,
-                Vanadium.scheduler.getDetailedDiagnostics()
-                        ? BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(blockEntity.getType()).toString() : null);
+        stage.tick(ticker);
     }
 
     @Redirect(method = "getBlockEntity", at = @At(value = "INVOKE", target = "Ljava/lang/Thread;currentThread()Ljava/lang/Thread;"))

@@ -1,7 +1,6 @@
 package com.synsenetwork.vanadium.diagnostics
 
 import com.synsenetwork.vanadium.Vanadium
-import com.synsenetwork.vanadium.concurrent.Interactions
 import com.synsenetwork.vanadium.tick.TickScheduler
 import com.synsenetwork.vanadium.tick.TickThread
 import net.minecraft.CrashReport
@@ -34,10 +33,12 @@ object WatchdogReport {
      */
     internal fun details(scheduler: TickScheduler, stacks: Map<Thread, Array<StackTraceElement>>): List<Pair<String, String>> {
         val watch = scheduler.diagnostics?.watched
+        val stage = scheduler.currentStage
         val wave = when {
             watch != null -> watch.summary()
-            Interactions.active -> "stage=ENTITY dimension=${scheduler.currentDimension}"
-            else -> "dimension=${scheduler.currentDimension}; stage not recorded (slowWaveMillis above 0 records it)"
+            stage != null -> "stage=$stage dimension=${scheduler.currentDimension} " +
+                "(the stage last begun; slowWaveMillis above 0 adds its wave's progress)"
+            else -> "dimension=${scheduler.currentDimension}; no stage begun in it yet"
         }
         val busy = StringBuilder()
         val idle = ArrayList<String>()

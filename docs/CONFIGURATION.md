@@ -199,8 +199,8 @@ which stops at eight frames per thread:
 
 - **Scheduler**: workers and isolation.
 - **Wave**: with `slowWaveMillis` above 0, the watched wave's stage, dimension, isolation, elapsed time
-  and active participants. Otherwise the dimension being ticked, and `stage=ENTITY` during an entity
-  wave; region stages are then not named.
+  and active participants. Otherwise the dimension being ticked and the stage it last began (its
+  collection, preparation or wave, or work after its wave if that already finished).
 - **Latest parallel wave**: tasks finished, unclaimed and participants of the last wave handed to the
   workers. Waves that run inline on the server thread are not counted, so a finished wave here means
   the hang is elsewhere. A participant counts its tasks as finished only when it runs out of work, and

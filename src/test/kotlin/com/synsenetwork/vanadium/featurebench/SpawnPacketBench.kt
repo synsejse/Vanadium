@@ -28,7 +28,12 @@ internal object SpawnPacketBench {
         for (count in intArrayOf(256, 2048, 8192)) {
             val entities = all.subList(0, count)
             measurements.compare("spawn-count-$count", { Vanadium.config.parallelSpawning = it }) {
-                FeatureBench.sink = SpawnPreparation.count(289, level, entities, chunks, LocalMobCapCalculator(map), map)
+                // Off is the serial count the stage falls back to (SpawnCounts.prepare).
+                FeatureBench.sink = if (Vanadium.config.parallelSpawning) {
+                    SpawnPreparation.count(289, level, entities, chunks, LocalMobCapCalculator(map)) { LocalMobCapCalculator(map) }
+                } else {
+                    SpawnPreparation.createState(289, level, entities, chunks, LocalMobCapCalculator(map))
+                }
             }
         }
     }

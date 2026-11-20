@@ -53,9 +53,9 @@ Build and verification configuration is separated:
   and only when that fixture's run executes: a malformed `mixed.*`, `cold.*` or `bench.*` value fails that run
   before launch and never `build` or another fixture.
 
-Production packages follow responsibilities: `tick/` owns wave scheduling and dispatch;
-`navigation/` owns path invalidation and path-type caching; `spawning/` owns counting and
-deferral; `diagnostics/` owns profiling, JFR events, the slow-wave watchdog, the crash-report section and capture summaries.
+Production packages follow responsibilities: `tick/` owns wave scheduling and dispatch; `stage/`
+owns what each stage queues; `navigation/` owns path invalidation and path-type caching; `spawning/`
+owns counting; `diagnostics/` owns profiling, JFR events, the slow-wave watchdog, the crash-report section and capture summaries.
 `commands/VanadiumCommand.kt` registers the command tree and calls those components.
 Corresponding unit tests live in the same packages; live Fabric scenarios remain in `integration/`.
 `PreparationKind` labels independent jobs, and `PerformanceResults` publishes their captures.
@@ -129,6 +129,7 @@ The live suite covers two-player joins, chunk delivery and acknowledgements, ent
 movement across a chunk boundary, a client block-break request observed by the other player,
 disconnect cleanup, block update packets, dirty-chunk notifications, loaded chunk
 publication/replacement/unload, real loads under the per-chunk load locks, disabled mode, scheduled ticks,
+what the spawning and block-entity stages queue or run inline with each of their options off,
 passengers, events, navigation invalidation, tracking diffs, spawn-count reduction,
 item conservation and chunk packet encoding/sending. The JFR option records monitor/park
 events at 100µs plus execution/allocation samples into the run's `live.jfr`.

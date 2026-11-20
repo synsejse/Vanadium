@@ -26,14 +26,13 @@ object SpawnPreparation {
 
     private val sourceCapture = ThreadLocal<SourceCapture?>()
 
-    @JvmStatic
+    /**
+     * Replaces `tickChunks`' `createState` with parallel spawning on: the world's entities, counted in slices.
+     * The caller ([SpawnCounts.prepare]) decides that parallel spawning is on.
+     */
     fun count(chunkCount: Int, level: ServerLevel, chunks: NaturalSpawner.ChunkGetter,
-              localCaps: LocalMobCapCalculator, chunkMap: ChunkMap): NaturalSpawner.SpawnState {
-        if (!Vanadium.config.enabled || !Vanadium.config.parallelSpawning) {
-            return NaturalSpawner.createState(chunkCount, level, chunks, localCaps)
-        }
-        return count(chunkCount, level, capture(chunkCount, level, chunks, localCaps), chunks, localCaps) { LocalMobCapCalculator(chunkMap) }
-    }
+              localCaps: LocalMobCapCalculator, chunkMap: ChunkMap): NaturalSpawner.SpawnState =
+        count(chunkCount, level, capture(chunkCount, level, chunks, localCaps), chunks, localCaps) { LocalMobCapCalculator(chunkMap) }
 
     /**
      * The entity input `createState` would count, after other mods' wrappers (notably Lithium's section
@@ -52,17 +51,10 @@ object SpawnPreparation {
         return checkNotNull(capture.entities)
     }
 
-    @JvmStatic
-    fun count(
-        chunkCount: Int,
-        level: ServerLevel,
-        entities: Iterable<Entity>,
-        chunks: NaturalSpawner.ChunkGetter,
-        localCaps: LocalMobCapCalculator,
-        chunkMap: ChunkMap,
-    ): NaturalSpawner.SpawnState = count(chunkCount, level, entities, chunks, localCaps) { LocalMobCapCalculator(chunkMap) }
-
-    /** [jobCaps] makes each parallel job's empty local cap calculator (vanilla's: a fresh one over the chunk map). */
+    /**
+     * Counts [entities], in parallel slices once there are enough. [jobCaps] makes each parallel job's empty local cap
+     * calculator (vanilla's: a fresh one over the chunk map). Live checks and benchmarks count their own entity lists here.
+     */
     internal fun count(
         chunkCount: Int,
         level: ServerLevel,
@@ -71,9 +63,6 @@ object SpawnPreparation {
         localCaps: LocalMobCapCalculator,
         jobCaps: () -> LocalMobCapCalculator,
     ): NaturalSpawner.SpawnState {
-        if (!Vanadium.config.enabled || !Vanadium.config.parallelSpawning) {
-            return createState(chunkCount, level, entities, chunks, localCaps)
-        }
         // C2ME restricts counting to simulated chunks through an unsized filtering wrapper; unwrap it so
         // the per-entity chunk lookup runs inside the parallel batches instead of a serial copy.
         var source = entities

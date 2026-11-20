@@ -2,6 +2,7 @@ package com.synsenetwork.vanadium.integration
 
 import com.mojang.authlib.GameProfile
 import com.synsenetwork.vanadium.Vanadium
+import com.synsenetwork.vanadium.spawning.SpawnCounts
 import com.synsenetwork.vanadium.spawning.SpawnPreparation
 import java.util.UUID
 import net.minecraft.core.BlockPos
@@ -35,7 +36,7 @@ internal object SpawnChecks {
         for (size in intArrayOf(0, 256, 1023, 1024, 1025, 2048)) {
             val input = entities.subList(0, size)
             val expected = SpawnPreparation.createState(289, level, input, chunks, caps())
-            val counted = SpawnPreparation.count(289, level, input, chunks, caps(), map)
+            val counted = SpawnPreparation.count(289, level, input, chunks, caps(), ::caps)
             check(expected.mobCategoryCounts == counted.mobCategoryCounts, "sized count differs at $size")
             check(counted.mobCategoryCounts.values.sum() == input.count { !(it as net.minecraft.world.entity.Mob).isPersistenceRequired },
                 "slice was not used at $size")
@@ -45,7 +46,7 @@ internal object SpawnChecks {
                 iterated = true
                 input.iterator()
             }
-            val unsized = SpawnPreparation.count(289, level, singlePass, chunks, caps(), map)
+            val unsized = SpawnPreparation.count(289, level, singlePass, chunks, caps(), ::caps)
             check(expected.mobCategoryCounts == unsized.mobCategoryCounts, "unsized count differs at $size")
         }
         val lookup = EntityLookup<Entity>()
@@ -65,16 +66,17 @@ internal object SpawnChecks {
         check(worldReference.mobCategoryCounts == worldCounted.mobCategoryCounts, "world/C2ME filter changed counts")
 
         val reference = SpawnPreparation.createState(289, level, entities, chunks, caps())
-        val parallel = SpawnPreparation.count(289, level, entities, chunks, caps(), map)
+        val parallel = SpawnPreparation.count(289, level, entities, chunks, caps(), ::caps)
         check(reference.mobCategoryCounts == parallel.mobCategoryCounts, "parallel spawn counts differ")
         check(reference.spawnableChunkCount == parallel.spawnableChunkCount, "spawnable chunk count changed")
         check(reference.spawnPotential.getPotentialEnergyChange(BlockPos(0, 100, 0), 1.0) ==
                 parallel.spawnPotential.getPotentialEnergyChange(BlockPos(0, 100, 0), 1.0), "spawn density changed")
+        // The stage's fallback, on a count state of its own: the level's keeps its skipped-count bookkeeping.
         val previous = Vanadium.config.parallelSpawning
         try {
             Vanadium.config.parallelSpawning = false
-            val serial = SpawnPreparation.count(289, level, entities, chunks, caps(), map)
-            check(reference.mobCategoryCounts == serial.mobCategoryCounts, "spawn fallback changed counts")
+            val serial = SpawnCounts(level, map).prepare(289, chunks, caps())
+            check(worldReference.mobCategoryCounts == serial.mobCategoryCounts, "spawn fallback changed counts")
         } finally {
             Vanadium.config.parallelSpawning = previous
         }

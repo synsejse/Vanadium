@@ -1,6 +1,6 @@
 package com.synsenetwork.vanadium.mixin.entity;
 
-import com.synsenetwork.vanadium.tick.EntityTickAccess;
+import com.synsenetwork.vanadium.stage.EntityTickAccess;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.Level;
@@ -12,7 +12,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Reports the events that can make an entity tree serial ({@code EntityTickRules.changingSerial}): portal
+ * Reports the events that can make an entity tree serial ({@code EntityTickTasks.changingSerial}): portal
  * contact and a new passenger. Its persistent tick task is reclassified, with its vehicles, at the next
  * dispatch; leaving a portal or losing a passenger is noticed there without a report.
  */

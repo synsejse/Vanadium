@@ -1,7 +1,10 @@
-package com.synsenetwork.vanadium.tick
+package com.synsenetwork.vanadium.stage
 
 import com.synsenetwork.vanadium.diagnostics.TickProfile
 import com.synsenetwork.vanadium.diagnostics.WaveDiagnostics
+import com.synsenetwork.vanadium.tick.Stage
+import com.synsenetwork.vanadium.tick.WaveHomes
+import com.synsenetwork.vanadium.tick.WorkerPool
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
@@ -245,7 +248,7 @@ class PersistentTickTasks<E : Any> internal constructor(private val list: TickLi
      * With [homes] homes ([WaveHomes]; 0 or 1 for none) each participant runs the same slice of every kind from wave
      * to wave, with kinds still claimed costliest first. Only a wave that gets [homes] participants has homes. One
      * with fewer is bounded by its longest group; there homes measured 5% slower in a 600-mob fight and changed no
-     * cache traffic, and slots would own a varying number of homes.
+     * cache traffic (PR #18, 2026-11-17), and slots would own a varying number of homes.
      */
     fun dispatch(rulesKey: Any?, labels: Boolean, homes: Int, body: Consumer<E>) {
         update(rulesKey, labels)
