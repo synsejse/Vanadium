@@ -166,6 +166,26 @@ internal object TickSafetyChecks {
             val streams = Collections.newSetFromMap(IdentityHashMap<Any, Boolean>())
             for (task in tasks) streams.add(task.get(15, TimeUnit.SECONDS))
             check(streams.size == 4 && random.current() !in streams, "threads shared a random stream")
+
+            // LegacyRandomSource must stay lock-free on next() and safe under concurrent calls without throwing.
+            val nextMethod = net.minecraft.world.level.levelgen.LegacyRandomSource::class.java
+                .getDeclaredMethod("next", Int::class.javaPrimitiveType)
+            check(!java.lang.reflect.Modifier.isSynchronized(nextMethod.modifiers),
+                "LegacyRandomSource.next(int) is still synchronized")
+            val shared = net.minecraft.world.level.levelgen.LegacyRandomSource(12345L)
+            val legacyStart = CountDownLatch(1)
+            val legacyTasks = (0 until 4).map { id ->
+                pool.submit {
+                    check(legacyStart.await(10, TimeUnit.SECONDS), "legacy random start timeout")
+                    repeat(8192) { i ->
+                        shared.nextInt(100)
+                        if (i % 64 == 0) shared.nextGaussian()
+                        if (i % 1024 == 0) shared.setSeed(id.toLong() * 31L + i)
+                    }
+                }
+            }
+            legacyStart.countDown()
+            for (task in legacyTasks) task.get(15, TimeUnit.SECONDS)
         } finally {
             pool.shutdownNow()
             check(pool.awaitTermination(5, TimeUnit.SECONDS), "random workers did not stop")

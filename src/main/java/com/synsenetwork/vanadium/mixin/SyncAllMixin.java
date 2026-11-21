@@ -8,7 +8,6 @@ import net.minecraft.world.entity.ai.village.poi.PoiSection;
 import net.minecraft.world.entity.monster.warden.AngerManagement;
 import net.minecraft.world.level.TicketStorage;
 import net.minecraft.world.level.gameevent.EuclideanGameEventListenerRegistry;
-import net.minecraft.world.level.levelgen.LegacyRandomSource;
 import net.minecraft.world.level.lighting.DynamicGraphMinFixedPoint;
 import net.minecraft.world.level.saveddata.maps.MapItemSavedData;
 import net.minecraft.world.ticks.LevelChunkTicks;
@@ -23,7 +22,7 @@ import org.spongepowered.asm.mixin.Mixin;
  * synchronized by {@code PathFinderMixin}) and {@code EnderDragon} ticks serially.
  */
 @Mixin(value = {LevelChunkTicks.class, DynamicGraphMinFixedPoint.class, PathNavigation.class,
-        EuclideanGameEventListenerRegistry.class, LegacyRandomSource.class, AngerManagement.class, SimpleCriterionTrigger.class,
+        EuclideanGameEventListenerRegistry.class, AngerManagement.class, SimpleCriterionTrigger.class,
         PoiSection.class,
         MapItemSavedData.class, TicketStorage.class, LithiumInterner.class, WorldBorderPositionListenerMulti.class})
 public class SyncAllMixin {

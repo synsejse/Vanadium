@@ -28,6 +28,7 @@ import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.BlockEventData;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.chunk.LevelChunk;
@@ -74,9 +75,20 @@ public abstract class ServerLevelMixin implements NavigationAccess, EntityTickAc
         return (NavigationIndex) navigatingMobs;
     }
 
+    @WrapMethod(method = "sendBlockUpdated")
+    private void guardNavigationCandidateScratch(BlockPos pos, BlockState oldState, BlockState newState, int flags,
+                                                 Operation<Void> original) {
+        boolean ownsScan = Vanadium.config.enabled && NavigationIndex.enterCandidateScan();
+        try {
+            original.call(pos, oldState, newState, flags);
+        } finally {
+            if (ownsScan) NavigationIndex.exitCandidateScan();
+        }
+    }
+
     @Redirect(method = "sendBlockUpdated", at = @At(value = "INVOKE", target = "Ljava/util/Set;iterator()Ljava/util/Iterator;"))
     private Iterator<Mob> navigationCandidates(Set<Mob> mobs, BlockPos pos) {
-        return Vanadium.config.enabled ? vanadium$navigations().candidates(pos).iterator() : mobs.iterator();
+        return Vanadium.config.enabled ? vanadium$navigations().candidateIterator(pos) : mobs.iterator();
     }
 
     @Redirect(method = "<init>", at = @At(value = "NEW", target = "(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/level/storage/LevelStorageSource$LevelStorageAccess;Lcom/mojang/datafixers/DataFixer;Lnet/minecraft/world/level/levelgen/structure/templatesystem/StructureTemplateManager;Ljava/util/concurrent/Executor;Lnet/minecraft/world/level/chunk/ChunkGenerator;IIZLnet/minecraft/world/level/entity/ChunkStatusUpdateListener;)Lnet/minecraft/server/level/ServerChunkCache;"))

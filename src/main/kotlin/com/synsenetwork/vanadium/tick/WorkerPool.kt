@@ -850,6 +850,10 @@ abstract class TickThread(name: String) : Thread(name) {
     /** Per-thread pathfinding spatial caches and node pool ([com.synsenetwork.vanadium.navigation.PathfindingFastPath]). */
     @JvmField
     var walkScratch: Any? = null
+
+    /** Per-thread reusable candidate buffer for [com.synsenetwork.vanadium.navigation.NavigationIndex]. */
+    @JvmField
+    var navScratch: Any? = null
     private companion object {
         private val SEED = AtomicLong(System.nanoTime() xor -0x61c8864680b583ebL)
 
