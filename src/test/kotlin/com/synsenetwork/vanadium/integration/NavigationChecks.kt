@@ -55,10 +55,44 @@ internal object NavigationChecks {
             val expected = mobs.filter { it.navigation.shouldRecomputePath(edit) }.toSet()
             val actual = index.candidates(edit).filter { it.navigation.shouldRecomputePath(edit) }.toSet()
             check(actual == expected, "indexed scan changed matches")
+            checkConcurrentCandidates(index, mobs, edit, expected)
             println("NAVIGATION_CHECKS_PASSED mobs=128 candidates=$candidates")
         } finally {
             mobs.forEach(index::remove)
         }
+    }
+
+    private fun checkConcurrentCandidates(index: NavigationIndex, mobs: List<Mob>, edit: BlockPos, expected: Set<Mob>) {
+        // Empty distant query returns an empty list with no dirty stripes set.
+        val distant = BlockPos(2_000_000, 100, 2_000_000)
+        check(index.candidates(distant).isEmpty(), "distant query returned unexpected candidates")
+
+        // Parallel readers with concurrent invalidations across different worker threads must never miss
+        // expected indexed matches or newly invalidated mobs.
+        val readers = 4
+        val start = CountDownLatch(1)
+        val failure = AtomicReference<Throwable?>()
+        val threads = List(readers) { id ->
+            Thread.ofPlatform().daemon().start {
+                try {
+                    check(start.await(5, TimeUnit.SECONDS), "concurrent candidate reader timed out")
+                    repeat(200) { iter ->
+                        if (iter % 20 == 0) NavigationIndex.invalidate(mobs[(id * 17 + iter) % mobs.size])
+                        val found = index.candidates(edit)
+                        if (!found.containsAll(expected)) {
+                            error("concurrent candidate read missed indexed mob on reader $id iter $iter")
+                        }
+                    }
+                } catch (t: Throwable) {
+                    failure.compareAndSet(null, t)
+                }
+            }
+        }
+        start.countDown()
+        threads.forEach { it.join(10_000) }
+        check(threads.none { it.isAlive } && failure.get() == null) { "concurrent candidate read failed: ${failure.get()}" }
+        index.refresh()
+        check(index.candidates(distant).isEmpty(), "refresh after concurrent invalidations did not clear dirty stripes")
     }
 
     private fun checkRefreshInvalidation(index: NavigationIndex, mobs: List<Mob>) {
