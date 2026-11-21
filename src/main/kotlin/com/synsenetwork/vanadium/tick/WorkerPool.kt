@@ -802,6 +802,10 @@ abstract class TickThread(name: String) : Thread(name) {
     @JvmField
     var randValue: Int = nextRandSeed()
 
+    /** Per-thread reusable buffers for [com.synsenetwork.vanadium.concurrent.StableDistance.sortByDistance]. */
+    @JvmField
+    var sortScratch: Any? = null
+
     private companion object {
         private val SEED = AtomicLong(System.nanoTime() xor -0x61c8864680b583ebL)
 
