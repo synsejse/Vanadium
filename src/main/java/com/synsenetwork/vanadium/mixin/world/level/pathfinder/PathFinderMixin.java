@@ -1,5 +1,6 @@
 package com.synsenetwork.vanadium.mixin.world.level.pathfinder;
 
+import com.synsenetwork.vanadium.navigation.NodePoolAccess;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -49,22 +50,26 @@ public abstract class PathFinderMixin {
     @Overwrite
     public synchronized @Nullable Path findPath(
             PathNavigationRegion level, Mob entity, Set<BlockPos> targets, float maxPathLength, int reachRange, float maxVisitedNodesMultiplier) {
-        this.openSet.clear();
-        this.nodeEvaluator.prepare(level, entity);
-        Node from = this.nodeEvaluator.getStart();
-        if (from == null) {
-            return null;
+        boolean captureDebug = this.captureDebug.getAsBoolean();
+        boolean pooled = !captureDebug;
+        NodePoolAccess poolAccess = (NodePoolAccess) (Object) this.nodeEvaluator;
+        if (pooled) {
+            poolAccess.vanadium$beginNodePool();
         }
+        boolean prepared = false;
         try {
-            if (targets.isEmpty()) {
+            this.openSet.clear();
+            this.nodeEvaluator.prepare(level, entity);
+            prepared = true;
+            Node from = this.nodeEvaluator.getStart();
+            if (from == null || targets.isEmpty()) {
                 return null;
             }
 
-            boolean captureDebug = this.captureDebug.getAsBoolean();
             if (targets.size() == 1 && !captureDebug) {
                 BlockPos targetPos = targets.iterator().next();
                 Target target = this.nodeEvaluator.getTarget(targetPos.getX(), targetPos.getY(), targetPos.getZ());
-                return this.vanadium$findSingleTarget(from, target, targetPos, maxPathLength, reachRange, maxVisitedNodesMultiplier);
+                return this.vanadium$findSingleTarget(from, target, targetPos, maxPathLength, reachRange, maxVisitedNodesMultiplier, pooled);
             } else {
                 Map<Target, BlockPos> targetMap = new HashMap<>();
                 for (BlockPos pos : targets) {
@@ -73,16 +78,24 @@ public abstract class PathFinderMixin {
                         throw new IllegalStateException("Duplicate target key " + target);
                     }
                 }
-                return this.vanadium$findMultiTarget(from, targetMap, maxPathLength, reachRange, maxVisitedNodesMultiplier, captureDebug);
+                return this.vanadium$findMultiTarget(from, targetMap, maxPathLength, reachRange, maxVisitedNodesMultiplier, captureDebug, pooled);
             }
         } finally {
-            this.nodeEvaluator.done();
+            try {
+                if (prepared) {
+                    this.nodeEvaluator.done();
+                }
+            } finally {
+                if (pooled) {
+                    poolAccess.vanadium$endNodePool();
+                }
+            }
         }
     }
 
     @Unique
     private Path vanadium$findSingleTarget(
-            Node from, Target target, BlockPos targetPos, float maxPathLength, int reachRange, float maxVisitedNodesMultiplier) {
+            Node from, Target target, BlockPos targetPos, float maxPathLength, int reachRange, float maxVisitedNodesMultiplier, boolean cloneNodes) {
         ProfilerFiller profiler = Profiler.get();
         profiler.push("find_path");
         profiler.markForCharting(MetricCategory.PATH_FINDING);
@@ -137,14 +150,14 @@ public abstract class PathFinderMixin {
             }
         }
 
-        Path path = vanadium$reconstructPath(target.getBestNode(), targetPos, reached);
+        Path path = vanadium$reconstructPath(target.getBestNode(), targetPos, reached, cloneNodes);
         profiler.pop();
         return path;
     }
 
     @Unique
     private @Nullable Path vanadium$findMultiTarget(
-            Node from, Map<Target, BlockPos> targetMap, float maxPathLength, int reachRange, float maxVisitedNodesMultiplier, boolean captureDebug) {
+            Node from, Map<Target, BlockPos> targetMap, float maxPathLength, int reachRange, float maxVisitedNodesMultiplier, boolean captureDebug, boolean cloneNodes) {
         ProfilerFiller profiler = Profiler.get();
         profiler.push("find_path");
         profiler.markForCharting(MetricCategory.PATH_FINDING);
@@ -214,7 +227,7 @@ public abstract class PathFinderMixin {
         if (!reachedTargets.isEmpty()) {
             int bestCount = Integer.MAX_VALUE;
             for (Target target : reachedTargets) {
-                Path candidate = vanadium$reconstructPath(target.getBestNode(), targetMap.get(target), true);
+                Path candidate = vanadium$reconstructPath(target.getBestNode(), targetMap.get(target), true, cloneNodes);
                 int nodeCount = candidate.getNodeCount();
                 if (bestPath == null || nodeCount < bestCount) {
                     bestPath = candidate;
@@ -226,7 +239,7 @@ public abstract class PathFinderMixin {
             int bestCount = Integer.MAX_VALUE;
             for (int t = 0; t < targetCount; t++) {
                 Target target = targetArray[t];
-                Path candidate = vanadium$reconstructPath(target.getBestNode(), targetMap.get(target), false);
+                Path candidate = vanadium$reconstructPath(target.getBestNode(), targetMap.get(target), false, cloneNodes);
                 double dist = candidate.getDistToTarget();
                 int nodeCount = candidate.getNodeCount();
                 if (bestPath == null) {
@@ -269,7 +282,7 @@ public abstract class PathFinderMixin {
     }
 
     @Unique
-    private static Path vanadium$reconstructPath(Node closest, BlockPos target, boolean reached) {
+    private static Path vanadium$reconstructPath(Node closest, BlockPos target, boolean reached, boolean cloneNodes) {
         List<Node> nodes = new ArrayList<>();
         Node node = closest;
         nodes.add(node);
@@ -278,6 +291,16 @@ public abstract class PathFinderMixin {
             nodes.add(node);
         }
         Collections.reverse(nodes);
+        if (cloneNodes) {
+            Node prev = null;
+            for (int i = 0, size = nodes.size(); i < size; i++) {
+                Node src = nodes.get(i);
+                Node copy = src.cloneAndMove(src.x, src.y, src.z);
+                copy.cameFrom = prev;
+                nodes.set(i, copy);
+                prev = copy;
+            }
+        }
         return new Path(nodes, target, reached);
     }
 }

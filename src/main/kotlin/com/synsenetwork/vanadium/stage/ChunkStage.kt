@@ -101,7 +101,12 @@ class ChunkStage(private val cache: ServerChunkCache, private val level: ServerL
      */
     fun tickChunks(map: ChunkMap, consumer: Consumer<LevelChunk>, original: Operation<Void>) {
         val scheduler = Vanadium.scheduler
-        scheduler.run(Stage.SPAWNING)
+        structures?.beginStructureWave()
+        try {
+            scheduler.run(Stage.SPAWNING)
+        } finally {
+            structures?.endStructureWave()
+        }
         runDeferred()
         scheduler.begin(Stage.CHUNK)
         val config = Vanadium.config

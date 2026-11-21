@@ -1,11 +1,17 @@
 package com.synsenetwork.vanadium.integration
 
 import net.minecraft.core.BlockPos
+import net.minecraft.core.Direction
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.util.Mth
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.EntitySpawnReason
 import net.minecraft.world.entity.EntityType
 import net.minecraft.world.entity.EntityTypes
+import net.minecraft.world.entity.InsideBlockEffectApplier
+import net.minecraft.world.entity.LivingEntity
+import net.minecraft.world.level.BlockGetter
+import net.minecraft.world.level.ClipContext
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.SlabBlock
@@ -13,13 +19,16 @@ import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.properties.SlabType
 import net.minecraft.world.level.pathfinder.WalkNodeEvaluator
 import net.minecraft.world.phys.AABB
+import net.minecraft.world.phys.HitResult
+import net.minecraft.world.phys.Vec3
 import net.minecraft.world.phys.shapes.BooleanOp
 import net.minecraft.world.phys.shapes.Shapes
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import kotlin.random.Random
 
 /**
- * Vanadium's loop `Entity.isInWall` against vanilla's stream version (copied below) in random block
- * neighbourhoods, and the packed path-type cache against uncached lookups across a block change.
+ * Differential parity checks for entity hot-path mixins: `Entity.isInWall`, `Entity.checkInsideBlocks`,
+ * and the packed path-type cache against uncached lookups across a block change.
  */
 internal object EntityHotPathChecks {
     private const val CHUNK_X = 40
@@ -31,10 +40,12 @@ internal object EntityHotPathChecks {
         level.getChunk(CHUNK_X, CHUNK_Z)
         try {
             val suffocating = checkIsInWall(level)
+            val insideHits = checkInsideBlocksParity(level)
+            val losClear = checkHasLineOfSightParity(level)
             checkPathTypeCache(level)
-            println("ENTITY_HOT_PATH_CHECKS_PASSED inWall=$suffocating")
+            println("ENTITY_HOT_PATH_CHECKS_PASSED inWall=$suffocating insideBlocks=$insideHits losClear=$losClear")
         } finally {
-            for (pos in BlockPos.betweenClosed(ORIGIN.offset(-2, -2, -2), ORIGIN.offset(2, 2, 2))) {
+            for (pos in BlockPos.betweenClosed(ORIGIN.offset(-4, -3, -4), ORIGIN.offset(4, 3, 4))) {
                 level.setBlock(pos, Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS)
             }
             level.setChunkForced(CHUNK_X, CHUNK_Z, false)
@@ -95,6 +106,267 @@ internal object EntityHotPathChecks {
             !state.isAir && state.isSuffocating(level, pos) &&
                 Shapes.joinIsNotEmpty(state.getCollisionShape(level, pos).move(pos), Shapes.create(eyeBb), BooleanOp.AND)
         }
+    }
+
+    private fun checkInsideBlocksParity(level: ServerLevel): Int {
+        val checkMethod = Entity::class.java.getDeclaredMethod(
+            "checkInsideBlocks",
+            List::class.java,
+            InsideBlockEffectApplier.StepBasedCollector::class.java,
+        ).apply { isAccessible = true }
+        val stuckSpeedField = Entity::class.java.getDeclaredField("stuckSpeedMultiplier").apply { isAccessible = true }
+
+        val palette = listOf(
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.COBWEB.defaultBlockState(),
+            Blocks.WATER.defaultBlockState(),
+            Blocks.POWDER_SNOW.defaultBlockState(),
+            Blocks.SWEET_BERRY_BUSH.defaultBlockState(),
+            Blocks.HONEY_BLOCK.defaultBlockState(),
+            Blocks.SOUL_SAND.defaultBlockState(),
+            Blocks.STONE_SLAB.defaultBlockState().setValue(SlabBlock.TYPE, SlabType.BOTTOM),
+            Blocks.CAULDRON.defaultBlockState(),
+            Blocks.STONE.defaultBlockState(),
+        )
+        val types = listOf<EntityType<out Entity>>(
+            EntityTypes.ZOMBIE,
+            EntityTypes.CHICKEN,
+            EntityTypes.IRON_GOLEM,
+            EntityTypes.SHULKER,
+        )
+        val random = Random(2631)
+        var hitEffects = 0
+        var cases = 0
+
+        repeat(40) { round ->
+            for (pos in BlockPos.betweenClosed(ORIGIN.offset(-4, -2, -4), ORIGIN.offset(4, 2, 4))) {
+                val state = if (round == 0) Blocks.AIR.defaultBlockState() else palette[random.nextInt(palette.size)]
+                level.setBlock(pos, state, Block.UPDATE_CLIENTS)
+            }
+            for (type in types) {
+                repeat(8) { sample ->
+                    val from = Vec3(
+                        ORIGIN.x - 1.5 + random.nextDouble() * 3.0,
+                        ORIGIN.y - 0.5 + random.nextDouble() * 1.5,
+                        ORIGIN.z - 1.5 + random.nextDouble() * 3.0,
+                    )
+                    val delta = when (sample) {
+                        // Stationary / sub-epsilon (Case A)
+                        0 -> Vec3(0.0, 0.0, 0.0)
+                        1 -> Vec3(1.0E-6, -1.0E-6, 1.0E-6)
+                        // Small move within same block bounds (Case B)
+                        2 -> Vec3(0.03, 0.0, -0.02)
+                        // Axis-aligned negative boundary hit
+                        3 -> Vec3(-0.35, 0.0, 0.0)
+                        // Diagonal across block boundary (Case C)
+                        4 -> Vec3(0.85, 0.35, -0.75)
+                        // Fast >1 block move (movedFar = true)
+                        5 -> Vec3(2.4, -0.8, 1.9)
+                        // Fast multi-step move exceeding 16 steps when combined
+                        6 -> Vec3(-3.2, 0.6, -2.7)
+                        else -> Vec3(random.nextDouble(-1.8, 1.8), random.nextDouble(-1.0, 1.0), random.nextDouble(-1.8, 1.8))
+                    }
+                    val to = from.add(delta)
+                    val movement = if (sample % 2 == 0) {
+                        Entity.Movement(from, to, delta)
+                    } else {
+                        Entity.Movement(from, to)
+                    }
+
+                    val actualEnt = type.create(level, EntitySpawnReason.COMMAND)!!
+                    val expectedEnt = type.create(level, EntitySpawnReason.COMMAND)!!
+                    actualEnt.setPos(to.x, to.y, to.z)
+                    expectedEnt.setPos(to.x, to.y, to.z)
+
+                    val actualCollector = InsideBlockEffectApplier.StepBasedCollector()
+                    val expectedCollector = InsideBlockEffectApplier.StepBasedCollector()
+                    checkMethod.invoke(actualEnt, listOf(movement), actualCollector)
+                    vanillaCheckInsideBlocks(expectedEnt, listOf(movement), expectedCollector)
+
+                    actualCollector.applyAndClear(actualEnt)
+                    expectedCollector.applyAndClear(expectedEnt)
+
+                    check(actualEnt.isInPowderSnow == expectedEnt.isInPowderSnow) {
+                        "checkInsideBlocks isInPowderSnow mismatch for $type sample=$sample from=$from to=$to: " +
+                            "actual=${actualEnt.isInPowderSnow} expected=${expectedEnt.isInPowderSnow}"
+                    }
+                    check(actualEnt.remainingFireTicks == expectedEnt.remainingFireTicks) {
+                        "checkInsideBlocks fireTicks mismatch for $type sample=$sample from=$from to=$to: " +
+                            "actual=${actualEnt.remainingFireTicks} expected=${expectedEnt.remainingFireTicks}"
+                    }
+                    val actualStuck = stuckSpeedField.get(actualEnt) as Vec3
+                    val expectedStuck = stuckSpeedField.get(expectedEnt) as Vec3
+                    check(actualStuck == expectedStuck) {
+                        "checkInsideBlocks stuckSpeed mismatch for $type sample=$sample from=$from to=$to: " +
+                            "actual=$actualStuck expected=$expectedStuck"
+                    }
+                    check(actualEnt.fallDistance == expectedEnt.fallDistance) {
+                        "checkInsideBlocks fallDistance mismatch for $type sample=$sample from=$from to=$to: " +
+                            "actual=${actualEnt.fallDistance} expected=${expectedEnt.fallDistance}"
+                    }
+                    if (actualEnt.isInPowderSnow || actualStuck != Vec3.ZERO) hitEffects++
+                    cases++
+                }
+            }
+        }
+        check(hitEffects > 0, "checkInsideBlocks fixture never triggered an inside-block effect across $cases cases")
+        return hitEffects
+    }
+
+    /** Unmodified vanilla 26.3 `Entity.checkInsideBlocks` oracle for differential parity checks. */
+    private fun vanillaCheckInsideBlocks(
+        entity: Entity,
+        movements: List<Entity.Movement>,
+        collector: InsideBlockEffectApplier.StepBasedCollector,
+    ) {
+        val visited = LongOpenHashSet()
+        for (movement in movements) {
+            var from = movement.from()
+            val delta = movement.to().subtract(movement.from())
+            var maxSteps = 16
+            if (movement.axisDependentOriginalMovement().isPresent && delta.lengthSqr() > 0.0) {
+                for (axis in Direction.axisStepOrder(movement.axisDependentOriginalMovement().get())) {
+                    val axisDelta = delta.get(axis)
+                    if (axisDelta != 0.0) {
+                        val next = from.relative(axis.positive, axisDelta)
+                        maxSteps -= vanillaCheckInsideSegment(entity, from, next, collector, visited, maxSteps)
+                        from = next
+                    }
+                }
+            } else {
+                maxSteps -= vanillaCheckInsideSegment(entity, movement.from(), movement.to(), collector, visited, 16)
+            }
+            if (maxSteps <= 0) {
+                vanillaCheckInsideSegment(entity, movement.to(), movement.to(), collector, visited, 1)
+            }
+        }
+        visited.clear()
+    }
+
+    private fun vanillaCheckInsideSegment(
+        entity: Entity,
+        from: Vec3,
+        to: Vec3,
+        collector: InsideBlockEffectApplier.StepBasedCollector,
+        visitedBlocks: LongOpenHashSet,
+        maxSteps: Int,
+    ): Int {
+        val box = entity.makeBoundingBox(to).deflate(1.0E-5f.toDouble())
+        val movedFar = from.distanceToSqr(to) > Mth.square(0.9999900000002526)
+        val level = entity.level()
+        var lastStep = 0
+        BlockGetter.forEachBlockIntersectedBetween(from, to, box) { pos, step ->
+            if (!entity.isAlive || step >= maxSteps) return@forEachBlockIntersectedBetween false
+            lastStep = step
+            val state = level.getBlockState(pos)
+            if (state.isAir) return@forEachBlockIntersectedBetween true
+            val shape = state.getEntityInsideCollisionShape(level, pos, entity)
+            val hitBlock = shape === Shapes.block() ||
+                entity.collidedWithShapeMovingFrom(from, to, shape.move(Vec3(pos)).toAabbs())
+            val hitFluid = entity.collidedWithFluid(state.fluidState, pos, from, to)
+            if ((!hitBlock && !hitFluid) || !visitedBlocks.add(pos.asLong())) {
+                return@forEachBlockIntersectedBetween true
+            }
+            if (hitBlock) {
+                val far = movedFar || box.intersects(pos)
+                collector.advanceStep(step)
+                state.entityInside(level, pos, entity, collector, far)
+                entity.onInsideBlock(state)
+            }
+            if (hitFluid) {
+                collector.advanceStep(step)
+                state.fluidState.entityInside(level, pos, entity, collector)
+            }
+            true
+        }
+        return lastStep + 1
+    }
+
+    private fun checkHasLineOfSightParity(level: ServerLevel): Int {
+        val palette = listOf(
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.STONE.defaultBlockState(),
+            Blocks.GLASS.defaultBlockState(),
+            Blocks.STONE_SLAB.defaultBlockState().setValue(SlabBlock.TYPE, SlabType.BOTTOM),
+            Blocks.STONE_SLAB.defaultBlockState().setValue(SlabBlock.TYPE, SlabType.TOP),
+            Blocks.OAK_STAIRS.defaultBlockState(),
+            Blocks.OAK_FENCE.defaultBlockState(),
+            Blocks.SHORT_GRASS.defaultBlockState(),
+            Blocks.WATER.defaultBlockState(),
+            Blocks.SCAFFOLDING.defaultBlockState(),
+            Blocks.CAULDRON.defaultBlockState(),
+        )
+        val viewer = EntityTypes.ZOMBIE.create(level, EntitySpawnReason.COMMAND)!!
+        val target = EntityTypes.VILLAGER.create(level, EntitySpawnReason.COMMAND)!!
+        val blockModes = listOf(ClipContext.Block.COLLIDER, ClipContext.Block.VISUAL, ClipContext.Block.OUTLINE)
+        val fluidModes = listOf(ClipContext.Fluid.NONE, ClipContext.Fluid.ANY, ClipContext.Fluid.SOURCE_ONLY)
+        val random = Random(2633)
+        var clear = 0
+        var blocked = 0
+
+        repeat(25) { round ->
+            for (pos in BlockPos.betweenClosed(ORIGIN.offset(-4, -2, -4), ORIGIN.offset(4, 2, 4))) {
+                val state = if (round == 0) Blocks.AIR.defaultBlockState() else palette[random.nextInt(palette.size)]
+                level.setBlock(pos, state, Block.UPDATE_CLIENTS)
+            }
+            repeat(30) { sample ->
+                val vx = ORIGIN.x + random.nextDouble(-4.5, 5.5)
+                val vy = ORIGIN.y + random.nextDouble(-2.0, 2.5)
+                val vz = ORIGIN.z + random.nextDouble(-4.5, 5.5)
+                val tx: Double
+                val ty: Double
+                val tz: Double
+                when (sample) {
+                    // Identical eye positions
+                    0 -> { tx = vx; ty = vy + viewer.eyeHeight; tz = vz }
+                    // Sub-epsilon distance
+                    1 -> { tx = vx + 1.0E-5; ty = vy + viewer.eyeHeight; tz = vz }
+                    // Over 128-block distance limit
+                    2 -> { tx = vx + 129.0; ty = vy + viewer.eyeHeight; tz = vz }
+                    // Axis-aligned face grazing ray
+                    3 -> { tx = ORIGIN.x + 4.0; ty = ORIGIN.y.toDouble(); tz = ORIGIN.z.toDouble() }
+                    else -> {
+                        tx = ORIGIN.x + random.nextDouble(-4.5, 5.5)
+                        ty = ORIGIN.y + random.nextDouble(-2.0, 3.0)
+                        tz = ORIGIN.z + random.nextDouble(-4.5, 5.5)
+                    }
+                }
+                viewer.setPos(vx, vy, vz)
+                target.setPos(tx, ty - target.eyeHeight, tz)
+
+                val bMode = blockModes[sample % blockModes.size]
+                val fMode = fluidModes[(sample / blockModes.size) % fluidModes.size]
+                val expected = vanillaHasLineOfSight(viewer, target, bMode, fMode, ty)
+                val actual = viewer.hasLineOfSight(target, bMode, fMode, ty)
+                check(actual == expected) {
+                    "hasLineOfSight mismatch round=$round sample=$sample block=$bMode fluid=$fMode " +
+                        "from=(${viewer.x},${viewer.eyeY},${viewer.z}) to=($tx,$ty,$tz): actual=$actual expected=$expected"
+                }
+                if (expected) clear++ else blocked++
+            }
+        }
+        check(clear > 50 && blocked > 50, "hasLineOfSight fixtures need both clear ($clear) and blocked ($blocked) outcomes")
+        return clear
+    }
+
+    /** Vanilla 26.3 `LivingEntity.hasLineOfSight`. */
+    private fun vanillaHasLineOfSight(
+        viewer: LivingEntity,
+        target: Entity,
+        block: ClipContext.Block,
+        fluid: ClipContext.Fluid,
+        targetY: Double,
+    ): Boolean {
+        if (target.level() !== viewer.level()) return false
+        val from = Vec3(viewer.x, viewer.eyeY, viewer.z)
+        val to = Vec3(target.x, targetY, target.z)
+        if (to.distanceTo(from) > 128.0) return false
+        return viewer.level().clip(ClipContext(from, to, block, fluid, viewer)).type == HitResult.Type.MISS
     }
 
     private fun checkPathTypeCache(level: ServerLevel) {
