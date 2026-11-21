@@ -1,7 +1,6 @@
 package com.synsenetwork.vanadium.mixin.server.level;
 
 import com.llamalad7.mixinextras.injector.ModifyReturnValue;
-import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.synsenetwork.vanadium.spawning.SpawnCounts;
@@ -103,9 +102,21 @@ public abstract class ServerChunkCacheMixin implements ChunkTickAccess {
         return Thread.currentThread();
     }
 
-    @WrapMethod(method = "storeInCache")
-    private synchronized void syncPutInCache(long pos, ChunkAccess chunk, ChunkStatus status, Operation<Void> original) {
-        original.call(pos, chunk, status);
+    /**
+     * Vanilla's four-entry cache stores positions, statuses and chunks in three parallel non-volatile arrays
+     * that {@code getChunk} scans without synchronization; {@link com.synsenetwork.vanadium.chunk.ParallelChunkCache}
+     * already serves loaded FULL chunks and spawning-wave structure chunks lock-free. Skipping writes after
+     * {@code <init>}'s initial {@code clearCache()} leaves the arrays immutable ({@code INVALID_CHUNK_POS}/null),
+     * removing both the {@code storeInCache} monitor and torn parallel-array reads on misses.
+     */
+    @Inject(method = "storeInCache", at = @At("HEAD"), cancellable = true)
+    private void vanadium$skipFourEntryCacheStore(long pos, ChunkAccess chunk, ChunkStatus status, CallbackInfo ci) {
+        ci.cancel();
+    }
+
+    @Inject(method = "clearCache", at = @At("HEAD"), cancellable = true)
+    private void vanadium$skipFourEntryCacheClear(CallbackInfo ci) {
+        if (vanadium$chunkStage != null) ci.cancel();
     }
 
 }

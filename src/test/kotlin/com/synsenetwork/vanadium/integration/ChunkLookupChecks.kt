@@ -61,6 +61,13 @@ internal object ChunkLookupChecks {
                 val chunk = level.getChunk(-8 - index, -8)
                 check(source.getChunkNow(chunk.pos.x(), chunk.pos.z()) === chunk, "loaded chunk was not published")
             }
+            // Vanilla's four-entry cache must remain empty (immutable after <init>) so super.getChunk never races it.
+            val lastPos = serverChunkCacheField(source, "lastChunkPos") as LongArray
+            val lastStatus = serverChunkCacheField(source, "lastChunkStatus") as Array<*>
+            val lastChunk = serverChunkCacheField(source, "lastChunk") as Array<*>
+            check(lastPos.all { it == ChunkPos.INVALID_CHUNK_POS }, "four-entry cache recorded a chunk position")
+            check(lastStatus.all { it == null }, "four-entry cache recorded a chunk status")
+            check(lastChunk.all { it == null }, "four-entry cache retained a chunk")
             println("CHUNK_LOOKUP_CHECKS_PASSED enabled=on/off")
         } finally {
             readers.shutdownNow()
@@ -73,4 +80,7 @@ internal object ChunkLookupChecks {
             }
         }
     }
+
+    private fun serverChunkCacheField(source: net.minecraft.server.level.ServerChunkCache, name: String): Any =
+        net.minecraft.server.level.ServerChunkCache::class.java.getDeclaredField(name).apply { isAccessible = true }.get(source)
 }

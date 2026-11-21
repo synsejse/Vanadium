@@ -171,6 +171,39 @@ class ConcurrentMapsTest {
         assertTrue(results.all { it == "v42" }, "all callers must see the same value")
     }
 
+    /** Equal-but-distinct instances must satisfy remove(k, v) and replace(k, old, new), and null expected returns false. */
+    @Test
+    fun long2ObjectConditionalRemoveAndReplaceUseValueEquality() {
+        val map = ConcurrentLongObjectMap<String>()
+        // Include 0L and the key whose mixed value is 0L (which exercises JCTools's _val_1 special slot).
+        for (key in longArrayOf(0L, PackedPositionKeys.unmix(0L), -5L, Long.MAX_VALUE)) {
+            val stored = StringBuilder("val").append(key).toString()
+            val equalCopy = StringBuilder("val").append(key).toString()
+            val next = StringBuilder("next").append(key).toString()
+            val nextCopy = StringBuilder("next").append(key).toString()
+            map.put(key, stored)
+            assertFalse(map.remove(key, null as Any?))
+            assertFalse(map.replace(key, "wrong", next))
+            assertTrue(map.replace(key, equalCopy, next), "replace failed for equal non-identical value at $key")
+            assertEquals(next, map.get(key))
+            assertTrue(map.remove(key, nextCopy as Any?), "remove failed for equal non-identical value at $key")
+            assertFalse(map.containsKey(key))
+        }
+        val intMap = ConcurrentIntObjectMap<String>()
+        for (key in intArrayOf(0, -1, 42, Int.MIN_VALUE, Int.MAX_VALUE)) {
+            val stored = StringBuilder("iv").append(key).toString()
+            val equalCopy = StringBuilder("iv").append(key).toString()
+            val next = StringBuilder("in").append(key).toString()
+            val nextCopy = StringBuilder("in").append(key).toString()
+            intMap.put(key, stored)
+            assertFalse(intMap.remove(key, null as Any?))
+            assertTrue(intMap.replace(key, equalCopy, next), "int replace failed at $key")
+            assertEquals(next, intMap.get(key))
+            assertTrue(intMap.remove(key, nextCopy as Any?), "int remove failed at $key")
+            assertFalse(intMap.containsKey(key))
+        }
+    }
+
     private fun race(threads: Int, action: () -> Unit) {
         val pool = Executors.newFixedThreadPool(threads)
         val ready = CountDownLatch(threads)
