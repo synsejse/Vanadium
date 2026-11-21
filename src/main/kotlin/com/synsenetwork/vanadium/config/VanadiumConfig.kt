@@ -92,6 +92,9 @@ class VanadiumConfig : ConfigData {
 
     fun hasSerialBlockEntityRules(): Boolean = !blockEntityRules.isEmpty()
 
+    /** Identity changes whenever the block-entity rules do, including across config reloads. */
+    fun serialBlockEntityRulesKey(): Any = blockEntityRules.key
+
     /** [idleWorkers] as a mode. Parsed once per tick; the field is validated on load and by `set`. */
     fun idleWorkersMode(): IdleWorkers = requireNotNull(IdleWorkers.parse(idleWorkers)) {
         "idleWorkers must be one of ${IdleWorkers.names.joinToString()} (got '$idleWorkers')."

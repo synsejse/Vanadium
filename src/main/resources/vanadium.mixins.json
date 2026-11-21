@@ -76,6 +76,7 @@
     "world.level.chunk.ChunkAccessMixin",
     "world.level.chunk.LevelChunkMixin",
     "world.level.chunk.LevelChunkSectionMixin",
+    "world.level.chunk.RebindableTickingBlockEntityWrapperMixin",
     "world.level.chunk.storage.SectionStorageMixin",
     "world.level.entity.EntityLookupMixin",
     "world.level.entity.EntitySectionMixin",
