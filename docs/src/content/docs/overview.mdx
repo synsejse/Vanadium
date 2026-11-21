@@ -237,9 +237,9 @@ for (m in cell) {
 ## Zero-allocation inside-block traversal and line of sight
 
 <Lead>
-  At high worker counts, per-tick object churn saturates memory bandwidth and forces frequent G1 GC cycles.
-  `Entity.checkInsideBlocks` and `LivingEntity.hasLineOfSight` were two of the largest allocators in combat profiles;
-  both now execute in primitive registers with local section caching.
+  At high worker counts, per-tick object churn saturates memory bandwidth and forces frequent G1 GC cycles. In vanilla,
+  `Entity.checkInsideBlocks` and `LivingEntity.hasLineOfSight` are two of the largest allocators in combat; Vanadium
+  runs both in primitive registers with local section caching.
 </Lead>
 
 <Compare>
@@ -366,7 +366,7 @@ return reconstructClonedPath(bestTarget)
 <Side tone="vanadium" label="Vanadium">
 <Term>Wait-free status reads and TickThread-owned state</Term>
 
-- **`ParallelChunkCache`:** Published full chunks in `NonBlockingHashMapLong` now satisfy every `ChunkStatus` lock-free; border proto-chunks outside loaded chunks cache per spawning wave (`beginStructureWave` / `endStructureWave`).
+- **`ParallelChunkCache`:** Published full chunks in `NonBlockingHashMapLong` satisfy every `ChunkStatus` lock-free; border proto-chunks outside loaded chunks cache per spawning wave (`beginStructureWave` / `endStructureWave`).
 - **Safe server-thread handoff:** Unloaded chunk misses never block workers waiting on the server thread: deferrable tasks unwind via `runDeferrable` and non-deferrable lookups use `callOnWaveCaller`.
 - **Lock-free spawning &amp; world state:** `ConcurrentMobCategoryCounts`, lazy mob counting when `spawn_mobs` is false, per-thread `PerThreadRandom` / `randValue` / `CollectingNeighborUpdater`, scratch-sorted `StableDistance` sensors, and `AreaMap` symmetric-difference tracking.
 
@@ -402,21 +402,19 @@ return lookupAndCacheBorderChunk(x, z, status)
 ## Measured performance and tuning summary
 
 <Lead>
-  Captured on Minecraft 26.3 (Fabric Loader 0.20.1, C2ME 0.4.2-alpha.0.116, Lithium 0.26.3, Java 25.0.4.1+1) on a dual
-  Xeon E5-2699 v3 VM (36 physical cores / 72 threads, 1:1 pinned, NUMA-bound, `isolation = 2`). Full datasets and
-  methodology live in [Performance](performance).
+  At the default 36 workers on a dual Xeon E5-2699 v3 (36 cores, 72 threads), Vanadium ran these worlds 9–14× faster
+  than the same server with Lithium alone. [Performance](performance) has the full sweep, the JVM flags that add 12–65%
+  on top, and how it was measured.
 </Lead>
 
-<Caption>Hot-path and spawning contention pass (PR #47 mirrored A/B, 36 workers, `-Xms4G -Xmx4G`)</Caption>
+| World                        | Lithium alone | Vanadium, 36 workers |                        Speed-up |
+| ---------------------------- | ------------: | -------------------: | ------------------------------: |
+| Spread out: 4,096 zombies    |      25.5 TPS |              367 TPS | <span class="gain">14.4×</span> |
+| Crowded base: 700 mobs       |       206 TPS |            1,887 TPS |  <span class="gain">9.1×</span> |
+| Combat: 600 mobs in an arena |      27.9 TPS |              298 TPS | <span class="gain">10.7×</span> |
 
-| Workload / metric                              | Before (`1396348`) | After (`5fd9431`) |                            Delta |
-| ---------------------------------------------- | -----------------: | ----------------: | -------------------------------: |
-| `brawl600@36` second window mean TPS (n=8)     |          587.7 TPS |         721.5 TPS | <span class="gain">+22.8%</span> |
-| `brawl600@36` JFR allocations (5,000 ticks)    |           20.82 GB |          11.41 GB | <span class="gain">−45.2%</span> |
-| `uniform4096@36` second window mean TPS (n=4)  |          349.0 TPS |         392.2 TPS | <span class="gain">+12.4%</span> |
-| `dense700@36` second window mean TPS (n=6)     |        1,512.4 TPS |       1,730.5 TPS | <span class="gain">+14.4%</span> |
-| `mixedBench` median tick time (`p50`, 5×1200t) |           26.79 ms |          23.72 ms | <span class="gain">−11.5%</span> |
-| `mixedBench` `SPAWNING` stage average          |            5.31 ms |           2.41 ms | <span class="gain">−54.6%</span> |
+TPS here is uncapped processing capacity: a normal server still ticks at 20 TPS and uses the headroom to stay there
+under load.
 
 <TuningList>
 

@@ -2,7 +2,7 @@
 title: 'Profiling Vanadium'
 nav: 'Profiling'
 order: 5
-summary: 'In-game captures, spark worker recipes, JDK Flight Recorder events, the mixed whole-server benchmark fixture, and the cold first-use explosion fixture.'
+summary: 'Finding out where tick time goes: in-game captures, spark, Flight Recorder events, and the whole-server and cold-explosion benchmark fixtures.'
 meta: ['JDK tools via nix develop', 'Inspect JFR in Mission Control or jfr']
 tocHeading: 'Sections'
 ---
@@ -161,4 +161,4 @@ Outputs in `.vanadium/runs/coldExplosion-UUID/`: `cold-explosion/blasts.csv`, `c
 
 **Reading the arms:** The paired difference of blast 1 (`sham` minus `warmup`) gives the first-use cost; comparing `load` isolates loading/transforming `ServerExplosion` (`armActionMs`) from helper classes and first execution. `next1_ms`..`next5_ms` show whether any stall spans more than one tick.
 
-**Limitations:** Loom's run tasks launch with `fabric.development` and DEBUG logging to `logs/debug.log`; for production-launcher measurements see [release follow-up](performance#release-follow-up). `cold.classLog` and JFR add overhead to every class load, so keep timing runs separate from attribution runs.
+**Limitations:** Loom's run tasks launch with `fabric.development` and DEBUG logging to `logs/debug.log`; for production-like numbers, run the packaged release jar under Fabric's server launcher instead. `cold.classLog` and JFR add overhead to every class load, so keep timing runs separate from attribution runs.

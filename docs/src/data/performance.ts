@@ -1,5 +1,5 @@
 /**
- * Benchmark data behind the performance page's charts. Same numbers as the tables on that page and the CSVs in
+ * Benchmark data behind the performance page's charts. Same numbers as the tables on that page and the CSV in
  * docs/benchmarks/ (dual Xeon E5-2699 v3 VM, Minecraft 26.3 with Lithium, uncapped TPS: mean, min, max).
  */
 export type Sample = { mean: number; min: number; max: number };
@@ -68,28 +68,11 @@ export const workerScaling: Workload[] = [
 
 export type Pair = { label: string; before: number; after: number; change: string };
 
-export const flatWave: Pair[] = [
-  { label: '600 mobs fighting in a 34×34 arena, 24 workers', before: 21, after: 168, change: '7.8×' },
-  { label: '600 mobs in 6×6 blocks (one chunk), 8 workers', before: 107, after: 510, change: '4.8×' },
-  { label: '700 mixed mobs in 4×4 chunks, 24 workers', before: 282, after: 821, change: '2.9×' },
-  { label: '2,000 villagers in 8×8 chunks, 24 workers', before: 88, after: 187, change: '2.1×' },
-  { label: '700 mixed mobs in 4×4 chunks, 8 workers', before: 335, after: 551, change: '1.6×' },
+/** Recommended JVM flags against none, 36 workers (the performance page's flags table, all-flags column). */
+export const jvmFlags: Pair[] = [
+  { label: 'Spread out', before: 372, after: 613, change: '+65%' },
+  { label: 'Crowded base', before: 1965, after: 2678, change: '+36%' },
+  { label: 'Combat', before: 295, after: 329, change: '+12%' },
 ];
 
-export const secondWave: Pair[] = [
-  { label: 'Spread out', before: 261, after: 379, change: '+45%' },
-  { label: 'Crowded base', before: 1440, after: 1965, change: '+36%' },
-  { label: 'Combat', before: 237, after: 295, change: '+25%' },
-];
-
-export const tickPath: Pair[] = [
-  { label: 'Combat, 24 workers', before: 180, after: 260, change: '+45%' },
-  { label: 'Combat, 32 workers', before: 181, after: 235, change: '+30%' },
-  { label: 'Combat, 48 workers', before: 164, after: 208, change: '+27%' },
-  { label: 'Spread out, 8 workers', before: 109, after: 118, change: '+9%' },
-  { label: 'Spread out, 24 workers', before: 197, after: 231, change: '+17%' },
-  { label: 'Spread out, 48 workers', before: 226, after: 261, change: '+16%' },
-  { label: 'Crowded base, 24 workers', before: 1313, after: 1293, change: 'no change' },
-];
-
-export const datasets = { flatWave, secondWave, tickPath };
+export const datasets = { jvmFlags };

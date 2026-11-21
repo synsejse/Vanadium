@@ -2,7 +2,7 @@
 title: 'Development and testing'
 nav: 'Development'
 order: 3
-summary: 'Build workflow, Gradle tasks, unit tests, isolated live-server integration checks, opt-in benchmark fixtures, and Nix development shell setup.'
+summary: 'Building Vanadium, the Gradle tasks and what each checks, the live-server tests, benchmark fixtures, the Nix shell and the documentation site.'
 meta: ['Minecraft 26.3 (official unobfuscated)', 'Java 25 via nix-shell or nix develop']
 tocHeading: 'Sections'
 ---
@@ -45,7 +45,7 @@ Build and verification configuration is separated:
 - `buildSrc/src/main/kotlin/vanadium.verification.gradle.kts`: unit tests, live fixtures and benchmarks.
 - `buildSrc/src/main/kotlin/com/synsenetwork/vanadium/gradle/`: typed download/launch actions and fixture definitions. `LiveLaunch` resolves each fixture's launch values and expected outputs from its `-P` properties in one place, and only when that fixture's run executes: a malformed `mixed.*`, `cold.*` or `bench.*` value fails that run before launch and never `build` or another fixture.
 
-Production packages follow responsibilities: `tick/` owns wave scheduling and dispatch; `stage/` owns what each stage queues; `navigation/` owns path invalidation and path-type caching; `spawning/` owns counting; `diagnostics/` owns profiling, JFR events, the slow-wave watchdog, the crash-report section and capture summaries. `commands/VanadiumCommand.kt` registers the command tree and calls those components. Corresponding unit tests live in the same packages; live Fabric scenarios remain in `integration/`. `PreparationKind` labels independent jobs, and `PerformanceResults` publishes their captures. Package moves change class names in stack traces; the `vanadium.*` JFR event names, enum labels, JSON fields and command paths remain stable.
+Unit tests live in the same packages as the code they test ([Architecture](architecture#ownership-and-stages) maps the packages); live Fabric scenarios are in `integration/`. Package moves change class names in stack traces, but the `vanadium.*` JFR event names, JSON fields and command paths stay stable.
 
 The build-logic tests (`./gradlew -p buildSrc check`) validate verified downloads and rejection of corrupt artifacts without accessing the network, fixture property parsing, launch values and output verification.
 
@@ -57,8 +57,6 @@ Unit tests inspect vanilla bindings without booting Minecraft or applying mixins
 
 ## Live server integration tests
 
-Keep the deterministic concurrency, mixin-binding and collection-contract tests: the current unit suite takes seconds, and removing them would not shorten long benchmark campaigns.
-
 Read the [Minecraft EULA](https://aka.ms/MinecraftEULA). If accepted, create `.vanadium/eula.txt` containing `eula=true`, or copy your existing accepted file. Then run:
 
 ```sh title="Shell"
@@ -69,9 +67,9 @@ Read the [Minecraft EULA](https://aka.ms/MinecraftEULA). If accepted, create `.v
 
 `prepareRuntimeMods` downloads and SHA-512-verifies the pinned C2ME and Lithium releases into `.vanadium/mods/`. Neither is flattened into Loom's development runtime classpath: live runs copy both release jars into the run's `mods/`. Vanadium compiles against the verified Lithium jar (`compileOnly`), and unit tests use it to check mixin bindings, including injections into methods Lithium merges. Fabric API, Fabric Language Kotlin and Cloth Config are normal Gradle dependencies. `./gradlew setupRuntimeMods` also installs the verified jars into the interactive run's `mods/`; `runClient` and `runServer` run this setup automatically. A conflicting C2ME/Lithium version or modified pinned file stops setup with its path; other mods are kept. Neither task flattens C2ME's nested jars into the development classpath.
 
-`runIntegration` builds a test-only Fabric mod from `src/test/kotlin/`, starts a dedicated server through Loom, and runs the live assertions in-process. It also executes the mod's status command through the server dispatcher. The fixture advances the ticked regression scenarios at uncapped speed, allows two cleanup ticks, flush-saves, requests normal shutdown, and writes a completion marker only after the server stops. The Gradle task checks that marker and has a five-minute timeout. There is no nested Gradle process, RCON client, Python launcher, or process-scanning cleanup. Loom finalizes launch paths before task execution, so live runs require configuration caching to be off (the repository default). Use `--no-configuration-cache` if you enable it globally; normal Gradle compilation/test up-to-date checks remain available.
+`runIntegration` builds a test-only Fabric mod from `src/test/kotlin/`, starts a dedicated server through Loom, and runs the live assertions in-process. It also executes the mod's status command through the server dispatcher. The fixture advances the ticked regression scenarios at uncapped speed, allows two cleanup ticks, flush-saves, requests normal shutdown, and writes a completion marker only after the server stops. The Gradle task checks that marker and has a five-minute timeout. Loom finalizes launch paths before task execution, so live runs require configuration caching to be off (the repository default). Use `--no-configuration-cache` if you enable it globally; normal Gradle compilation/test up-to-date checks remain available.
 
-`-Plive.ticks=500` sets the maximum ticks for the scenario sequence (the default is 500, not 500 ticks per scenario). Checks stop early when complete; running out of ticks fails with the current step's name. `-Plive.sprint=false` restores normal tick pacing for debugging. Sprinting uses vanilla's tick sprint: it keeps real ticks, packet handling and stage barriers, and only removes the 20 TPS pacing. Async chunk/ticket readiness waits temporarily restore 20 TPS so background generation can finish without exhausting a tick budget in milliseconds. These waits end when ready, and count toward the same budget. Startup checks and chunk generation still take real time; the five-minute process timeout also catches a stalled tick. `LIVE_CHECK_DONE` lines report each startup check's elapsed milliseconds, and `LIVE_TICKS_DONE` reports the actual tick count and duration. `LIVE_STEP_DONE` and `LIVE_PHASE_DONE` lines give the ticks (paced ones separately) and wall time of each ticked step and of each fixture's steps together; `LIVE_SERVER_STARTED`, `LIVE_CHECKS_DONE`, `LIVE_SAVE_DONE` and `LIVE_STOP_DONE` time JVM startup, all startup checks, the final save and the shutdown.
+`-Plive.ticks=500` sets the maximum ticks for the scenario sequence (the default is 500, not 500 ticks per scenario). Checks stop early when complete; running out of ticks fails with the current step's name. `-Plive.sprint=false` restores normal tick pacing for debugging. Sprinting uses vanilla's tick sprint: it keeps real ticks, packet handling and stage barriers, and only removes the 20 TPS pacing. Async chunk/ticket readiness waits temporarily restore 20 TPS so background generation can finish without exhausting a tick budget in milliseconds. These waits end when ready, and count toward the same budget. Startup checks and chunk generation still take real time; the five-minute process timeout also catches a stalled tick. The log's `LIVE_*_DONE` lines time each startup check, ticked step and fixture phase, plus JVM startup, the final save and shutdown.
 
 Each invocation uses a fresh `.vanadium/runs/integration-UUID/` directory with a loopback-only port, seed 12345, flat world, four helpers, isolation two, C2ME parallelism four, and a fixed 2 GiB G1 heap. Personal `run/` state is never copied over or deleted. Worlds, `logs/latest.log` and failure evidence stay in that directory. Test classes and the completion helper are packaged only in `build/test-mods/integration-checks.jar`, never the release jar.
 
@@ -104,7 +102,7 @@ Run one live server at a time: the live fixtures and `runIntegration` must never
 
 `runColdExplosion` is a manual fixture for the first explosion in a fresh JVM: ordinary creeper blasts in identical arenas on a fixed tick schedule, with one arm per invocation (`sham`, `warmup` or the load-only `load` control). See [Profiling](profiling#cold-first-use-explosion) for the schedule, outputs and how to read the arms. It is never part of `build` or `runIntegration`.
 
-For whole-server measurements use `/vanadium benchmark`, `/vanadium profile`, and the JDK's `jcmd`/`jfr` tools; see [Profiling](profiling). Old exploratory harnesses and 26.2 reports have been removed; current chart evidence is in [Performance](performance). Record hardware, worker/isolation/C2ME settings, heap, flags, mod versions and workload whenever publishing new measurements.
+For whole-server measurements use `/vanadium benchmark`, `/vanadium profile`, and the JDK's `jcmd`/`jfr` tools; see [Profiling](profiling). Record hardware, worker/isolation/C2ME settings, heap, flags, mod versions and workload whenever publishing new measurements.
 
 ## Interactive development
 

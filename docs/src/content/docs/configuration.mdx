@@ -2,7 +2,7 @@
 title: 'Configuration and commands'
 nav: 'Configuration'
 order: 2
-summary: 'All TOML options in config/vanadium.toml, developer JVM properties, live commands, JSON capture reports, and stall or watchdog diagnostics.'
+summary: 'Every option in config/vanadium.toml, the in-game commands, what their reports contain, and how to diagnose a stalled tick.'
 meta: ['Config file: config/vanadium.toml', 'Apply live with /vanadium reload']
 tocHeading: 'Sections'
 ---
@@ -34,9 +34,9 @@ Edit `config/vanadium.toml`, then run `/vanadium reload` to apply changes live. 
 
 ### Workers and isolation
 
-`workers = 0` starts one worker per physical core and leaves one logical processor for the server thread, which works alongside the workers in every wave: with SMT it takes a spare sibling, without SMT it takes a core. On the 36-core, 72-thread test machine that is 36 workers. Workers beyond the physical cores share cores with SMT siblings and mostly spin; on four cores without SMT, the default of 3 workers beat 4. The measurements, with their builds and dates, are in [worker count](performance#worker-count) and [default worker count](performance#default-worker-count).
+`workers = 0` starts one worker per physical core and leaves one logical processor for the server thread, which works alongside the workers in every wave: with SMT it takes a spare sibling, without SMT it takes a core. On the 36-core, 72-thread test machine that is 36 workers. Workers beyond the physical cores share cores with SMT siblings and mostly spin; on four cores without SMT, the default of 3 workers beat 4. The measurements are in [worker count](performance#worker-count) and [default worker count](performance#default-worker-count).
 
-Cores are detected through OSHI, the cross-platform hardware library Minecraft already includes, using the same code on Windows, macOS and Linux. The reported system core count is capped by Java's available logical processor count minus one, which respects JVM-reported affinity and CPU quotas (including `-XX:ActiveProcessorCount`). OSHI reports system topology, so this does not identify exactly which physical cores a restricted affinity mask includes; set `workers` explicitly when tuning a pinned process. If hardware detection is unavailable, the default stays two thirds of Java's available processors. Detection happens once per JVM and is skipped when an explicit worker count is used. The startup log names both counts: `Will use 36 threads, isolation 2 chunks (36 system cores; 72 JVM processors)`. The best count still depends on the machine and the world, so compare a few values with `/vanadium benchmark`.
+Cores are detected through OSHI, the hardware library Minecraft already ships, on every platform, and capped by Java's available logical processors minus one, which respects affinity masks and CPU quotas (`-XX:ActiveProcessorCount` included). Without hardware information the default is two thirds of Java's available processors. The startup log names both counts: `Will use 36 threads, isolation 2 chunks (36 system cores; 72 JVM processors)`. When tuning a pinned process, set `workers` explicitly.
 
 JVM flags matter as much as `workers` on a multi-socket server; see [recommended JVM flags](performance#recommended-jvm-flags) for the flags, their measured effect, requirements and when not to use them.
 
@@ -88,13 +88,9 @@ Measurement and diagnostic inputs, read once per JVM from `-Dvanadium.<name>=<va
 
 All properties are validated: a malformed, NaN, infinite or out-of-range value logs `Ignoring -D…; using the default …` once and the default applies (`spawnParticipants` excepted, as above).
 
-### Removed options and properties
+### Retired settings
 
-These were removed. A file or command line that still sets one works as before apart from that setting, and logs a warning naming it as removed and ignored:
-
-- `parallelChunkLoads` (TOML): chunk loads always run under per-chunk locks on the server thread. A `vanadium.toml` that still sets it loads with its other values applied; each load that finds the key (startup or `/vanadium reload`) warns, and the save after a successful startup drops it.
-- `-Dvanadium.idleWorkers`: use the `idleWorkers` option or `/vanadium set idleWorkers`.
-- `-Dvanadium.serverSpinMicros`, `-Dvanadium.prewakeLeadMicros`, `-Dvanadium.prewakeGraceMicros`, `-Dvanadium.workerSpinMicros`, `-Dvanadium.callerSpinMicros`, `-Dvanadium.callerWakes` and `-Dvanadium.prewake`: no replacement; the values they set are now fixed ([Architecture](architecture#idle-spinning)).
+Settings from older versions (`parallelChunkLoads`, `-Dvanadium.idleWorkers` and the old spin and pre-wake properties) are ignored: the server starts with the rest of the file applied and logs a warning naming each one. Use `idleWorkers` in the TOML for what `-Dvanadium.idleWorkers` did.
 
 ## Commands
 
