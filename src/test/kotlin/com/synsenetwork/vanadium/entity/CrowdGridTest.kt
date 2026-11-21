@@ -1,5 +1,6 @@
 package com.synsenetwork.vanadium.entity
 
+import com.synsenetwork.vanadium.tick.TickThread
 import net.minecraft.core.BlockPos
 import net.minecraft.core.SectionPos
 import net.minecraft.util.AbortableIterationConsumer
@@ -221,26 +222,67 @@ class CrowdGridTest {
     }
 
     @Test
-    fun openWritesAndUnprotectedWritesFallBack() {
+    fun openMovesRemainConsistentAndUnprotectedWritesFallBack() {
         val section = Section(key)
         val entity = Fake(AABB(-15.5, 50.0, 33.0, -15.0, 51.0, 33.5))
         section.add(entity)
         val before = AABB(-16.0, 49.0, 32.0, -14.0, 52.0, 34.0)
         val after = AABB(-4.0, 49.0, 44.0, -2.0, 52.0, 46.0)
+        val afterOneCell = AABB(-3.8, 50.0, 44.2, -2.2, 51.5, 45.8)
         assertEquals(listOf<EntityAccess>(entity), collect { section.grid.query(before, it)!! })
         assertEquals(emptyList(), collect { section.grid.query(after, it)!! })
         @Suppress("UNCHECKED_CAST")
         val member = entity.`vanadium$crowd`() as CrowdGrid.Member<EntityAccess>
         val target = AABB(-3.5, 50.0, 45.0, -3.0, 51.0, 45.5)
+        // beginMove only adds the target cells without opening seq: queries see exact live boxes throughout.
         assertTrue(section.grid.beginMove(member, section.grid.rangeOf(target)))
-        assertNull(section.grid.query(before) { Continuation.CONTINUE }, "a read during an open move validated")
-        assertNull(section.grid.query(after) { Continuation.CONTINUE }, "a read during an open move validated")
+        assertEquals(listOf<EntityAccess>(entity), collect { assertNotNull(section.grid.query(before, it)) })
+        assertEquals(emptyList(), collect { assertNotNull(section.grid.query(after, it)) })
         entity.box = target
+        assertEquals(listOf<EntityAccess>(entity), collect { assertNotNull(section.grid.query(after, it)) })
+        assertEquals(emptyList(), collect { assertNotNull(section.grid.query(before, it)) })
         section.grid.endMove(member)
         assertEquals(listOf<EntityAccess>(entity), collect { section.grid.query(after, it)!! })
         assertEquals(emptyList(), collect { section.grid.query(before, it)!! })
         CrowdGrid.unprotectedWrites = LongSupplier { 1L }
-        assertNull(section.grid.query(after) { Continuation.CONTINUE }, "a grid older than an unprotected write validated")
+        assertNull(section.grid.query(afterOneCell) { Continuation.CONTINUE }, "single-cell query validated past unprotected write")
+        assertNull(section.grid.query(after) { Continuation.CONTINUE }, "multi-cell query validated past unprotected write")
+    }
+
+    @Test
+    fun oneTwoAndLargeMultiCellQueriesMatchFullScanInListOrder() {
+        val random = Random(31)
+        val section = Section(key)
+        val entities = List(90) { i ->
+            val box = randomBox(random, 1.0)
+            if (i % 3 == 0) Other(box) else Fake(box)
+        }
+        entities.forEach(section::add)
+        // Add an entity explicitly straddling cell boundaries along X, Y and Z to verify 2-cell dedupe.
+        val straddler = Other(AABB(-14.3, 51.5, 33.7, -13.7, 52.5, 34.3))
+        section.add(straddler)
+        val type = EntityTypeTest.forClass<EntityAccess, Other>(Other::class.java)
+        val queries = listOf(
+            // Single cell.
+            AABB(-15.8, 48.2, 32.2, -14.2, 51.8, 33.8),
+            // Two cells along X, Z, and Y (each straddling one boundary).
+            AABB(-15.5, 49.0, 32.5, -13.5, 51.0, 33.5),
+            AABB(-15.5, 49.0, 33.5, -14.5, 51.0, 34.5),
+            AABB(-15.5, 51.2, 32.5, -14.5, 52.8, 33.5),
+            // Two cells where one cell is outside all entities (empty cell shortcut).
+            AABB(-15.8, 61.0, 32.2, -13.2, 63.0, 33.8),
+            // Many cells (4×4×4 = 64 <= MAX_QUERY_CELLS, >32 candidates) exercising Scratch mergeSort + dedupe.
+            AABB(-15.5, 48.5, 32.5, -8.5, 63.0, 39.5),
+        )
+        for (query in queries) {
+            val expected = collect { section.scan(query, it) }
+            val actual = collect { assertNotNull(section.grid.query(query, it)) }
+            assertEquals(expected, actual, "untyped query $query")
+            val expectedTyped = expected.filterIsInstance<Other>()
+            val actualTyped = ArrayList<EntityAccess>()
+            assertNotNull(section.grid.query(type, query) { actualTyped.add(it); Continuation.CONTINUE })
+            assertEquals<List<EntityAccess>>(expectedTyped, actualTyped, "typed query $query")
+        }
     }
 
     @Test
@@ -356,7 +398,11 @@ class CrowdGridTest {
         val barrier = CyclicBarrier(writers + readers)
         val failure = AtomicReference<Throwable>()
         val viaGrid = AtomicInteger()
-        val pool = Executors.newFixedThreadPool(writers + readers)
+        val pool = Executors.newFixedThreadPool(writers + readers) { task ->
+            object : TickThread("crowd-grid-test") {
+                override fun run() = task.run()
+            }
+        }
         fun guarded(body: () -> Unit) = Runnable {
             try {
                 body()
@@ -413,13 +459,18 @@ class CrowdGridTest {
                 }
             })
         }
+        val oneCell = AABB(-5.9, 50.2, 36.2, -4.1, 51.8, 37.8)
+        val twoCell = AABB(-5.9, 50.2, 36.2, -2.1, 51.8, 37.8)
+        val inOneCell = anchors.filter { it.box.intersects(oneCell) }
         repeat(readers) {
             pool.execute(guarded {
-                fun check(section: Section, required: List<Fake>) {
+                fun checkBox(section: Section, box: AABB, required: List<Fake>, requireGrid: Boolean) {
                     // Removed before the query started, and not touched until it ended: must not come back.
                     val gone = churners.filter { it.gone }.map { it to it.changes.get() }
                     val found = ArrayList<EntityAccess>()
-                    if (section.query(query) { found.add(it); Continuation.CONTINUE }) viaGrid.incrementAndGet()
+                    val usedGrid = section.query(box) { found.add(it); Continuation.CONTINUE }
+                    if (requireGrid) check(usedGrid) { "wait-free single-cell query fell back" }
+                    if (usedGrid) viaGrid.incrementAndGet()
                     val seen = Collections.newSetFromMap(IdentityHashMap<EntityAccess, Boolean>())
                     for (entity in found) check(seen.add(entity)) { "returned twice: ${entity.boundingBox}" }
                     for (entity in required) check(entity in seen) { "missed ${entity.boundingBox}" }
@@ -429,12 +480,16 @@ class CrowdGridTest {
                 }
                 repeat(rounds) {
                     barrier.await(30, TimeUnit.SECONDS)
-                    repeat(2000) {
-                        check(a, mustReturn)
-                        check(b, emptyList())
+                    repeat(2000) { step ->
+                        checkBox(a, query, mustReturn, false)
+                        if (step % 4 == 0) {
+                            checkBox(a, oneCell, inOneCell, true)
+                            checkBox(a, twoCell, anchors, false)
+                        }
+                        checkBox(b, query, emptyList(), false)
                     }
                     barrier.await(30, TimeUnit.SECONDS)
-                    repeat(20) { check(a, mustReturn) }
+                    repeat(20) { checkBox(a, query, mustReturn, false) }
                     barrier.await(30, TimeUnit.SECONDS)
                 }
             })
