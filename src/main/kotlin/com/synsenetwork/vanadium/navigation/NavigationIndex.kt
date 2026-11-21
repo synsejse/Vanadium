@@ -1,9 +1,11 @@
 package com.synsenetwork.vanadium.navigation
 
+import com.synsenetwork.vanadium.tick.TickThread
 import com.synsenetwork.vanadium.tracking.AreaMap
 import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet
 import java.lang.invoke.MethodHandles
 import java.lang.invoke.VarHandle
+import java.util.Collections
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.LongAdder
@@ -103,6 +105,31 @@ class NavigationIndex : AbstractMutableSet<Mob>() {
     }
 
     fun candidates(pos: BlockPos): List<Mob> {
+        val out = ArrayList<Mob>()
+        fillCandidates(pos, out, null)
+        return if (out.isEmpty()) emptyList() else out
+    }
+
+    /**
+     * Zero-allocation hot-path iterator for `ServerLevel.sendBlockUpdated`: reuses a per-thread scratch buffer
+     * and returns [Collections.emptyIterator] when no mobs are candidates. Falls back to [candidates] on
+     * reentrant calls; pair with [enterCandidateScan]/[exitCandidateScan] to guarantee cleanup on exceptions.
+     */
+    fun candidateIterator(pos: BlockPos): Iterator<Mob> {
+        val scratch = currentScratch()
+        if (!scratch.begin()) return candidates(pos).iterator()
+        var handedOff = false
+        try {
+            fillCandidates(pos, scratch.items, scratch.seen)
+            val iterator = scratch.finishFill()
+            handedOff = true
+            return iterator
+        } finally {
+            if (!handedOff) scratch.release()
+        }
+    }
+
+    private fun fillCandidates(pos: BlockPos, out: ArrayList<Mob>, reusableSeen: ReferenceOpenHashSet<Mob>?) {
         if (queriesSinceRefresh.get() < MIN_QUERIES_FOR_REFRESH) queriesSinceRefresh.incrementAndGet()
         val read = lock.readLock()
         read.lock()
@@ -111,25 +138,34 @@ class NavigationIndex : AbstractMutableSet<Mob>() {
             val mask = dirtyMask
             val hasUnbounded = unbounded.isNotEmpty()
             if (mask == 0L && !hasUnbounded) {
-                return if (nearby.isEmpty()) emptyList() else ArrayList(nearby)
+                if (nearby.isNotEmpty()) out.addAll(nearby)
+                return
             }
             val dirtyMobs = if (mask != 0L) dirtyCount.sum() else 0L
             // A full snapshot is cheaper than merging candidate sets that already cover the population.
             if (nearby.size + dirtyMobs + unbounded.size >= members.size) {
-                return if (members.isEmpty()) emptyList() else ArrayList(members)
+                if (members.isNotEmpty()) out.addAll(members)
+                return
             }
             if (nearby.isEmpty() && !hasUnbounded) {
                 // Each dirty mob is queued at most once per refresh cycle (guarded by its dirty flag),
                 // so no deduplication set is needed when nearby and unbounded are both empty.
-                val result = ArrayList<Mob>(dirtyMobs.toInt().coerceIn(4, members.size.coerceAtLeast(4)))
-                collectDirty(mask, result)
-                return result
+                collectDirty(mask, out)
+                return
             }
-            val candidates = ReferenceOpenHashSet<Mob>(nearby.size + unbounded.size + dirtyMobs.toInt().coerceAtLeast(4))
-            candidates.addAll(nearby)
-            if (hasUnbounded) candidates.addAll(unbounded)
-            if (mask != 0L) collectDirty(mask, candidates)
-            return ArrayList(candidates)
+            val seen = reusableSeen ?: ReferenceOpenHashSet(nearby.size + unbounded.size + dirtyMobs.toInt().coerceAtLeast(4))
+            try {
+                for (mob in nearby) if (seen.add(mob)) out.add(mob)
+                if (hasUnbounded) {
+                    for (mob in unbounded) if (seen.add(mob)) out.add(mob)
+                }
+                if (mask != 0L) collectDirtyUnique(mask, seen, out)
+            } finally {
+                if (reusableSeen != null) {
+                    reusableSeen.clear()
+                    if (out.size > 256) reusableSeen.trim(64)
+                }
+            }
         } finally {
             read.unlock()
         }
@@ -142,6 +178,17 @@ class NavigationIndex : AbstractMutableSet<Mob>() {
             remaining = remaining and (remaining - 1L)
             for (entry in dirty[index]) {
                 if (entry is Mob && entry.state.`vanadium$navigationMember`()) out.add(entry)
+            }
+        }
+    }
+
+    private fun collectDirtyUnique(mask: Long, seen: ReferenceOpenHashSet<Mob>, out: ArrayList<Mob>) {
+        var remaining = mask
+        while (remaining != 0L) {
+            val index = java.lang.Long.numberOfTrailingZeros(remaining)
+            remaining = remaining and (remaining - 1L)
+            for (entry in dirty[index]) {
+                if (entry is Mob && entry.state.`vanadium$navigationMember`() && seen.add(entry)) out.add(entry)
             }
         }
     }
@@ -235,12 +282,93 @@ class NavigationIndex : AbstractMutableSet<Mob>() {
     /** Checked on every invalidation: a custom predicate or a path too long to index. */
     private object Unbounded : Bounds
 
+    internal class CandidateScratch : Iterator<Mob> {
+        val items = ArrayList<Mob>()
+        val seen = ReferenceOpenHashSet<Mob>()
+        var index = 0
+        var size = 0
+        var active = false
+        var scanDepth = 0
+
+        fun begin(): Boolean {
+            if (active) return false
+            active = true
+            items.clear()
+            index = 0
+            size = 0
+            return true
+        }
+
+        fun finishFill(): Iterator<Mob> {
+            size = items.size
+            if (size == 0) {
+                active = false
+                return Collections.emptyIterator()
+            }
+            index = 0
+            return this
+        }
+
+        override fun hasNext(): Boolean {
+            if (index < size) return true
+            if (active) release()
+            return false
+        }
+
+        override fun next(): Mob {
+            val i = index
+            if (i >= size) throw NoSuchElementException()
+            val mob = items[i]
+            index = i + 1
+            if (index == size) release()
+            return mob
+        }
+
+        fun release() {
+            if (!active) return
+            items.clear()
+            if (!seen.isEmpty()) seen.clear()
+            index = 0
+            size = 0
+            active = false
+        }
+    }
+
     companion object {
         private const val MIN_QUERIES_FOR_REFRESH = 2
         private const val MAX_INDEXED_PATH_NODES = 256
         private const val STRIPES = 64
         private val DIRTY_MASK: VarHandle = MethodHandles.lookup()
             .findVarHandle(NavigationIndex::class.java, "dirtyMask", java.lang.Long.TYPE)
+        private val FALLBACK_SCRATCH = ThreadLocal.withInitial(::CandidateScratch)
+
+        private fun currentScratch(): CandidateScratch {
+            val thread = Thread.currentThread()
+            if (thread is TickThread) {
+                var scratch = thread.navScratch as CandidateScratch?
+                if (scratch == null) {
+                    scratch = CandidateScratch()
+                    thread.navScratch = scratch
+                }
+                return scratch
+            }
+            return FALLBACK_SCRATCH.get()
+        }
+
+        @JvmStatic
+        fun enterCandidateScan(): Boolean {
+            val scratch = currentScratch()
+            if (scratch.scanDepth > 0) return false
+            scratch.scanDepth = 1
+            return true
+        }
+
+        @JvmStatic
+        fun exitCandidateScan() {
+            val scratch = currentScratch()
+            scratch.scanDepth = 0
+            scratch.release()
+        }
 
         /** Custom `shouldRecomputePath` overrides cannot be bounded and stay in the full fallback. */
         private val VANILLA_PREDICATE = object : ClassValue<Boolean>() {

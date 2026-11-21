@@ -66,6 +66,21 @@ internal object NavigationChecks {
         // Empty distant query returns an empty list with no dirty stripes set.
         val distant = BlockPos(2_000_000, 100, 2_000_000)
         check(index.candidates(distant).isEmpty(), "distant query returned unexpected candidates")
+        check(!index.candidateIterator(distant).hasNext(), "distant candidateIterator was not empty")
+        // Nested candidateIterator on the same thread must fall back cleanly without clobbering the outer iterator.
+        val outer = index.candidateIterator(edit)
+        val outerCollected = ArrayList<Mob>()
+        var nestedChecked = false
+        while (outer.hasNext()) {
+            outerCollected.add(outer.next())
+            if (!nestedChecked) {
+                nestedChecked = true
+                val inner = ArrayList<Mob>()
+                index.candidateIterator(edit).forEachRemaining(inner::add)
+                check(inner.containsAll(expected), "nested candidateIterator missed indexed mobs")
+            }
+        }
+        check(outerCollected.containsAll(expected), "outer candidateIterator missed indexed mobs")
 
         // Parallel readers with concurrent invalidations across different worker threads must never miss
         // expected indexed matches or newly invalidated mobs.
