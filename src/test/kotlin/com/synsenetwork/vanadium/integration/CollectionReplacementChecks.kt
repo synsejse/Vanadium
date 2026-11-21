@@ -4,6 +4,7 @@ import com.synsenetwork.vanadium.stage.BlockEntityStage
 import com.synsenetwork.vanadium.stage.ChunkTickAccess
 import com.synsenetwork.vanadium.stage.EntityTickAccess
 import it.unimi.dsi.fastutil.longs.Long2ByteMap
+import it.unimi.dsi.fastutil.longs.Long2LongMap
 import net.minecraft.server.level.ChunkMap
 import net.minecraft.server.level.DistanceManager
 import net.minecraft.server.level.ServerChunkCache
@@ -76,8 +77,14 @@ internal object CollectionReplacementChecks {
         val entityTickList = field(level, ServerLevel::class.java, "entityTickList") as EntityTickAccess
         if (entityTickList.`vanadium$entityTicks`() == null) failures.add("$name has no entity tick tasks")
         for ((kind, ticks) in listOf("block" to level.blockTicks, "fluid" to level.fluidTicks)) {
-            val queue = expect(ticks, null, "toRunThisTick", "com.synsenetwork.vanadium.stage.ScheduledTickStage\$Queue")
-            if (queue != null) failures.add("$name $kind ticks: $queue")
+            val containers = expect(ticks, null, "allContainers", "com.synsenetwork.vanadium.collections.ConcurrentLongObjectMap")
+            if (containers != null) failures.add("$name $kind ticks: $containers")
+            val next = expect(ticks, null, "nextTickForContainer", "com.synsenetwork.vanadium.collections.ConcurrentLongLongMap")
+            if (next != null) failures.add("$name $kind ticks: $next")
+            val nextDefault = (field(ticks, null, "nextTickForContainer") as Long2LongMap).defaultReturnValue()
+            if (nextDefault != Long.MAX_VALUE) {
+                failures.add("$name $kind ticks: nextTickForContainer answers $nextDefault for absent keys, not ${Long.MAX_VALUE}")
+            }
         }
         return failures
     }

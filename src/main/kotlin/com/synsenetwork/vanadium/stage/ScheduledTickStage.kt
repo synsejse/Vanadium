@@ -2,8 +2,6 @@ package com.synsenetwork.vanadium.stage
 
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.tick.Stage
-import it.unimi.dsi.fastutil.objects.ReferenceLinkedOpenHashSet
-import java.util.AbstractQueue
 import java.util.function.BiConsumer
 import net.minecraft.core.BlockPos
 import net.minecraft.world.ticks.LevelTicks
@@ -11,14 +9,15 @@ import net.minecraft.world.ticks.ScheduledTick
 
 /**
  * The SCHEDULED_TICK stage: a level's block and fluid ticks (`ServerLevel.tick`'s two `LevelTicks.tick` calls).
- * It keeps no state of its own: each `LevelTicks` holds its due ticks in a [Queue] (`LevelTicksMixin`).
  *
- * Due ticks are collected under the `LevelTicks` monitor and run after it is released, so a callback that
- * schedules or clears ticks never waits for a worker that holds it. Each runs only if it is still due when its
- * task claims it (`clearArea` may cancel it meanwhile), and pending and executed ticks stay visible to
- * `willTickThisTick`/`copyArea` until the wave finishes, as during vanilla's drain.
+ * Due ticks are collected under the `LevelTicks` monitor on the server thread and run after it is released,
+ * using reusable [TickTask] slots so steady waves allocate no per-tick closures. Each task claims its slot
+ * lock-free in `LevelTicksMixin` (`clearArea` may cancel it meanwhile), and pending and executed ticks stay
+ * visible to `willTickThisTick`/`copyArea` until the wave finishes, as during vanilla's drain.
  */
 object ScheduledTickStage {
+    private val taskPool = ArrayList<TickTask>()
+
     /** Replaces `LevelTicks.tick(time, maxTicks, ticker)`. */
     @JvmStatic
     fun <T : Any> dispatch(ticks: LevelTicks<T>, time: Long, maxTicks: Int, ticker: BiConsumer<BlockPos, T>) {
@@ -32,37 +31,54 @@ object ScheduledTickStage {
         val access = ticks as ScheduledTickAccess<T>
         val scheduler = Vanadium.scheduler
         scheduler.begin(Stage.SCHEDULED_TICK)
+        var count = 0
         try {
             val due = access.`vanadium$collect`(time, maxTicks)
-            for (i in due.indices) {
+            count = due.size
+            ensurePool(count)
+            for (i in 0 until count) {
                 val tick = due[i]
                 val pos = tick.pos()
-                scheduler.enqueue(Stage.SCHEDULED_TICK, pos.x shr 4, pos.z shr 4, Runnable {
-                    if (access.`vanadium$claim`(tick)) ticker.accept(tick.pos(), tick.type())
-                }, null)
+                val task = taskPool[i]
+                task.set(access, ticker, tick, i)
+                scheduler.enqueue(Stage.SCHEDULED_TICK, pos.x shr 4, pos.z shr 4, task, null)
             }
             scheduler.run(Stage.SCHEDULED_TICK)
         } finally {
+            for (i in 0 until count) taskPool[i].clear()
             access.`vanadium$finish`()
         }
     }
 
-    /** Due ticks are unique; retain drain order with constant-time removal by parallel callbacks. */
-    class Queue<T : Any> : AbstractQueue<ScheduledTick<T>>() {
-        private val ticks = ReferenceLinkedOpenHashSet<ScheduledTick<T>>()
+    private fun ensurePool(needed: Int) {
+        while (taskPool.size < needed) taskPool.add(TickTask())
+    }
 
-        override fun offer(tick: ScheduledTick<T>): Boolean = ticks.add(tick)
+    private class TickTask : Runnable {
+        private var access: ScheduledTickAccess<Any>? = null
+        private var ticker: BiConsumer<BlockPos, Any>? = null
+        private var tick: ScheduledTick<Any>? = null
+        private var index = 0
 
-        override fun peek(): ScheduledTick<T>? = if (ticks.isEmpty()) null else ticks.first()
+        @Suppress("UNCHECKED_CAST")
+        fun <T : Any> set(access: ScheduledTickAccess<T>, ticker: BiConsumer<BlockPos, T>, tick: ScheduledTick<T>, index: Int) {
+            this.access = access as ScheduledTickAccess<Any>
+            this.ticker = ticker as BiConsumer<BlockPos, Any>
+            this.tick = tick as ScheduledTick<Any>
+            this.index = index
+        }
 
-        override fun poll(): ScheduledTick<T>? = if (ticks.isEmpty()) null else ticks.removeFirst()
+        fun clear() {
+            access = null
+            ticker = null
+            tick = null
+        }
 
-        override fun remove(element: ScheduledTick<T>): Boolean = ticks.remove(element)
-
-        override fun iterator(): MutableIterator<ScheduledTick<T>> = ticks.iterator()
-
-        override val size: Int get() = ticks.size
-
-        override fun clear() = ticks.clear()
+        override fun run() {
+            val a = access ?: return
+            val t = tick ?: return
+            val cb = ticker ?: return
+            if (a.`vanadium$claim`(index)) cb.accept(t.pos(), t.type())
+        }
     }
 }
