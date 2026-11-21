@@ -786,10 +786,32 @@ class WorkerPool internal constructor(
     }
 }
 
-/** A pool worker. [context] gives tick code per-thread state without a thread-local lookup. */
+/** A pool worker. Fields here give tick code per-thread state without a thread-local lookup. */
 abstract class TickThread(name: String) : Thread(name) {
     @JvmField
     var context: Any? = null
+
+    /** Cached [com.synsenetwork.vanadium.concurrent.PerThreadRandomSource] instance and this thread's stream for it. */
+    @JvmField
+    var randomOwner: Any? = null
+
+    @JvmField
+    var random: Any? = null
+
+    /** Per-thread `Level.randValue` LCG state ([com.synsenetwork.vanadium.concurrent.PerThreadRandValue]). */
+    @JvmField
+    var randValue: Int = nextRandSeed()
+
+    private companion object {
+        private val SEED = AtomicLong(System.nanoTime() xor -0x61c8864680b583ebL)
+
+        private fun nextRandSeed(): Int {
+            var z = SEED.addAndGet(-0x61c8864680b583ebL)
+            z = (z xor (z ushr 30)) * -0x40a7b892e31b1a47L
+            z = (z xor (z ushr 27)) * -0x6b2fb644ecceee15L
+            return (z xor (z ushr 31)).toInt()
+        }
+    }
 }
 
 /** Unwinds a worker task that needs the server thread; see [WorkerPool.runDeferrable]. No stack trace is captured. */

@@ -2,6 +2,7 @@ package com.synsenetwork.vanadium
 
 import com.synsenetwork.vanadium.commands.VanadiumCommand
 import com.synsenetwork.vanadium.concurrent.Interactions
+import com.synsenetwork.vanadium.concurrent.PerThreadRandValue
 import com.synsenetwork.vanadium.config.DeveloperProperties
 import com.synsenetwork.vanadium.config.VanadiumConfig
 import com.synsenetwork.vanadium.config.VanadiumConfigSerializer
@@ -77,6 +78,7 @@ object Vanadium : ModInitializer {
         }
         val pool = WorkerPool(workers)
         this.pool = pool
+        PerThreadRandValue.setServerThread(Thread.currentThread())
         scheduler = TickScheduler(pool, config.isolation, spawnParticipants)
         if (spawnParticipants != null) {
             LOGGER.warn("Experimental: natural spawn attempts use at most {} of {} threads (-D{})",
@@ -121,6 +123,7 @@ object Vanadium : ModInitializer {
         TickProfiler.onServerStopped()
         diagnostics?.close()
         ServerSpin.disarm()
+        PerThreadRandValue.setServerThread(null)
         pool?.close()
         diagnostics = null
         pool = null
