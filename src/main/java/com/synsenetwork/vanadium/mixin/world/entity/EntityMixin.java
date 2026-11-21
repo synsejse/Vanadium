@@ -9,11 +9,16 @@ import com.synsenetwork.vanadium.entity.CrowdAccess;
 import com.synsenetwork.vanadium.entity.CrowdGrid;
 import com.synsenetwork.vanadium.navigation.NavigationIndex;
 import java.util.concurrent.atomic.AtomicReference;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Overwrite;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -21,6 +26,30 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(Entity.class)
 public abstract class EntityMixin implements InteractionAccess, CrowdAccess {
+    @Shadow
+    private @Nullable BlockState inBlockState;
+
+    @Shadow
+    public abstract Level level();
+
+    @Shadow
+    public abstract BlockPos blockPosition();
+
+    /**
+     * @author Vanadium
+     * @reason Vanilla reads {@code inBlockState} twice, so a concurrent {@code setPosRaw} clearing it on another
+     *         thread can make a pushability/climbable check observe {@code null} and throw NPE.
+     */
+    @Overwrite
+    public BlockState getInBlockState() {
+        BlockState state = this.inBlockState;
+        if (state == null) {
+            state = this.level().getBlockState(this.blockPosition());
+            this.inBlockState = state;
+        }
+        return state;
+    }
+
     @Unique
     private final OwnerLocks.Lock vanadium$tickLock = new OwnerLocks.Lock();
 
