@@ -31,3 +31,7 @@ accessible class net/minecraft/world/entity/Entity$Movement
 accessible field net/minecraft/world/entity/Entity dimensions Lnet/minecraft/world/entity/EntityDimensions;
 accessible method net/minecraft/world/entity/Entity makeBoundingBox (Lnet/minecraft/world/phys/Vec3;)Lnet/minecraft/world/phys/AABB;
 accessible method net/minecraft/world/entity/Entity onInsideBlock (Lnet/minecraft/world/level/block/state/BlockState;)V
+mutable field net/minecraft/world/level/pathfinder/Node x I
+mutable field net/minecraft/world/level/pathfinder/Node y I
+mutable field net/minecraft/world/level/pathfinder/Node z I
+mutable field net/minecraft/world/level/pathfinder/Node hash I

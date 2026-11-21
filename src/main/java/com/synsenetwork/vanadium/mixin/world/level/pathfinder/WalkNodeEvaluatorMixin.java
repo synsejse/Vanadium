@@ -1,5 +1,6 @@
 package com.synsenetwork.vanadium.mixin.world.level.pathfinder;
 
+import com.synsenetwork.vanadium.navigation.NodePoolAccess;
 import com.synsenetwork.vanadium.navigation.PathfindingFastPath;
 import it.unimi.dsi.fastutil.objects.Object2BooleanMap;
 import java.util.Set;
@@ -86,6 +87,7 @@ public abstract class WalkNodeEvaluatorMixin extends NodeEvaluator {
     @Unique private final float[] vanadium$malus = new float[PathfindingFastPath.PATH_TYPES.length];
     @Unique private final BlockPos.MutableBlockPos vanadium$pos = new BlockPos.MutableBlockPos();
     @Unique private @Nullable PathfindingFastPath.WalkScratch vanadium$scratch;
+    @Unique private boolean vanadium$ownsScratch;
     @Unique private double vanadium$mobJumpHeight = 1.125;
     @Unique private int vanadium$jumpSize = 1;
     @Unique private boolean vanadium$prepared;
@@ -104,10 +106,17 @@ public abstract class WalkNodeEvaluatorMixin extends NodeEvaluator {
 
     @Inject(method = "prepare", at = @At("TAIL"))
     private void prepareVanadiumState(PathNavigationRegion level, Mob entity, CallbackInfo ci) {
-        if (this.vanadium$scratch != null) {
+        if (this.vanadium$ownsScratch && this.vanadium$scratch != null) {
             PathfindingFastPath.releaseWalkScratch(this.vanadium$scratch);
         }
-        this.vanadium$scratch = PathfindingFastPath.borrowWalkScratch();
+        PathfindingFastPath.WalkScratch shared = ((NodePoolAccess) (Object) this).vanadium$nodeScratch();
+        if (shared != null) {
+            this.vanadium$scratch = shared;
+            this.vanadium$ownsScratch = false;
+        } else {
+            this.vanadium$scratch = PathfindingFastPath.borrowWalkScratch();
+            this.vanadium$ownsScratch = true;
+        }
         float step = entity.maxUpStep();
         this.vanadium$mobJumpHeight = Math.max(1.125, step);
         this.vanadium$jumpSize = Mth.floor(Math.max(1.0F, step));
@@ -117,7 +126,10 @@ public abstract class WalkNodeEvaluatorMixin extends NodeEvaluator {
 
     @Inject(method = "done", at = @At("HEAD"))
     private void clearVanadiumState(CallbackInfo ci) {
-        PathfindingFastPath.releaseWalkScratch(this.vanadium$scratch);
+        if (this.vanadium$ownsScratch) {
+            PathfindingFastPath.releaseWalkScratch(this.vanadium$scratch);
+            this.vanadium$ownsScratch = false;
+        }
         this.vanadium$scratch = null;
         this.vanadium$prepared = false;
         this.vanadium$malusLoaded = false;

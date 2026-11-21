@@ -846,6 +846,10 @@ abstract class TickThread(name: String) : Thread(name) {
     /** Per-thread visited-block table for [com.synsenetwork.vanadium.entity.InsideBlockFastPath]. */
     @JvmField
     var insideBlockScratch: Any? = null
+
+    /** Per-thread pathfinding spatial caches and node pool ([com.synsenetwork.vanadium.navigation.PathfindingFastPath]). */
+    @JvmField
+    var walkScratch: Any? = null
     private companion object {
         private val SEED = AtomicLong(System.nanoTime() xor -0x61c8864680b583ebL)
 

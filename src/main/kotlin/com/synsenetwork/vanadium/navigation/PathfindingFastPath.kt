@@ -1,5 +1,6 @@
 package com.synsenetwork.vanadium.navigation
 
+import com.synsenetwork.vanadium.tick.TickThread
 import java.util.Arrays
 import net.caffeinemc.mods.lithium.common.ai.pathing.BlockStatePathingCache
 import net.caffeinemc.mods.lithium.common.ai.pathing.PathNodeCache
@@ -14,6 +15,7 @@ import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.state.BlockBehaviour
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.chunk.LevelChunkSection
+import net.minecraft.world.level.pathfinder.Node
 import net.minecraft.world.level.pathfinder.PathType
 import net.minecraft.world.level.pathfinder.PathfindingContext
 import net.minecraft.world.level.pathfinder.WalkNodeEvaluator
@@ -314,12 +316,24 @@ object PathfindingFastPath {
     private val threadScratch = ThreadLocal.withInitial(::WalkScratch)
 
     /**
-     * Borrows this thread's reusable L1-resident scratch tables for one search, bumping their generation counter in O(1).
-     * Reentrant searches on the same thread get a fresh unpooled instance so nested calls never corrupt an outer search.
+     * Borrows this thread's reusable L1-resident scratch tables (spatial caches + node table/pool) for one search,
+     * bumping their generation counter in O(1). Pool workers read directly from [TickThread.walkScratch] without a
+     * `ThreadLocal` lookup. Reentrant searches on the same thread get a fresh unpooled instance so nested calls never
+     * corrupt an outer search.
      */
     @JvmStatic
     fun borrowWalkScratch(): WalkScratch {
-        val local = threadScratch.get()
+        val thread = Thread.currentThread()
+        val local: WalkScratch = if (thread is TickThread) {
+            var existing = thread.walkScratch as WalkScratch?
+            if (existing == null) {
+                existing = WalkScratch()
+                thread.walkScratch = existing
+            }
+            existing
+        } else {
+            threadScratch.get()
+        }
         if (!local.inUse) {
             local.inUse = true
             local.bumpGen()
@@ -335,10 +349,21 @@ object PathfindingFastPath {
         }
     }
 
-    /** Per-thread reusable generation-stamped spatial caches for [WalkNodeEvaluator]. */
+    /**
+     * Per-thread reusable generation-stamped spatial caches, primitive open-addressed `Node` table, and `Node` pool.
+     * Padded around hot mutable scalars so G1 evacuation cannot place two workers' counters on the same 64-byte line.
+     */
     class WalkScratch {
+        @Suppress("unused") private var pad0 = 0L; @Suppress("unused") private var pad1 = 0L
+        @Suppress("unused") private var pad2 = 0L; @Suppress("unused") private var pad3 = 0L
+        @Suppress("unused") private var pad4 = 0L; @Suppress("unused") private var pad5 = 0L
+        @Suppress("unused") private var pad6 = 0L; @Suppress("unused") private var pad7 = 0L
+
         @JvmField var inUse: Boolean = false
         @JvmField var gen: Int = 0
+        @JvmField var nodeCount: Int = 0
+        @JvmField var poolUsed: Int = 0
+
         @JvmField val floorGen: IntArray = IntArray(FLOOR_CACHE_SIZE)
         @JvmField val floorKey: LongArray = LongArray(FLOOR_CACHE_SIZE)
         @JvmField val floorVal: DoubleArray = DoubleArray(FLOOR_CACHE_SIZE)
@@ -346,14 +371,121 @@ object PathfindingFastPath {
         @JvmField val typeKey: LongArray = LongArray(TYPE_CACHE_SIZE)
         @JvmField val typeVal: Array<PathType?> = arrayOfNulls(TYPE_CACHE_SIZE)
 
+        @JvmField var nodeGen: IntArray = IntArray(NODE_TABLE_INITIAL)
+        @JvmField var nodeKey: IntArray = IntArray(NODE_TABLE_INITIAL)
+        @JvmField var nodeVal: Array<Node?> = arrayOfNulls(NODE_TABLE_INITIAL)
+        @JvmField var nodeMask: Int = NODE_TABLE_INITIAL - 1
+        @JvmField var nodeMaxLoad: Int = NODE_TABLE_INITIAL ushr 1
+        @JvmField var nodePool: Array<Node?> = arrayOfNulls(NODE_POOL_INITIAL)
+
+        @Suppress("unused") private var pad8 = 0L; @Suppress("unused") private var pad9 = 0L
+        @Suppress("unused") private var pad10 = 0L; @Suppress("unused") private var pad11 = 0L
+        @Suppress("unused") private var pad12 = 0L; @Suppress("unused") private var pad13 = 0L
+        @Suppress("unused") private var pad14 = 0L; @Suppress("unused") private var pad15 = 0L
+
         fun bumpGen() {
             var next = gen + 1
             if (next == 0) {
                 Arrays.fill(floorGen, 0)
                 Arrays.fill(typeGen, 0)
+                Arrays.fill(nodeGen, 0)
                 next = 1
             }
             gen = next
+            nodeCount = 0
+            poolUsed = 0
+        }
+
+        /**
+         * Allocation-free equivalent of `NodeEvaluator.getNode(x, y, z)`: looks up `Node.createHash(x, y, z)` in the
+         * generation-stamped open-addressed table and, on a miss, reuses a reset `Node` from [nodePool].
+         */
+        fun getOrCreateNode(x: Int, y: Int, z: Int): Node {
+            val hash = Node.createHash(x, y, z)
+            val g = gen
+            var mask = nodeMask
+            var gens = nodeGen
+            var keys = nodeKey
+            var vals = nodeVal
+            var slot = mixInt(hash) and mask
+            while (true) {
+                if (gens[slot] != g) {
+                    if (nodeCount >= nodeMaxLoad) {
+                        growNodeTable()
+                        mask = nodeMask
+                        gens = nodeGen
+                        keys = nodeKey
+                        vals = nodeVal
+                        slot = mixInt(hash) and mask
+                        while (gens[slot] == g) {
+                            slot = (slot + 1) and mask
+                        }
+                    }
+                    val created = acquireNode(x, y, z, hash)
+                    gens[slot] = g
+                    keys[slot] = hash
+                    vals[slot] = created
+                    nodeCount++
+                    return created
+                }
+                if (keys[slot] == hash) {
+                    return vals[slot]!!
+                }
+                slot = (slot + 1) and mask
+            }
+        }
+
+        private fun acquireNode(x: Int, y: Int, z: Int, hash: Int): Node {
+            val idx = poolUsed++
+            var pool = nodePool
+            if (idx < pool.size) {
+                val existing = pool[idx]
+                if (existing is NodeAccess) {
+                    existing.`vanadium$reset`(x, y, z, hash)
+                    return existing
+                }
+                val created = Node(x, y, z)
+                pool[idx] = created
+                return created
+            }
+            if (idx < NODE_POOL_MAX) {
+                val newSize = minOf(pool.size shl 1, NODE_POOL_MAX)
+                pool = pool.copyOf(newSize)
+                nodePool = pool
+                val created = Node(x, y, z)
+                pool[idx] = created
+                return created
+            }
+            return Node(x, y, z)
+        }
+
+        private fun growNodeTable() {
+            val oldGens = nodeGen
+            val oldKeys = nodeKey
+            val oldVals = nodeVal
+            val oldCap = oldGens.size
+            val newCap = oldCap shl 1
+            val newMask = newCap - 1
+            val newGens = IntArray(newCap)
+            val newKeys = IntArray(newCap)
+            val newVals = arrayOfNulls<Node>(newCap)
+            val g = gen
+            for (i in 0 until oldCap) {
+                if (oldGens[i] != g) continue
+                val key = oldKeys[i]
+                var slot = mixInt(key) and newMask
+                while (newGens[slot] == g) {
+                    slot = (slot + 1) and newMask
+                }
+                newGens[slot] = g
+                newKeys[slot] = key
+                newVals[slot] = oldVals[i]
+            }
+            nodeGen = newGens
+            nodeKey = newKeys
+            nodeVal = newVals
+            nodeMask = newMask
+            nodeMaxLoad = newCap ushr 1
         }
 
         companion object {
@@ -361,6 +493,14 @@ object PathfindingFastPath {
             const val FLOOR_CACHE_MASK = FLOOR_CACHE_SIZE - 1
             const val TYPE_CACHE_SIZE = 2048
             const val TYPE_CACHE_MASK = TYPE_CACHE_SIZE - 1
+            const val NODE_TABLE_INITIAL = 2048
+            const val NODE_POOL_INITIAL = 1024
+            const val NODE_POOL_MAX = 4096
+
+            private fun mixInt(x: Int): Int {
+                val h = x * -1640531527
+                return h xor (h ushr 16)
+            }
         }
     }
 }

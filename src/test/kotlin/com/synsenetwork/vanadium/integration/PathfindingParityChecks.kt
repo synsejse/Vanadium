@@ -135,6 +135,8 @@ internal object PathfindingParityChecks {
             Query("adult-rail-honey", adultVillager, BlockPos(ox - 8, oy, oz - 4), setOf(BlockPos(ox + 8, oy, oz - 4)), 48f, 0, 768),
         )
 
+        val savedPaths = ArrayList<Pair<Query, Path?>>(cases.size)
+        val expectedPaths = ArrayList<Path?>(cases.size)
         for (q in cases) {
             q.mob.setPos(q.start.x + 0.5, q.start.y.toDouble(), q.start.z + 0.5)
             q.mob.setOnGround(true)
@@ -147,6 +149,12 @@ internal object PathfindingParityChecks {
             val actual = finder.findPath(r, q.mob, q.targets, q.maxPathLength, q.reachRange, 1.0f)
             val expected = VanillaOracle.findPath(r, q.mob, q.targets, q.maxPathLength, q.reachRange, q.budget, true, q.mob !== golem, q.mob !== golem)
             assertPathsEqual(q.name, expected, actual)
+            savedPaths.add(q to actual)
+            expectedPaths.add(expected)
+        }
+        // Recheck every earlier returned Path AFTER later searches reused the same thread's node pool.
+        for (i in savedPaths.indices) {
+            assertPathsEqual("${savedPaths[i].first.name}-post-reuse", expectedPaths[i], savedPaths[i].second)
         }
 
         // Also check debug capture works cleanly on multi-target and single-target.
