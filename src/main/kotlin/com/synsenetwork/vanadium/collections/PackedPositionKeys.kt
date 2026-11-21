@@ -3,10 +3,10 @@ package com.synsenetwork.vanadium.collections
 import it.unimi.dsi.fastutil.HashCommon
 
 /**
- * Key encoding for `ConcurrentHashMap<Long, *>` backings of packed positions. Under `Long.hashCode`,
- * packed chunk keys hash to `x ^ z`, so a 32x32 chunk area collapses onto 32 hashes and the map degrades
- * to tree bins. Stored keys go through murmur3's bijective 64-bit finalizer. (fastutil's `HashCommon.mix`
- * is unsuitable: its xor-folding cancels with `Long.hashCode` and the map's own spreading.)
+ * Bijective 64-bit key mixing for packed chunk and section positions. Raw packed chunk keys hash to
+ * `x ^ z` under `Long.hashCode`, and raw packed section keys keep `x` in bits 42..63 above the low
+ * bits used by `NonBlockingHashMapLong.hash`. Passing keys through Murmur3's bijective finalizer
+ * spreads all coordinate bits uniformly while allowing views to recover the original key.
  */
 internal object PackedPositionKeys {
     private const val C1 = -0xae502812aa7333L // 0xff51afd7ed558ccd

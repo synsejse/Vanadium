@@ -115,7 +115,7 @@ JCTools `NonBlockingHashMapLong` owns primitive-key storage and resizing for loa
 Fastutil field types require small adapters. Where the field is typed by a fastutil interface the adapter extends fastutil's `Abstract*` base:
 
 - `ConcurrentLongByteMap` adapts JCTools to `Long2ByteMap`, preserving default-return values and fastutil views. Its direct visitor uses primitive-key iteration.
-- `ConcurrentLongObjectMap` and `ConcurrentIntObjectMap` adapt JDK `ConcurrentHashMap` and retain atomic compute functions. Packed long keys go through Murmur3's bijective finalizer (`PackedPositionKeys`); views decode original keys. Raw packed positions otherwise collapse into CHM tree bins.
+- `ConcurrentLongObjectMap` and `ConcurrentIntObjectMap` adapt JCTools `NonBlockingHashMapLong`: point reads and writes are lock-free and never box keys, while the compute and merge family serializes per-stripe on misses and updates so mapping functions stay atomic. Packed long keys go through Murmur3's bijective finalizer (`PackedPositionKeys`) so packed chunk and section coordinates do not cluster on the low hash bits; views decode original keys.
 - `ListeningConcurrentLongObjectMap` replaces Lithium's listening POI section map: writes to one chunk column and their add/remove callbacks run under that column's stripe lock, reads take none, and entry views are read-only. It answers null for missing keys, not a default return value.
 
 Where the field is typed by a concrete fastutil class, the adapter must subclass that class, and its inherited storage stays unused or is guarded:
