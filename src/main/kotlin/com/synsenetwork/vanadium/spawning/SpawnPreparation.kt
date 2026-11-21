@@ -168,6 +168,7 @@ object SpawnPreparation {
         for (entry in state.mobCategoryCounts.object2IntEntrySet()) {
             result.mobCategoryCounts.addTo(entry.key, entry.intValue)
         }
+        (result as SpawnStateAccess).`vanadium$syncCategoryCounts`()
         result.spawnPotential.charges.addAll(state.spawnPotential.charges)
         val target = result.localMobCapCalculator
         val source = state.localMobCapCalculator

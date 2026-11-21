@@ -21,6 +21,7 @@ import net.minecraft.world.entity.MobCategory
 import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.NaturalSpawner
 import net.minecraft.world.level.chunk.ChunkAccess
+import net.minecraft.world.level.chunk.ImposterProtoChunk
 import net.minecraft.world.level.chunk.LevelChunk
 import net.minecraft.world.level.chunk.status.ChunkStatus
 import net.minecraft.world.level.gamerules.GameRules
@@ -150,7 +151,8 @@ class ChunkStage(private val cache: ServerChunkCache, private val level: ServerL
     private fun structureStartsAvailable(chunk: ChunkAccess): Boolean {
         val structures = structures ?: return true
         if (!WorkerPool.isWorkerThread() && !WorkerPool.isParallelWaveCaller()) return true
-        val references = chunk.allReferences
+        // Read the backing map directly: getAllReferences() allocates an unmodifiable wrapper on every spawn task.
+        val references = if (chunk is ImposterProtoChunk) chunk.wrapped.structureReferences else chunk.structureReferences
         if (references.isEmpty()) return true
         for (starts in references.values) {
             val iterator = starts.iterator()

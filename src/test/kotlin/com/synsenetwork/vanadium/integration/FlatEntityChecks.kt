@@ -68,7 +68,7 @@ internal object FlatEntityChecks {
         check(bystander.deltaMovement == Vec3(800.0, 0.0, 0.0)) { "bystander got ${bystander.deltaMovement}" }
         for (pusher in pushers) {
             check(pusher.deltaMovement == Vec3(0.0, 2.0, 100.0)) { "pusher got ${pusher.deltaMovement}" }
-            check((pusher as InteractionAccess).`vanadium$impulse`().get() == null) { "an inbox was left full" }
+            check((pusher as InteractionAccess).`vanadium$impulse`().isEmpty()) { "an inbox was left full" }
         }
         val counts = Interactions.takeCounts()
         check(counts[Write.PUSH] == 1600L && counts[Write.VELOCITY] == 0L) { "push counts: $counts" }
@@ -98,7 +98,7 @@ internal object FlatEntityChecks {
             Interactions.runWave({ pool.runWave(tasks) }, pool)
             for (target in targets) {
                 check(target.deltaMovement == Vec3(2.0, 0.0, 0.0)) { "a bystander got ${target.deltaMovement} of $bystanders" }
-                check((target as InteractionAccess).`vanadium$impulse`().get() == null) { "a bystander's inbox was left full" }
+                check((target as InteractionAccess).`vanadium$impulse`().isEmpty()) { "a bystander's inbox was left full" }
             }
             check(removed.deltaMovement == Vec3.ZERO) { "a removed entity was pushed: ${removed.deltaMovement}" }
             val parallel = Interactions.parallelPushDrains - drainsBefore

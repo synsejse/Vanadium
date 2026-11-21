@@ -325,4 +325,33 @@ class TickSchedulerTest {
         assertEquals(1, runs)
         pool.close()
     }
+
+    @Test
+    fun conflictBoundRegionWavesCapParticipantsToClusterConcurrency() {
+        WorkerPool(7).use { pool ->
+            val scheduler = TickScheduler(pool, 2, participantCostNanos = 0.0)
+            // Single 3x3 cluster at isolation = 2: all regions conflict, so the wave stays on the caller thread.
+            val singleThreads = ConcurrentHashMap.newKeySet<Thread>()
+            scheduler.begin(Stage.BLOCK_ENTITY)
+            for (x in 0..2) for (z in 0..2) repeat(4) {
+                scheduler.enqueue(Stage.BLOCK_ENTITY, x, z, { singleThreads.add(Thread.currentThread()) }, null)
+            }
+            scheduler.run(Stage.BLOCK_ENTITY)
+            assertEquals(setOf(Thread.currentThread()), singleThreads, "single-clique wave should not wake workers")
+
+            // Two isolated 3x3 clusters at isolation = 2: at most 2 participants can run concurrently.
+            val twoThreads = ConcurrentHashMap.newKeySet<Thread>()
+            val gate = CountDownLatch(2)
+            scheduler.begin(Stage.SCHEDULED_TICK)
+            for (baseX in intArrayOf(0, 20)) for (dx in 0..2) for (dz in 0..2) repeat(4) {
+                scheduler.enqueue(Stage.SCHEDULED_TICK, baseX + dx, dz, {
+                    twoThreads.add(Thread.currentThread())
+                    gate.countDown()
+                    gate.await(5, TimeUnit.SECONDS)
+                }, null)
+            }
+            scheduler.run(Stage.SCHEDULED_TICK)
+            assertEquals(2, twoThreads.size, "two isolated cliques should involve only 2 threads, not all 8")
+        }
+    }
 }

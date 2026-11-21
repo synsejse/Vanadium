@@ -1,8 +1,8 @@
 package com.synsenetwork.vanadium.tick
 
 import com.synsenetwork.vanadium.config.DeveloperProperties
-import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicIntegerArray
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicLongArray
@@ -448,7 +448,7 @@ class WorkerPool internal constructor(
                     continue
                 }
                 waiterParked = true
-                if (counters.get(REMAINING) != 0) LockSupport.park(this)
+                if (counters.get(REMAINING) != 0 && (serving == null || !serving.hasRequests)) LockSupport.park(this)
                 waiterParked = false
                 if (Thread.interrupted()) interrupted = true
             }
@@ -461,7 +461,7 @@ class WorkerPool internal constructor(
         fun <T> callOnCaller(work: Supplier<T>, stalled: Runnable?): T {
             val state = caller ?: return work.get()
             val request = CallerRequest(work, Thread.currentThread())
-            state.requests.add(request)
+            state.enqueueRequest(request)
             LockSupport.unpark(waiter)
             val since = System.nanoTime()
             var reported = stalled == null
@@ -724,6 +724,7 @@ class WorkerPool internal constructor(
 
     /** A helper's [callOnWaveCaller] work; [result] and [failure] are published by [done]. */
     internal class CallerRequest(val work: Supplier<*>, val requester: Thread) {
+        var next: CallerRequest? = null
         var result: Any? = null
         var failure: Throwable? = null
 
@@ -737,31 +738,52 @@ class WorkerPool internal constructor(
         var parallelWaves = 0
         val afterWave = ArrayList<Runnable>()
 
-        /** Helpers' [callOnWaveCaller] work, from every wave this thread is running (nested ones included). */
-        val requests = ConcurrentLinkedQueue<CallerRequest>()
+        /** Helpers' [callOnWaveCaller] work as a lock-free intrusive stack; single atomic check on wave loops. */
+        private val requests = AtomicReference<CallerRequest?>()
 
-        val hasRequests: Boolean get() = !requests.isEmpty()
+        /** Single volatile read on wave spin loops: true iff at least one request is already linked and ready to serve. */
+        val hasRequests: Boolean get() = requests.get() != null
+
+        fun enqueueRequest(request: CallerRequest) {
+            while (true) {
+                val head = requests.get()
+                request.next = head
+                if (requests.compareAndSet(head, request)) return
+            }
+        }
 
         /**
-         * Runs every queued request on this thread, outside any task of its own, and releases its requester. The
-         * work is never deferrable: it is the rerun the requester could not do itself.
+         * Runs every queued request on this thread in arrival order, outside any task of its own, and releases its
+         * requester. The work is never deferrable: it is the rerun the requester could not do itself.
          */
         fun serveRequests() {
             while (true) {
-                val request = requests.poll() ?: return
-                val outerDeferrable = deferrable
-                val outerDeferred = deferred
-                deferrable = false
-                try {
-                    request.result = request.work.get()
-                } catch (t: Throwable) {
-                    request.failure = t
-                } finally {
-                    deferrable = outerDeferrable
-                    deferred = outerDeferred
+                var stack: CallerRequest? = requests.getAndSet(null) ?: return
+                var fifo: CallerRequest? = null
+                while (stack != null) {
+                    val next = stack.next
+                    stack.next = fifo
+                    fifo = stack
+                    stack = next
                 }
-                request.done = true
-                LockSupport.unpark(request.requester)
+                while (fifo != null) {
+                    val request = fifo
+                    fifo = request.next
+                    request.next = null
+                    val outerDeferrable = deferrable
+                    val outerDeferred = deferred
+                    deferrable = false
+                    try {
+                        request.result = request.work.get()
+                    } catch (t: Throwable) {
+                        request.failure = t
+                    } finally {
+                        deferrable = outerDeferrable
+                        deferred = outerDeferred
+                    }
+                    request.done = true
+                    LockSupport.unpark(request.requester)
+                }
             }
         }
 
@@ -786,10 +808,50 @@ class WorkerPool internal constructor(
     }
 }
 
-/** A pool worker. [context] gives tick code per-thread state without a thread-local lookup. */
+/** A pool worker. Fields here give tick code per-thread state without a thread-local lookup. */
 abstract class TickThread(name: String) : Thread(name) {
     @JvmField
     var context: Any? = null
+
+    /** Cached [com.synsenetwork.vanadium.concurrent.PerThreadRandomSource] instance and this thread's stream for it. */
+    @JvmField
+    var randomOwner: Any? = null
+
+    @JvmField
+    var random: Any? = null
+
+    /** Per-thread `Level.randValue` LCG state ([com.synsenetwork.vanadium.concurrent.PerThreadRandValue]). */
+    @JvmField
+    var randValue: Int = nextRandSeed()
+
+    /** Per-thread reusable buffers for [com.synsenetwork.vanadium.concurrent.StableDistance.sortByDistance]. */
+    @JvmField
+    var sortScratch: Any? = null
+
+    /** Cached primary `CollectingNeighborUpdater` and this thread's delegate updater for it. */
+    @JvmField
+    var neighborUpdaterOwner: Any? = null
+
+    @JvmField
+    var neighborUpdater: Any? = null
+
+    /** Per-thread 1-entry spawn potential charge cache (`NaturalSpawnerSpawnStateMixin`). */
+    @JvmField
+    var spawnChargeCache: Any? = null
+
+    /** Per-thread multi-cell candidate buffer for [com.synsenetwork.vanadium.entity.CrowdGrid]. */
+    @JvmField
+    var crowdScratch: Any? = null
+    private companion object {
+        private val SEED = AtomicLong(System.nanoTime() xor -0x61c8864680b583ebL)
+
+        private fun nextRandSeed(): Int {
+            var z = SEED.addAndGet(-0x61c8864680b583ebL)
+            z = (z xor (z ushr 30)) * -0x40a7b892e31b1a47L
+            z = (z xor (z ushr 27)) * -0x6b2fb644ecceee15L
+            return (z xor (z ushr 31)).toInt()
+        }
+    }
 }
 
 /** Unwinds a worker task that needs the server thread; see [WorkerPool.runDeferrable]. No stack trace is captured. */
