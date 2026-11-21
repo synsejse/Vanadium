@@ -806,6 +806,13 @@ abstract class TickThread(name: String) : Thread(name) {
     @JvmField
     var sortScratch: Any? = null
 
+    /** Cached primary `CollectingNeighborUpdater` and this thread's delegate updater for it. */
+    @JvmField
+    var neighborUpdaterOwner: Any? = null
+
+    @JvmField
+    var neighborUpdater: Any? = null
+
     private companion object {
         private val SEED = AtomicLong(System.nanoTime() xor -0x61c8864680b583ebL)
 
