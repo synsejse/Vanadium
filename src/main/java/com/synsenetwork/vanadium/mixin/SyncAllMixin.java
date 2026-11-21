@@ -6,7 +6,6 @@ import net.minecraft.advancements.triggers.SimpleCriterionTrigger;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
 import net.minecraft.world.entity.ai.village.poi.PoiSection;
 import net.minecraft.world.entity.monster.warden.AngerManagement;
-import net.minecraft.world.level.NaturalSpawner;
 import net.minecraft.world.level.TicketStorage;
 import net.minecraft.world.level.gameevent.EuclideanGameEventListenerRegistry;
 import net.minecraft.world.level.levelgen.LegacyRandomSource;
@@ -26,7 +25,7 @@ import org.spongepowered.asm.mixin.Mixin;
  */
 @Mixin(value = {LevelChunkTicks.class, DynamicGraphMinFixedPoint.class, PathNavigation.class,
         EuclideanGameEventListenerRegistry.class, LegacyRandomSource.class, AngerManagement.class, SimpleCriterionTrigger.class, LevelTicks.class,
-        PoiSection.class, NaturalSpawner.SpawnState.class,
+        PoiSection.class,
         MapItemSavedData.class, TicketStorage.class, LithiumInterner.class, WorldBorderPositionListenerMulti.class})
 public class SyncAllMixin {
 }

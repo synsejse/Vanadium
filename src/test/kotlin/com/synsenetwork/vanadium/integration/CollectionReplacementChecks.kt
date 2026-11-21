@@ -32,6 +32,7 @@ internal object CollectionReplacementChecks {
         val chunkMap = source.chunkMap
         val distanceManager = field(chunkMap, ChunkMap::class.java, "distanceManager")
         val simulationTracker = field(distanceManager, DistanceManager::class.java, "simulationChunkTracker")
+        val naturalSpawnTracker = field(distanceManager, DistanceManager::class.java, "naturalSpawnChunkCounter")
         val poiTracker = field(level.poiManager, PoiManager::class.java, "distanceTracker")
         val failures = listOfNotNull(
             expect(source, ServerChunkCache::class.java, "chunkHoldersToBroadcast", "java.util.concurrent.ConcurrentHashMap\$KeySetView", "java.util.Collections\$SetFromMap"),
@@ -41,6 +42,8 @@ internal object CollectionReplacementChecks {
             expect(distanceManager, DistanceManager::class.java, "ticketsToRelease", "com.synsenetwork.vanadium.collections.ConcurrentLongSet"),
             expect(simulationTracker, null, "chunks", "com.synsenetwork.vanadium.collections.ConcurrentLongByteMap"),
             expectDefault(simulationTracker, "chunks", SIMULATION_DEFAULT_LEVEL),
+            expect(naturalSpawnTracker, null, "chunks", "com.synsenetwork.vanadium.collections.ConcurrentLongByteMap"),
+            expectDefault(naturalSpawnTracker, "chunks", NATURAL_SPAWN_DEFAULT_LEVEL),
             expect(poiTracker, null, "levels", "com.synsenetwork.vanadium.collections.ConcurrentLongByteMap"),
             expectDefault(poiTracker, "levels", POI_DEFAULT_LEVEL),
             expect(field(level, ServerLevel::class.java, "entityTickList"), EntityTickList::class.java, "active",
@@ -123,6 +126,9 @@ internal object CollectionReplacementChecks {
 
     /** `SimulationChunkTracker`'s default level: vanilla's 33, which C2ME's no-tick view distance raises by one. */
     private const val SIMULATION_DEFAULT_LEVEL: Byte = 34
+
+    /** `DistanceManager.naturalSpawnChunkCounter`'s default level (`maxDistance + 2` for `maxDistance = 8`). */
+    private const val NATURAL_SPAWN_DEFAULT_LEVEL: Byte = 10
 
     /** `PoiManager.DistanceTracker`'s default level (vanilla's). */
     private const val POI_DEFAULT_LEVEL: Byte = 7

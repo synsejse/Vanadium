@@ -835,6 +835,10 @@ abstract class TickThread(name: String) : Thread(name) {
     @JvmField
     var neighborUpdater: Any? = null
 
+    /** Per-thread 1-entry spawn potential charge cache (`NaturalSpawnerSpawnStateMixin`). */
+    @JvmField
+    var spawnChargeCache: Any? = null
+
     private companion object {
         private val SEED = AtomicLong(System.nanoTime() xor -0x61c8864680b583ebL)
 

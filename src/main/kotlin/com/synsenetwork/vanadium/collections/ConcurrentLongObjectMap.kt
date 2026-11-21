@@ -15,8 +15,8 @@ import java.util.function.LongFunction
  * workers read and write. Keys are stored through [PackedPositionKeys]; views expose the original keys.
  * Single-key operations, including the compute family, are atomic.
  */
-class ConcurrentLongObjectMap<V> : AbstractLong2ObjectMap<V>() {
-    private val backing = ConcurrentHashMap<Long, V>()
+class ConcurrentLongObjectMap<V> @JvmOverloads constructor(initialCapacity: Int = 16) : AbstractLong2ObjectMap<V>() {
+    private val backing = ConcurrentHashMap<Long, V>(initialCapacity)
 
     override val size: Int get() = backing.size
 
