@@ -2,8 +2,14 @@ package com.synsenetwork.vanadium.navigation
 
 import com.synsenetwork.vanadium.tracking.AreaMap
 import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet
+import java.lang.invoke.MethodHandles
+import java.lang.invoke.VarHandle
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.LongAdder
+import java.util.concurrent.locks.ReentrantReadWriteLock
+import kotlin.concurrent.read
+import kotlin.concurrent.write
 import kotlin.math.floor
 import net.minecraft.core.BlockPos
 import net.minecraft.server.level.ServerLevel
@@ -18,90 +24,125 @@ import net.minecraft.world.level.pathfinder.Path
  * Dirty navigations remain candidates until a safe tick-boundary [refresh].
  *
  * Invalidation is the hot path (every moving mob, every tick, on any worker) and takes no lock: a mob's
- * first invalidation after a refresh flips its own dirty flag and pushes it onto a thread-striped
- * lock-free queue; later invalidations only read that flag. The index monitor guards membership, area
- * painting and candidate snapshots, which are comparatively rare.
+ * first invalidation after a refresh flips its own dirty flag, pushes it onto a thread-striped lock-free
+ * queue, and sets that stripe's bit in [dirtyMask]; later invalidations only read that flag.
+ *
+ * Candidate queries (`sendBlockUpdated` from parallel piston/redstone/block-entity waves) take only the
+ * shared read lock of [lock] and scan only stripes marked in [dirtyMask], so concurrent block updates never
+ * serialize on each other. Membership and area updates take the write lock.
  */
 class NavigationIndex : AbstractMutableSet<Mob>() {
+    private val lock = ReentrantReadWriteLock()
     private val members = ReferenceOpenHashSet<Mob>()
     private val unbounded = ReferenceOpenHashSet<Mob>()
     private val areas = AreaMap<Mob>()
 
     /** Dirty mobs, striped by invalidating thread. May hold departed members; readers filter them. */
     private val dirty = Array(STRIPES) { ConcurrentLinkedQueue<Any>() }
+    @Volatile
+    internal var dirtyMask = 0L
     private val dirtyCount = LongAdder()
 
     /** Any invalidation since the last refresh; written only when it changes. */
     @Volatile
     private var touched = false
-    private var queriesSinceRefresh = 0
+    private val queriesSinceRefresh = AtomicInteger()
 
     private fun markDirty(mob: Mob) {
         if (!touched) touched = true
         val flag = mob.state.`vanadium$navigationDirty`()
         if (!flag.get() && flag.compareAndSet(false, true)) {
             dirtyCount.increment()
-            dirty[Thread.currentThread().threadId().toInt() and (STRIPES - 1)].add(mob)
+            val stripeIndex = Thread.currentThread().threadId().toInt() and (STRIPES - 1)
+            dirty[stripeIndex].add(mob)
+            val bit = 1L shl stripeIndex
+            if ((dirtyMask and bit) == 0L) DIRTY_MASK.getAndBitwiseOr(this, bit)
         }
     }
 
     override fun add(element: Mob): Boolean {
-        synchronized(this) {
-            if (!members.add(element)) return false
+        val added = lock.write {
+            if (!members.add(element)) return@write false
             element.state.`vanadium$setNavigationMember`(true)
+            true
         }
+        if (!added) return false
         markDirty(element)
         return true
     }
 
-    @Synchronized
-    override fun remove(element: Mob): Boolean {
+    override fun remove(element: Mob): Boolean = lock.write {
         if (!members.remove(element)) return false
         element.state.`vanadium$setNavigationMember`(false)
         unbounded.remove(element)
         areas.remove(element)
-        return true
+        true
     }
 
     override val size: Int
-        @Synchronized get() = members.size
+        get() = lock.read { members.size }
 
-    @Synchronized
-    override fun contains(element: Mob): Boolean = element in members
+    override fun contains(element: Mob): Boolean = lock.read { element in members }
 
     /** A snapshot; removal through the iterator removes from the index. */
-    @Synchronized
-    override fun iterator(): MutableIterator<Mob> = object : MutableIterator<Mob> {
-        private val snapshot = members.toList().iterator()
-        private var current: Mob? = null
-        override fun hasNext(): Boolean = snapshot.hasNext()
-        override fun next(): Mob {
-            val mob = snapshot.next()
-            current = mob
-            return mob
-        }
-        override fun remove() {
-            this@NavigationIndex.remove(current ?: throw IllegalStateException())
-            current = null
+    override fun iterator(): MutableIterator<Mob> {
+        val snapshot = lock.read { members.toList() }.iterator()
+        return object : MutableIterator<Mob> {
+            private var current: Mob? = null
+            override fun hasNext(): Boolean = snapshot.hasNext()
+            override fun next(): Mob {
+                val mob = snapshot.next()
+                current = mob
+                return mob
+            }
+            override fun remove() {
+                this@NavigationIndex.remove(current ?: throw IllegalStateException())
+                current = null
+            }
         }
     }
 
     fun candidates(pos: BlockPos): List<Mob> {
-        val dirtyMobs = dirtyCount.sum()
-        synchronized(this) {
-            if (queriesSinceRefresh < MIN_QUERIES_FOR_REFRESH) queriesSinceRefresh++
+        if (queriesSinceRefresh.get() < MIN_QUERIES_FOR_REFRESH) queriesSinceRefresh.incrementAndGet()
+        val read = lock.readLock()
+        read.lock()
+        try {
             val nearby = areas.objectsAt(ChunkPos.pack(pos))
-            if (dirtyMobs <= 0 && unbounded.isEmpty()) return ArrayList(nearby)
-            // A full snapshot is cheaper than merging candidate sets that already cover the population.
-            if (nearby.size + dirtyMobs + unbounded.size >= members.size) return ArrayList(members)
-            val candidates = ReferenceOpenHashSet(nearby)
-            candidates.addAll(unbounded)
-            for (stripe in dirty) {
-                for (entry in stripe) {
-                    if (entry is Mob && entry.state.`vanadium$navigationMember`()) candidates.add(entry)
-                }
+            val mask = dirtyMask
+            val hasUnbounded = unbounded.isNotEmpty()
+            if (mask == 0L && !hasUnbounded) {
+                return if (nearby.isEmpty()) emptyList() else ArrayList(nearby)
             }
+            val dirtyMobs = if (mask != 0L) dirtyCount.sum() else 0L
+            // A full snapshot is cheaper than merging candidate sets that already cover the population.
+            if (nearby.size + dirtyMobs + unbounded.size >= members.size) {
+                return if (members.isEmpty()) emptyList() else ArrayList(members)
+            }
+            if (nearby.isEmpty() && !hasUnbounded) {
+                // Each dirty mob is queued at most once per refresh cycle (guarded by its dirty flag),
+                // so no deduplication set is needed when nearby and unbounded are both empty.
+                val result = ArrayList<Mob>(dirtyMobs.toInt().coerceIn(4, members.size.coerceAtLeast(4)))
+                collectDirty(mask, result)
+                return result
+            }
+            val candidates = ReferenceOpenHashSet<Mob>(nearby.size + unbounded.size + dirtyMobs.toInt().coerceAtLeast(4))
+            candidates.addAll(nearby)
+            if (hasUnbounded) candidates.addAll(unbounded)
+            if (mask != 0L) collectDirty(mask, candidates)
             return ArrayList(candidates)
+        } finally {
+            read.unlock()
+        }
+    }
+
+    private fun collectDirty(mask: Long, out: MutableCollection<Mob>) {
+        var remaining = mask
+        while (remaining != 0L) {
+            val index = java.lang.Long.numberOfTrailingZeros(remaining)
+            remaining = remaining and (remaining - 1L)
+            for (entry in dirty[index]) {
+                if (entry is Mob && entry.state.`vanadium$navigationMember`()) out.add(entry)
+            }
         }
     }
 
@@ -110,15 +151,12 @@ class NavigationIndex : AbstractMutableSet<Mob>() {
      * Only entries queued before the refresh starts are processed; later invalidations stay dirty.
      */
     fun refresh() {
-        val recentQueries = synchronized(this) {
-            val count = queriesSinceRefresh
-            queriesSinceRefresh = 0
-            count
-        }
+        val recentQueries = queriesSinceRefresh.getAndSet(0)
         val changedAgain = touched
         if (changedAgain) touched = false
+        val mask = dirtyMask
         val dirtyMobs = dirtyCount.sum()
-        if (dirtyMobs <= 0) return
+        if (dirtyMobs <= 0 && mask == 0L) return
         // Rebuilding most paths costs more than one full scan. Keep their conservative fallback until
         // edits become frequent or the pending paths stop changing.
         if (changedAgain && recentQueries < MIN_QUERIES_FOR_REFRESH && dirtyMobs > size / 2) return
@@ -126,19 +164,38 @@ class NavigationIndex : AbstractMutableSet<Mob>() {
         // Every marker goes in before any stripe drains, so only entries queued before the refresh are
         // processed. An entry added to a skipped empty stripe after this check waits for the next refresh.
         val marker = Any()
-        val marked = ArrayList<ConcurrentLinkedQueue<Any>>(STRIPES)
-        for (stripe in dirty) {
-            if (stripe.isEmpty()) continue
+        var markedMask = 0L
+        var remaining = mask
+        while (remaining != 0L) {
+            val index = java.lang.Long.numberOfTrailingZeros(remaining)
+            remaining = remaining and (remaining - 1L)
+            val stripe = dirty[index]
+            if (stripe.isEmpty()) {
+                clearStripeBitIfEmpty(index, stripe)
+                continue
+            }
             stripe.add(marker)
-            marked.add(stripe)
+            markedMask = markedMask or (1L shl index)
         }
-        for (stripe in marked) {
+        var toDrain = markedMask
+        while (toDrain != 0L) {
+            val index = java.lang.Long.numberOfTrailingZeros(toDrain)
+            toDrain = toDrain and (toDrain - 1L)
+            val stripe = dirty[index]
             while (true) {
                 val entry = stripe.poll() ?: break
                 if (entry === marker) break
                 if (entry is Mob) rebuild(entry) // Anything else is a stale marker from an interrupted refresh.
             }
+            if (stripe.isEmpty()) clearStripeBitIfEmpty(index, stripe)
         }
+    }
+
+    /** Dekker-paired with [markDirty]: clears bit [index], then restores it if a concurrent add landed first. */
+    private fun clearStripeBitIfEmpty(index: Int, stripe: ConcurrentLinkedQueue<Any>) {
+        val bit = 1L shl index
+        DIRTY_MASK.getAndBitwiseAnd(this, bit.inv())
+        if (!stripe.isEmpty()) DIRTY_MASK.getAndBitwiseOr(this, bit)
     }
 
     private fun rebuild(mob: Mob) {
@@ -151,7 +208,7 @@ class NavigationIndex : AbstractMutableSet<Mob>() {
         val bounds = synchronized(navigation) {
             if (VANILLA_PREDICATE.get(navigation.javaClass)) bounds(mob, navigation.path) else Unbounded
         }
-        synchronized(this) {
+        lock.write {
             if (mob !in members) return
             unbounded.remove(mob)
             when (bounds) {
@@ -182,6 +239,8 @@ class NavigationIndex : AbstractMutableSet<Mob>() {
         private const val MIN_QUERIES_FOR_REFRESH = 2
         private const val MAX_INDEXED_PATH_NODES = 256
         private const val STRIPES = 64
+        private val DIRTY_MASK: VarHandle = MethodHandles.lookup()
+            .findVarHandle(NavigationIndex::class.java, "dirtyMask", java.lang.Long.TYPE)
 
         /** Custom `shouldRecomputePath` overrides cannot be bounded and stay in the full fallback. */
         private val VANILLA_PREDICATE = object : ClassValue<Boolean>() {
