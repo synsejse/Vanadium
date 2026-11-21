@@ -62,8 +62,11 @@ internal object SpawnChecks {
         check(view.isEmpty(), "entity view retained a removed entity")
 
         val worldReference = NaturalSpawner.createState(289, level, chunks, caps())
-        val worldCounted = SpawnPreparation.count(289, level, chunks, caps(), map)
+        val sharedCaps = caps()
+        val worldCounted = SpawnPreparation.count(289, level, chunks, sharedCaps, map)
         check(worldReference.mobCategoryCounts == worldCounted.mobCategoryCounts, "world/C2ME filter changed counts")
+        check(worldCounted.localMobCapCalculator.playersNearChunk === sharedCaps.playersNearChunk,
+            "parallel spawn count did not share playersNearChunk cache")
 
         val reference = SpawnPreparation.createState(289, level, entities, chunks, caps())
         val parallel = SpawnPreparation.count(289, level, entities, chunks, caps(), ::caps)
