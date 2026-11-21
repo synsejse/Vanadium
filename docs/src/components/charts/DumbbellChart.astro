@@ -1,0 +1,95 @@
+---
+import { datasets } from '../../data/performance';
+
+interface Props {
+  /** A key of `datasets` in src/data/performance.ts. */
+  data: keyof typeof datasets;
+  title: string;
+  before: string;
+  after: string;
+  /** Log scale for rows that differ by orders of magnitude. */
+  log?: boolean;
+}
+const { data, title, before, after, log = false } = Astro.props;
+const config = JSON.stringify({ rows: datasets[data], before, after, log });
+---
+
+<figure class="not-prose my-6 bg-surface p-5">
+  <figcaption class="mb-3 flex flex-wrap items-baseline justify-between gap-3">
+    <span class="font-ui text-[15px] font-bold text-ink">{title}</span>
+    <span class="flex gap-4 text-[12.5px] text-ink-2">
+      <span class="inline-flex items-center gap-1.5">
+        <span class="size-2.5 bg-muted"></span>
+        {before}
+      </span>
+      <span class="inline-flex items-center gap-1.5">
+        <span class="size-2.5 bg-vanadium"></span>
+        {after}
+      </span>
+    </span>
+  </figcaption>
+  <div class="dumbbell min-h-40" data-config={config}></div>
+</figure>
+
+<script>
+  import { mount, Plot, baseStyle } from '../../scripts/charts';
+
+  type Row = { label: string; before: number; after: number; change: string };
+  for (const el of document.querySelectorAll<HTMLElement>('.dumbbell')) {
+    const { rows, before, after, log } = JSON.parse(el.dataset.config!) as {
+      rows: Row[];
+      before: string;
+      after: string;
+      log: boolean;
+    };
+    const narrow = () => el.clientWidth < 560;
+    mount(el, (width, p) =>
+      Plot.plot({
+        width,
+        height: rows.length * 38 + 48,
+        marginLeft: narrow() ? 8 : 230,
+        marginRight: 64,
+        style: baseStyle(p),
+        x: { type: log ? 'log' : 'linear', grid: true, label: log ? 'TPS (log scale)' : 'TPS', nice: true, zero: !log },
+        y: { label: null, domain: rows.map((r) => r.label), axis: narrow() ? null : 'left', tickSize: 0 },
+        marks: [
+          Plot.gridX({ stroke: p.rule, strokeOpacity: 1 }),
+          Plot.link(rows, { x1: 'before', x2: 'after', y: 'label', stroke: p.ruleStrong, strokeWidth: 3 }),
+          Plot.dot(rows, { x: 'before', y: 'label', r: 5, fill: p.muted }),
+          Plot.dot(rows, { x: 'after', y: 'label', r: 5, fill: p.vanadium }),
+          Plot.text(rows, {
+            x: (r: Row) => Math.max(r.before, r.after),
+            y: 'label',
+            text: 'change',
+            dx: 10,
+            textAnchor: 'start',
+            fill: p.ink,
+            fontWeight: 700,
+          }),
+          narrow()
+            ? Plot.text(rows, {
+                x: (r: Row) => Math.min(r.before, r.after),
+                y: 'label',
+                text: 'label',
+                dy: -13,
+                textAnchor: 'start',
+                fill: p.ink2,
+                fontSize: 11,
+              })
+            : null,
+          Plot.tip(
+            rows,
+            Plot.pointerY({
+              x: 'after',
+              y: 'label',
+              title: (r: Row) =>
+                `${r.label}\n${before}: ${r.before.toLocaleString()} TPS\n${after}: ${r.after.toLocaleString()} TPS\n${r.change}`,
+              fill: p.surface,
+              stroke: p.ruleStrong,
+            }),
+          ),
+        ],
+      }),
+    );
+  }
+</script>

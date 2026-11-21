@@ -1,0 +1,444 @@
+---
+title: 'Vanadium under the hood'
+nav: 'Overview'
+order: 0
+summary: 'Vanilla Minecraft executes every tick stage on one CPU core, leaving the rest of the server idle whenever ticks pass the 50 ms budget. Vanadium splits each stage into parallel waves, removes shared tick-path locks, and eliminates hot allocations while keeping vanilla semantics intact.'
+meta: ['Minecraft 26.3 / Java 25', 'Requires C2ME and Lithium']
+tocHeading: 'Subsystems'
+---
+
+<span id="waves"></span>
+
+## Wave scheduling and the caller-participating pool
+
+<Lead>
+  Rather than splitting a world into independent servers, Vanadium keeps one world and executes each of the six vanilla
+  tick stages as a parallel wave. The calling server thread claims tasks right alongside the workers so no core sits
+  idle waiting on a barrier. Full invariants live in [Architecture](architecture#planning-and-execution).
+</Lead>
+
+<Compare>
+
+<Side tone="vanilla" label="Vanilla">
+<Term>Single-lane loop</Term>
+
+One thread walks all six stages in order. C2ME parallelizes chunk I/O and generation, and Lithium speeds up individual checks, but simulation ticks still execute one task at a time.
+
+</Side>
+
+<Side tone="vanadium" label="Vanadium">
+<Term>Sized waves with tree fan-out wakeups</Term>
+
+- **Work-based sizing:** Estimates participant count as `sqrt(W / c)` (`c = 2 µs`) and caps flat waves by the expected longest task so extra threads do not spin through the tail.
+- **Inline fast path:** Tiny waves run directly on the server thread with zero wake-up cost.
+- **Fan-out waking:** The caller unparks at most two workers; each arriving worker unparks the next indices from a shared wake cursor.
+
+</Side>
+
+</Compare>
+
+<CodeCompare title="Wave dispatch and participant sizing" files={[{"name": "TickScheduler.kt", "href": "https://github.com/synsejse/Vanadium/blob/dev/src/main/kotlin/com/synsenetwork/vanadium/tick/TickScheduler.kt"}, {"name": "WorkerPool.kt", "href": "https://github.com/synsejse/Vanadium/blob/dev/src/main/kotlin/com/synsenetwork/vanadium/tick/WorkerPool.kt"}]}>
+
+```java title="Vanilla"
+// ServerLevel.tick() runs every stage serially
+tickScheduledBlocksAndFluids();
+tickSpawningAndChunks();
+for (Entity e : entities) { e.tick(); }
+for (TickingBlockEntity be : blockEntities) { be.tick(); }
+tickEntityTracking();
+```
+
+```kotlin title="Vanadium"
+// Publish one immutable WorkBatch per stage
+val participants = sizeParticipants(estimatedNanos, longestTaskNanos)
+if (participants <= 1) {
+    runInline(tasks)
+} else {
+    workerPool.runWave(tasks, participants)
+}
+```
+
+</CodeCompare>
+
+<span id="entities"></span>
+
+## Flat entity wave and ownership locking
+
+<Lead>
+  Geographic region locking fails as soon as hundreds of mobs gather in one trading hall, farm, or combat arena:
+  everything falls into one conflict clique and reverts to one thread. Vanadium ticks all entities in a single flat wave
+  and replaces spatial distance with per-entity ownership ([protocol details](architecture#flat-entity-wave)).
+</Lead>
+
+<Compare>
+
+<Side tone="vanilla" label="Vanilla">
+<Term>Implicit single-thread safety</Term>
+
+Every entity freely reads and mutates neighboring entities (push velocity, combat damage, item stack merging, breeding). Pushing allocates a fresh `Vec3` on every contact.
+
+</Side>
+
+<Side tone="vanadium" label="Vanadium">
+<Term>Own yourself; scope only foreign writes</Term>
+
+- **Self-ownership (`OwnerLocks`):** A tick holds its own vehicle tree's lock from start to finish, so normal self-mutations take no extra locks.
+- **Push inbox (`ImpulseSlot`):** Pushes add three doubles into a lock-free spin-guarded slot with zero `Vec3` allocation and drain at the target's tick or post-wave.
+- **Foreign scopes (`Interactions`):** Writing to another entity releases the caller's own lock first, then acquires the target's lock, breaking A/B deadlock cycles.
+- **Pairwise scopes (`enterPair`):** Item merges, XP merges, breeding, and gossip lock both entities in ID order and recheck state inside.
+- **Cache locality (`WaveHomes`):** Spread-out waves pin each entity slice to a home worker, cutting cross-socket cache transfers roughly 5×.
+
+</Side>
+
+</Compare>
+
+<EntityLab />
+
+<CodeCompare title="Zero-allocation push inbox and ID-ordered pairwise merge" files={[{"name": "ImpulseSlot.kt", "href": "https://github.com/synsejse/Vanadium/blob/dev/src/main/kotlin/com/synsenetwork/vanadium/concurrent/ImpulseSlot.kt"}, {"name": "Interactions.kt", "href": "https://github.com/synsejse/Vanadium/blob/dev/src/main/kotlin/com/synsenetwork/vanadium/concurrent/Interactions.kt"}, {"name": "WaveHomes.kt", "href": "https://github.com/synsejse/Vanadium/blob/dev/src/main/kotlin/com/synsenetwork/vanadium/tick/WaveHomes.kt"}]}>
+
+```kotlin title="Vanilla"
+// Allocates a new Vec3 and mutates target directly
+void push(Entity other, double dx, double dz) {
+    other.setDeltaMovement(other.getDeltaMovement().add(dx, 0, dz));
+}
+
+void tryMerge(ItemEntity a, ItemEntity b) {
+    if (a.canMerge(b)) a.mergeWith(b);
+}
+```
+
+```kotlin title="Vanadium"
+// Accumulates (dx, dy, dz) in place: 0 allocations, never waits
+other.impulseSlot.add(dx, 0.0, dz)
+
+// Locks min(id) then max(id), rechecks liveness inside
+val token = Interactions.enterPair(a, b, Write.MERGE)
+try {
+    if (a.isAlive && b.isAlive && a.canMerge(b)) a.mergeWith(b)
+} finally { Interactions.exit(token) }
+```
+
+</CodeCompare>
+
+<span id="regions"></span>
+
+## Adaptive regions and dual wave policies
+
+<Lead>
+  Spawning, random chunk ticks, block entities, and scheduled block ticks touch neighboring chunks. `RegionGrid`
+  partitions active chunks into bounding boxes using prefix-sum quadtree splits and guarantees that no two active
+  regions within `isolation` chunks (Chebyshev distance) overlap.
+</Lead>
+
+<Compare>
+
+<Side tone="vanilla" label="Vanilla">
+<Term>Whole world on one thread</Term>
+
+Every hopper, piston, crop tick, and spawn attempt executes sequentially, even when bases sit thousands of blocks apart.
+
+</Side>
+
+<Side tone="vanadium" label="Vanadium">
+<Term>Quadtree hotspots plus two specialized schedulers</Term>
+
+- **Plan reuse (`RegionGrid`):** Splits dense areas toward ~25 µs per region, merges quiet tiles, and reuses stable plans for up to 20 waves.
+- **Heavy work (`ClaimWave`, ≥100 µs avg):** Dynamic claiming with immediate `NO_PENDING` exit, 30 µs spin before parking, and selective unparking of only the freed neighbor count (**−94.2%** spin samples).
+- **Cheap work (`DataflowWave`):** Graph-colored atomic dependency counters unlock regions as lower-colored conflicts finish with no global color barrier; kept pure-spin to avoid futex wake latency on 20–50 µs regions.
+
+</Side>
+
+</Compare>
+
+<RegionLab />
+
+<CodeCompare title="ClaimWave selective neighbor unparking" files={[{"name": "RegionGrid.kt", "href": "https://github.com/synsejse/Vanadium/blob/dev/src/main/kotlin/com/synsenetwork/vanadium/tick/RegionGrid.kt"}, {"name": "RegionWaves.kt", "href": "https://github.com/synsejse/Vanadium/blob/dev/src/main/kotlin/com/synsenetwork/vanadium/tick/RegionWaves.kt"}]}>
+
+```kotlin title="Vanilla"
+// Serial loop across all active block entities
+for (TickingBlockEntity ticker : blockEntityTickers) {
+    ticker.tick();
+}
+```
+
+```kotlin title="Vanadium"
+while (true) {
+    val r = tryClaim()
+    if (r == NO_PENDING) break
+    if (r >= 0) {
+        runRegion(r)
+        val freed = finishAndCountFreedNeighbors(r)
+        unparkWaiters(freed)
+    } else {
+        spin30MicrosThenPark() // caller serves chunk loads too
+    }
+}
+```
+
+</CodeCompare>
+
+<span id="crowdgrid"></span>
+
+## CrowdGrid spatial prefilter for dense sections
+
+<Lead>
+  Entity push checks query every entity whose bounding box intersects the mob's box. In a dense chunk section with 100
+  mobs, scanning the section linearly performs 10,000 bounding-box reads per tick across moving entities on other cores.
+</Lead>
+
+<Compare>
+
+<Side tone="vanilla" label="Vanilla">
+<Term>Linear scan per 16×16×16 section</Term>
+
+Every box query iterates the entire section storage and allocates a per-query section lambda, touching distant entities on the opposite side of the chunk.
+
+</Side>
+
+<Side tone="vanadium" label="Vanadium">
+<Term>Lock-free 2×4×2 cells above 24 entities</Term>
+
+- **Wait-free 1-cell path:** Queries inside a single 2×4×2 cell do one volatile array load: zero locks, zero sequence retries, zero scratch memory.
+- **Zero-scratch 2-cell merge:** Overlapping two cells merges two pre-sorted immutable arrays inline.
+- **Lock-free moves:** Moving entities CAS into new cells before updating their box, opening the sequence counter only during old-cell deletion.
+- **Vanilla-exact output:** Candidates are re-tested on live boxes and emitted in exact section list order.
+
+</Side>
+
+</Compare>
+
+<CrowdGridLab />
+
+<CodeCompare title="Wait-free single-cell lookup vs. full section iteration" files={[{"name": "CrowdGrid.kt", "href": "https://github.com/synsejse/Vanadium/blob/dev/src/main/kotlin/com/synsenetwork/vanadium/entity/CrowdGrid.kt"}, {"name": "EntitySectionIndex.kt", "href": "https://github.com/synsejse/Vanadium/blob/dev/src/main/kotlin/com/synsenetwork/vanadium/entity/EntitySectionIndex.kt"}]}>
+
+```kotlin title="Vanilla"
+// Reads every entity's bounding box in the 16x16x16 section
+for (Entity e : sectionStorage) {
+    if (e.getBoundingBox().intersects(queryBox)) {
+        consumer.accept(e);
+    }
+}
+```
+
+```kotlin title="Vanadium"
+// Single-cell query: 1 volatile load, wait-free, 0 allocations
+val cell = cells.get(cellIdx) // immutable sorted Member[]
+for (m in cell) {
+    if (m.entity.boundingBox.intersects(queryBox)) {
+        consumer.accept(m.entity)
+    }
+}
+```
+
+</CodeCompare>
+
+<span id="hot-paths"></span>
+
+## Zero-allocation inside-block traversal and line of sight
+
+<Lead>
+  At high worker counts, per-tick object churn saturates memory bandwidth and forces frequent G1 GC cycles.
+  `Entity.checkInsideBlocks` and `LivingEntity.hasLineOfSight` were two of the largest allocators in combat profiles;
+  both now execute in primitive registers with local section caching.
+</Lead>
+
+<Compare>
+
+<Side tone="vanilla" label="Vanilla">
+<Term>Throwaway objects on every check</Term>
+
+- **`checkInsideBlocks`:** Allocates a `LongOpenHashSet` and block traversal helpers even when standing still in air.
+- **`hasLineOfSight`:** Allocates two `Vec3`s, a `ClipContext`, an `EntityCollisionContext`, a `BlockHitFactory` lambda, and a `BlockHitResult` for every sight ray.
+
+</Side>
+
+<Side tone="vanadium" label="Vanadium">
+<Term>Primitive registers, air skipping, and TickThread scratch</Term>
+
+- **`InsideBlockFastPath`:** Stationary and single-box movements allocate 0 bytes and skip air sections directly; swept block crossings reuse a padded open-addressed table on `TickThread.insideBlockScratch` while keeping vanilla's exact 16-step order.
+- **`LineOfSightFastPath`:** Exact primitive DDA raycast with bit-exact `clipsFullCube` for `Shapes.block()`; allocates `CollisionContext` and `Vec3` lazily only on partial shapes (fences, slabs, stairs).
+
+</Side>
+
+</Compare>
+
+<LineOfSightLab />
+
+<CodeCompare title="Primitive DDA with lazy partial-shape fallback" files={[{"name": "LineOfSightFastPath.kt", "href": "https://github.com/synsejse/Vanadium/blob/dev/src/main/kotlin/com/synsenetwork/vanadium/entity/LineOfSightFastPath.kt"}, {"name": "InsideBlockFastPath.kt", "href": "https://github.com/synsejse/Vanadium/blob/dev/src/main/kotlin/com/synsenetwork/vanadium/entity/InsideBlockFastPath.kt"}]}>
+
+```java title="Vanilla"
+Vec3 from = new Vec3(getX(), getEyeY(), getZ());
+Vec3 to   = new Vec3(other.getX(), other.getEyeY(), other.getZ());
+ClipContext ctx = new ClipContext(from, to, block, fluid, this);
+return level.clip(ctx).getType() == HitResult.Type.MISS;
+```
+
+```kotlin title="Vanadium"
+// Skips air sections; falls back to vanilla if Level overrides clip()
+while (t <= 1.0) {
+    val state = getCachedSectionState(bx, by, bz)
+    if (!state.isAir) {
+        if (isFullBlock(state)) {
+            if (clipsFullCube(bx, by, bz, x0, y0, z0, dx, dy, dz)) return false
+        } else if (clipsPartialLazy(state, bx, by, bz)) {
+            return false
+        }
+    }
+    advanceDdaRegisters()
+}
+return true
+```
+
+</CodeCompare>
+
+<span id="pathfinding"></span>
+
+## Exact ground pathfinding and pooled search nodes
+
+<Lead>
+  In combat waves, roughly 95% of the slowest tick is a single mob executing `PathFinder.findPath`. Vanadium keeps path
+  results bit-for-bit vanilla while moving all per-search scratch state onto `TickThread.walkScratch` and pooling search
+  `Node` instances.
+</Lead>
+
+<Compare>
+
+<Side tone="vanilla" label="Vanilla">
+<Term>Per-search Node churn and shared cache reads</Term>
+
+- Allocates a new `Node` per explored block inside `NodeEvaluator.nodes`.
+- Reads a shared world `PathTypeCache` and Fabric's `LandPathTypeRegistry` map on every cell.
+- Reconstructs paths with streams, target iterators, and quadratic list operations.
+
+</Side>
+
+<Side tone="vanadium" label="Vanadium">
+<Term>O(1) generation tables and winner-only cloning</Term>
+
+- **`TickThread.walkScratch`:** Cache-line-padded scratch workspace holding generation-stamped spatial caches, a lazy malus table, and an open-addressed primitive `Node` table (initial 2,048 slots) backed by a reusable pool (capped at 4,096).
+- **Zero escaping pooled nodes:** Active only during `PathFinder.findPath` when `!captureDebug`; clones only the ~5–25 winning path nodes before `done()` releases the pool.
+- **Fast block classification:** Reads Lithium section block flags directly from `PathNavigationRegion`, keeps global path-type slots in lock-free atomic longs (`PathTypeSlots`), and filters invalidations via `NavigationIndex`.
+
+</Side>
+
+</Compare>
+
+<PathfindingLab />
+
+<CodeCompare title="Pooled node lookup with safe winner path cloning" files={[{"name": "PathfindingFastPath.kt", "href": "https://github.com/synsejse/Vanadium/blob/dev/src/main/kotlin/com/synsenetwork/vanadium/navigation/PathfindingFastPath.kt"}, {"name": "PathFinderMixin.java", "href": "https://github.com/synsejse/Vanadium/blob/dev/src/main/java/com/synsenetwork/vanadium/mixin/world/level/pathfinder/PathFinderMixin.java"}, {"name": "NodeMixin.java", "href": "https://github.com/synsejse/Vanadium/blob/dev/src/main/java/com/synsenetwork/vanadium/mixin/world/level/pathfinder/NodeMixin.java"}]}>
+
+```kotlin title="Vanilla"
+// Allocates a new Node for every visited coordinate
+return nodes.computeIfAbsent(
+    Node.createHash(x, y, z),
+    hash -> new Node(x, y, z)
+);
+```
+
+```kotlin title="Vanadium"
+// Generation bump resets table in O(1) without zeroing arrays
+val node = scratch.getOrCreateNode(x, y, z)
+// Before done() releases the pool, copy only the final path:
+return reconstructClonedPath(bestTarget)
+```
+
+</CodeCompare>
+
+<span id="chunks-spawning"></span>
+
+## Lock-free chunk access, spawning, and per-thread world state
+
+<Lead>
+  At 36 workers, any remaining shared monitor becomes a serial bottleneck. JFR profiles of `mixedBench` revealed 125
+  seconds of worker wait time piled onto a single C2ME `ItemHolder` lock during natural spawning structure lookups.
+</Lead>
+
+<Compare>
+
+<Side tone="vanilla" label="Before">
+<Term>Status lookups and shared world monitors</Term>
+
+- **Structure lookups:** `ParallelChunkCache` only returned lock-free hits for `ChunkStatus.FULL`, sending every `STRUCTURE_STARTS` and `STRUCTURE_REFERENCES` lookup straight into C2ME's synchronized `ItemHolder`.
+- **Spawning &amp; randoms:** Contended locks on `SpawnState`, `LocalMobCapCalculator`, `Level.random`, `Level.randValue`, and `CollectingNeighborUpdater`.
+
+</Side>
+
+<Side tone="vanadium" label="Vanadium">
+<Term>Wait-free status reads and TickThread-owned state</Term>
+
+- **`ParallelChunkCache`:** Published full chunks in `NonBlockingHashMapLong` now satisfy every `ChunkStatus` lock-free; border proto-chunks outside loaded chunks cache per spawning wave (`beginStructureWave` / `endStructureWave`).
+- **Safe server-thread handoff:** Unloaded chunk misses never block workers waiting on the server thread: deferrable tasks unwind via `runDeferrable` and non-deferrable lookups use `callOnWaveCaller`.
+- **Lock-free spawning &amp; world state:** `ConcurrentMobCategoryCounts`, lazy mob counting when `spawn_mobs` is false, per-thread `PerThreadRandom` / `randValue` / `CollectingNeighborUpdater`, scratch-sorted `StableDistance` sensors, and `AreaMap` symmetric-difference tracking.
+
+</Side>
+
+</Compare>
+
+<ContentionLab />
+
+<CodeCompare title="Lock-free status satisfaction and wave-scoped border proto cache" files={[{"name": "ParallelChunkCache.kt", "href": "https://github.com/synsejse/Vanadium/blob/dev/src/main/kotlin/com/synsenetwork/vanadium/chunk/ParallelChunkCache.kt"}, {"name": "ConcurrentMobCategoryCounts.kt", "href": "https://github.com/synsejse/Vanadium/blob/dev/src/main/kotlin/com/synsenetwork/vanadium/spawning/ConcurrentMobCategoryCounts.kt"}, {"name": "PerThreadRandom.kt", "href": "https://github.com/synsejse/Vanadium/blob/dev/src/main/kotlin/com/synsenetwork/vanadium/concurrent/PerThreadRandom.kt"}]}>
+
+```kotlin title="Before"
+// Non-FULL status requests bypassed the concurrent map
+if (status == ChunkStatus.FULL) {
+    loadedChunks.get(pos)?.let { return it }
+}
+return lookupViaC2meItemHolder(x, z, status)
+```
+
+```kotlin title="Vanadium"
+// A published FULL LevelChunk satisfies every ChunkStatus
+loadedChunks.get(pos)?.let { return it }
+
+// Border proto-chunks cached for the active spawning wave only
+waveStructureChunks?.get(pos)?.let { return it }
+return lookupAndCacheBorderChunk(x, z, status)
+```
+
+</CodeCompare>
+
+<span id="benchmarks"></span>
+
+## Measured performance and tuning summary
+
+<Lead>
+  Captured on Minecraft 26.3 (Fabric Loader 0.20.1, C2ME 0.4.2-alpha.0.116, Lithium 0.26.3, Java 25.0.4.1+1) on a dual
+  Xeon E5-2699 v3 VM (36 physical cores / 72 threads, 1:1 pinned, NUMA-bound, `isolation = 2`). Full datasets and
+  methodology live in [Performance](performance).
+</Lead>
+
+<Caption>Hot-path and spawning contention pass (PR #47 mirrored A/B, 36 workers, `-Xms4G -Xmx4G`)</Caption>
+
+| Workload / metric                              | Before (`1396348`) | After (`5fd9431`) |                            Delta |
+| ---------------------------------------------- | -----------------: | ----------------: | -------------------------------: |
+| `brawl600@36` second window mean TPS (n=8)     |          587.7 TPS |         721.5 TPS | <span class="gain">+22.8%</span> |
+| `brawl600@36` JFR allocations (5,000 ticks)    |           20.82 GB |          11.41 GB | <span class="gain">−45.2%</span> |
+| `uniform4096@36` second window mean TPS (n=4)  |          349.0 TPS |         392.2 TPS | <span class="gain">+12.4%</span> |
+| `dense700@36` second window mean TPS (n=6)     |        1,512.4 TPS |       1,730.5 TPS | <span class="gain">+14.4%</span> |
+| `mixedBench` median tick time (`p50`, 5×1200t) |           26.79 ms |          23.72 ms | <span class="gain">−11.5%</span> |
+| `mixedBench` `SPAWNING` stage average          |            5.31 ms |           2.41 ms | <span class="gain">−54.6%</span> |
+
+<TuningList>
+
+<TuningItem>
+<Term>Keep `workers = 0` first</Term>
+
+Resolves to `min(physical cores, logical CPUs − 1)`, leaving headroom for the server thread, C2ME, and GC. Matching logical SMT threads oversubscribes the host and drops throughput.
+
+</TuningItem>
+
+<TuningItem>
+<Term>Pick `idleWorkers` for your host</Term>
+
+`lean` (default) spins nothing between ticks for the least idle CPU; `balanced` spins only the server thread; `hot` keeps workers warm for lowest 20-TPS latency.
+
+</TuningItem>
+
+<TuningItem>
+<Term>Inspect and isolate mods</Term>
+
+Use `/vanadium status` and `/vanadium benchmark` to verify your hardware. Route custom modded entities or block entities with shared mutable state via [`serialEntityTypes`](configuration#serial-type-rules).
+
+</TuningItem>
+
+</TuningList>

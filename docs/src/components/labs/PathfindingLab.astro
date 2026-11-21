@@ -1,0 +1,47 @@
+<div class="workbench">
+  <div class="wb-bar">
+    <div class="wb-title">
+      Heap Node allocations across consecutive A* searches (~400 explored blocks, ~14-node path)
+    </div>
+    <div class="wb-controls">
+      <button class="btn primary" id="pfRunBtn" type="button">
+        Simulate 10 searches
+      </button>
+      <button class="btn" id="pfResetBtn" type="button">
+        Reset
+      </button>
+    </div>
+  </div>
+  <div class="meters">
+    <div class="meter-row">
+      <div class="meter-head">
+        <span style="color: var(--vanilla-ink)">Vanilla heap allocations</span>
+        <span class="meter-val" id="pfVanillaNodes" style="color: var(--vanilla-ink)">
+          0 nodes
+        </span>
+      </div>
+      <div class="meter-track">
+        <div class="meter-fill" id="pfVanillaBar" style="width:0%; background:var(--vanilla)"></div>
+      </div>
+    </div>
+    <div class="meter-row">
+      <div class="meter-head">
+        <span style="color: var(--vanadium-ink)">Vanadium heap allocations (one-time pool warm + cloned winners)</span>
+        <span class="meter-val" id="pfVanadiumNodes" style="color: var(--signal-ink)">
+          0 nodes
+        </span>
+      </div>
+      <div class="meter-track">
+        <div class="meter-fill" id="pfVanadiumBar" style="width:0%; background:var(--signal)"></div>
+      </div>
+    </div>
+  </div>
+  <div class="wb-foot">
+    <span id="pfCaption">Run a batch of searches to compare cumulative Node allocations.</span>
+    <span class="canvas-num" id="pfSavings" style="color: var(--signal-ink)"></span>
+  </div>
+</div>
+
+<script>
+  import '../../scripts/labs/pathfinding';
+</script>

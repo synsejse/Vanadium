@@ -1,0 +1,62 @@
+<div class="workbench">
+  <div class="wb-bar">
+    <div class="wb-title">36 workers reading structure chunks during a spawning wave</div>
+    <div class="wb-controls">
+      <button class="btn primary" id="funnelReplayBtn" type="button">
+        Replay contention trace
+      </button>
+    </div>
+  </div>
+  <div class="funnel-pair">
+    <div class="canvas-frame">
+      <div class="canvas-meta">
+        <span style="color: var(--vanilla-ink)">Contended ItemHolder monitor</span>
+        <span class="canvas-num" style="color: var(--alert)">
+          125,409 ms wait (173,238 enters)
+        </span>
+      </div>
+      <canvas class="lab-canvas" height="128" id="funnelBefore" style="cursor:default" width="340"></canvas>
+    </div>
+    <div class="canvas-frame">
+      <div class="canvas-meta">
+        <span style="color: var(--vanadium-ink)">ParallelChunkCache lock-free reads</span>
+        <span class="canvas-num" style="color: var(--signal-ink)">
+          62.2 ms wait (0 ms in spawning)
+        </span>
+      </div>
+      <canvas class="lab-canvas" height="128" id="funnelAfter" style="cursor:default" width="340"></canvas>
+    </div>
+  </div>
+  <div class="meters">
+    <div class="meter-row">
+      <div class="meter-head">
+        <span>
+          <code>SPAWNING</code> stage average duration in <code>mixedBench</code>
+        </span>
+        <span class="meter-val">
+          5.31 ms to <strong style="color:var(--signal-ink)">2.41 ms (−54.6%)</strong>
+        </span>
+      </div>
+      <div class="meter-track">
+        <div class="meter-fill" style="width:45.4%; background:var(--vanadium)"></div>
+      </div>
+    </div>
+    <div class="meter-row">
+      <div class="meter-head">
+        <span>
+          <code>ClaimWave</code> spin and rescan CPU samples
+        </span>
+        <span class="meter-val">
+          20,808 to <strong style="color:var(--signal-ink)">1,214 (−94.2%)</strong>
+        </span>
+      </div>
+      <div class="meter-track">
+        <div class="meter-fill" style="width:5.8%; background:var(--signal)"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  import '../../scripts/labs/contention';
+</script>

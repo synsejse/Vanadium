@@ -5,7 +5,7 @@ import net.minecraft.world.entity.ai.village.poi.PoiManager
 import net.minecraft.world.entity.ai.village.poi.PoiRecord
 
 /**
- * The commit step of vanilla's `take` and Lithium's `takeAt` (docs/architecture.html, "POI locking"). Both find a
+ * The commit step of vanilla's `take` and Lithium's `takeAt` (docs/src/content/docs/architecture.mdx, "POI locking"). Both find a
  * candidate record first, outside any lock (Lithium's searches even collect them into a list), so by the time they
  * claim, the record may have been removed by a block change, dropped by a section refresh, or detached by a column
  * unload; vanilla then took a ticket on a record nothing would save or find again.

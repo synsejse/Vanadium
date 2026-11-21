@@ -1,0 +1,40 @@
+---
+import type { CollectionEntry } from 'astro:content';
+import logo from '../../assets/vanadium.svg?raw';
+import { pageHref } from '../lib/links';
+
+interface Props {
+  pages: CollectionEntry<'docs'>[];
+  current: string;
+}
+const { pages, current } = Astro.props;
+---
+
+<header class="sticky top-0 z-30 border-b border-rule bg-canvas/90 backdrop-blur-md">
+  <div class="mx-auto flex min-h-14 max-w-[1200px] flex-wrap items-center justify-between gap-x-6 gap-y-1 px-[var(--gutter)] pt-2 lg:flex-nowrap lg:pt-0">
+    <a
+      href={pageHref('overview')}
+      class="flex shrink-0 items-center gap-2.5 text-base font-bold tracking-[-0.01em] text-ink no-underline [font-stretch:112%]"
+    >
+      <span class="block size-[26px] [&>svg]:size-full" set:html={logo} aria-hidden="true" />
+      Vanadium
+    </a>
+    <nav
+      aria-label="Documentation"
+      class="order-3 -mx-2.5 flex w-full overflow-x-auto [scrollbar-width:none] lg:order-none lg:mx-0 lg:w-auto"
+    >
+      {pages.map((page) => (
+        <a
+          href={pageHref(page.id)}
+          aria-current={page.id === current ? 'page' : undefined}
+          class="flex h-[42px] items-center px-2.5 text-sm font-medium whitespace-nowrap text-ink-2 no-underline hover:text-ink aria-[current=page]:font-[650] aria-[current=page]:text-ink aria-[current=page]:shadow-[inset_0_-2px_0_var(--vanadium)] lg:h-14 lg:px-3"
+        >
+          {page.data.nav}
+        </a>
+      ))}
+    </nav>
+    <button class="btn shrink-0" id="themeBtn" type="button" aria-pressed="false">
+      Light theme
+    </button>
+  </div>
+</header>

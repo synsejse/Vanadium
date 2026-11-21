@@ -1,0 +1,7 @@
+dist/
+.astro/
+node_modules/
+package-lock.json
+# Evidence and generated chart sources keep their own format.
+benchmarks/
+assets/

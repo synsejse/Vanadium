@@ -1,0 +1,26 @@
+---
+interface Props {
+  rank: string;
+  terminal?: boolean;
+}
+const { rank, terminal = false } = Astro.props;
+---
+
+<div
+  class:list={[
+    'grid grid-cols-[34px_1fr] gap-3 border-b border-rule py-3 pl-4 last:border-b-0 [&_p]:!mb-1 [&_p]:!text-[15.5px]',
+    terminal && '-ml-0.5 pl-[18px] shadow-[inset_2px_0_0_var(--signal)]',
+  ]}
+>
+  <span
+    class:list={[
+      'text-[22px] leading-[1.1] font-extrabold [font-stretch:112%]',
+      terminal ? 'text-signal-ink' : 'text-vanadium-ink',
+    ]}
+  >
+    {rank}
+  </span>
+  <div class="[&>p:first-child]:!font-ui [&>p:first-child]:!text-[15px]">
+    <slot />
+  </div>
+</div>

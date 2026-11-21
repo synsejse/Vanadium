@@ -1,0 +1,42 @@
+<div class="workbench">
+  <div class="wb-bar">
+    <div class="wb-title">Two neighboring entities colliding on two CPU cores</div>
+    <div class="wb-controls">
+      <button class="btn selected" data-entity-case="push" type="button">
+        Mob push (ImpulseSlot)
+      </button>
+      <button class="btn" data-entity-case="hurt" type="button">
+        Mutual attack (foreign scope)
+      </button>
+      <button class="btn" data-entity-case="merge" type="button">
+        Item merge (enterPair)
+      </button>
+    </div>
+  </div>
+  <div class="swim-grid">
+    <div class="swim-panel">
+      <div class="swim-head">
+        <span style="color: var(--vanilla-ink)">Vanilla (one thread)</span>
+        <span class="canvas-num" id="entVanillaCost" style="color: var(--vanilla-ink)"></span>
+      </div>
+      <div class="swim-steps" id="entVanillaLog"></div>
+    </div>
+    <div class="swim-panel">
+      <div class="swim-head">
+        <span style="color: var(--vanadium-ink)">Vanadium (Core 1 and Core 2 in parallel)</span>
+        <span class="canvas-num" id="entVanadiumCost" style="color: var(--signal-ink)"></span>
+      </div>
+      <div class="swim-steps" id="entVanadiumLog"></div>
+    </div>
+  </div>
+  <div class="wb-foot">
+    <span>
+      Projectiles, TNT, minecarts, bosses, and portal entities run serially before the wave; a 100 ms timeout and cycle
+      detector guard nested foreign scopes.
+    </span>
+  </div>
+</div>
+
+<script>
+  import '../../scripts/labs/entities';
+</script>

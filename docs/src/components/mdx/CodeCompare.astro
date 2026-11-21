@@ -1,0 +1,25 @@
+---
+interface Props {
+  title: string;
+  files?: { name: string; href: string }[];
+}
+const { title, files = [] } = Astro.props;
+---
+
+<div class="my-[26px] overflow-hidden bg-inset">
+  <div class="flex flex-wrap items-center justify-between gap-2.5 border-b border-rule px-4 py-2.5 text-[13px] font-[550] text-ink">
+    <span>{title}</span>
+    {files.length > 0 && (
+      <span class="flex flex-wrap gap-3.5 text-[12.5px] font-normal">
+        {files.map((file) => (
+          <a href={file.href} class="!text-muted hover:!text-ink">
+            {file.name}
+          </a>
+        ))}
+      </span>
+    )}
+  </div>
+  <div class="grid md:grid-cols-2 [&_figure.code]:!my-0 [&_figure.code+figure.code]:border-t [&_figure.code+figure.code]:border-rule md:[&_figure.code+figure.code]:border-t-0 md:[&_figure.code+figure.code]:border-l [&_.code-bar]:border-b-0 [&_.code-bar]:pb-0 [&_.code-copy]:hidden [&_figure.code:first-child_.code-title]:text-vanilla-ink [&_figure.code:last-child_.code-title]:text-vanadium-ink">
+    <slot />
+  </div>
+</div>

@@ -1,0 +1,69 @@
+<div class="workbench" id="tick-pipeline">
+  <div class="wb-bar">
+    <div class="wb-title">One server tick across six stages: Vanilla vs. Vanadium</div>
+    <div class="wb-controls">
+      <button class="btn primary" id="tlPlayBtn" type="button">
+        Replay tick
+      </button>
+      <button class="btn selected" id="tlCombatBtn" type="button">
+        Heavy combat (600 mobs)
+      </button>
+      <button class="btn" id="tlMixedBtn" type="button">
+        Mixed survival (4 bases)
+      </button>
+    </div>
+  </div>
+  <div class="tl-block">
+    <div class="tl-head">
+      <span style="color: var(--vanilla-ink)">Vanilla (single server thread)</span>
+      <span class="tl-metric" id="tlVanillaTime" style="color: var(--alert)">
+        0.0 ms
+      </span>
+    </div>
+    <div class="tl-track">
+      <div class="tl-budget"></div>
+      <div class="tl-budget-label">50 ms limit</div>
+      <div id="tlVanillaBars"></div>
+    </div>
+  </div>
+  <div class="tl-block">
+    <div class="tl-head">
+      <span style="color: var(--vanadium-ink)">
+        Vanadium (server thread + worker pool, full barrier between stages)
+      </span>
+      <span class="tl-metric" id="tlVanadiumTime" style="color: var(--signal-ink)">
+        0.0 ms
+      </span>
+    </div>
+    <div id="tlVanadiumLanes"></div>
+  </div>
+  <div class="wb-foot">
+    <div class="stage-legend">
+      <span class="stage-key">
+        <span class="swatch" style="background:#8b63c9"></span>1. Scheduled ticks
+      </span>
+      <span class="stage-key">
+        <span class="swatch" style="background:#2b958f"></span>2. Spawning
+      </span>
+      <span class="stage-key">
+        <span class="swatch" style="background:#3d74d6"></span>3. Chunk ticks
+      </span>
+      <span class="stage-key">
+        <span class="swatch" style="background:#4f9a5a"></span>4. Entities (flat wave)
+      </span>
+      <span class="stage-key">
+        <span class="swatch" style="background:#c98a1c"></span>5. Block entities
+      </span>
+      <span class="stage-key">
+        <span class="swatch" style="background:#b9587c"></span>6. Tracking
+      </span>
+    </div>
+    <span id="tlNote">
+      Each wave sizes its participant count to measured work and wakes workers in a binary fan-out.
+    </span>
+  </div>
+</div>
+
+<script>
+  import '../../scripts/labs/timeline';
+</script>

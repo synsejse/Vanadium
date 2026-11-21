@@ -79,7 +79,7 @@ class MixedBench : ModInitializer {
 
         /**
          * The resolved spawning arm: `off` (Vanadium disabled), `serial-spawning` (`parallelSpawning = false`), or
-         * `participants-<auto|N>` (`-Dvanadium.spawnParticipants`). See docs/profiling.html.
+         * `participants-<auto|N>` (`-Dvanadium.spawnParticipants`). See docs/src/content/docs/profiling.mdx.
          */
         private val spawnArm: String get() = when {
             !Vanadium.config.enabled -> "off"

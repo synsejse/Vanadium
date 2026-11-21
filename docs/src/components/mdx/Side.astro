@@ -1,0 +1,25 @@
+---
+interface Props {
+  tone: 'vanilla' | 'vanadium';
+  label: string;
+}
+const { tone, label } = Astro.props;
+---
+
+<div
+  class:list={[
+    '-mt-0.5 border-t-[3px] pt-4 pb-1 md:pr-6 md:[&+&]:border-l md:[&+&]:border-l-rule md:[&+&]:pr-0 md:[&+&]:pl-6',
+    '[&_p:not(.term)]:!text-[15.5px] [&_p]:!max-w-none [&_ul]:!text-[15.5px] [&_ul]:!max-w-none [&_li]:!mb-1.5',
+    tone === 'vanilla' ? 'border-t-vanilla' : 'border-t-vanadium',
+  ]}
+>
+  <p
+    class:list={[
+      '!mb-1 !font-ui !text-[13px] !font-[650]',
+      tone === 'vanilla' ? '!text-vanilla-ink' : '!text-vanadium-ink',
+    ]}
+  >
+    {label}
+  </p>
+  <slot />
+</div>

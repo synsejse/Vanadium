@@ -1,0 +1,106 @@
+---
+import { getCollection } from 'astro:content';
+import type { MarkdownHeading } from 'astro';
+import '../styles/global.css';
+import TopBar from '../components/TopBar.astro';
+import Toc from '../components/Toc.astro';
+import Pager from '../components/Pager.astro';
+
+interface Props {
+  id: string;
+  title: string;
+  summary: string;
+  meta: string[];
+  tocHeading: string;
+  headings: MarkdownHeading[];
+  hero?: boolean;
+}
+
+const { id, title, summary, meta, tocHeading, headings, hero = false } = Astro.props;
+const pages = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.order);
+const index = pages.findIndex((page) => page.id === id);
+const pageTitle = hero ? `${title}: Vanadium documentation` : `${title} · Vanadium`;
+---
+
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={summary} />
+    <title>{pageTitle}</title>
+    <link rel="icon" type="image/svg+xml" href={`${import.meta.env.BASE_URL}favicon.svg`} />
+    <script is:inline>
+      // Before first paint, so the page never flashes the wrong theme.
+      (() => {
+        let theme = null;
+        try {
+          theme = localStorage.getItem('vanadium-docs-theme');
+        } catch (_) {}
+        if (theme !== 'dark' && theme !== 'light') {
+          theme = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        }
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
+  </head>
+  <body>
+    <TopBar pages={pages} current={id} />
+
+    <header class:list={['mx-auto max-w-[1200px] px-[var(--gutter)]', hero ? 'pt-14 pb-12' : 'pt-14']}>
+      <div
+        class:list={['grid items-end gap-8 md:grid-cols-[minmax(0,1fr)_auto]', !hero && 'border-b border-rule pb-10']}
+      >
+        <div>
+          <h1
+            class:list={[
+              'display mb-3.5 text-ink',
+              hero ? 'max-w-[13ch] text-[clamp(40px,7.4vw,88px)]' : 'text-[clamp(34px,5vw,56px)]',
+            ]}
+          >
+            {title}
+          </h1>
+          <p class="max-w-[60ch] font-prose text-[19px] leading-[1.55] text-pretty text-prose">{summary}</p>
+        </div>
+        {meta.length > 0 && (
+          <p class="text-[13px] leading-[1.55] text-muted md:border-l md:border-rule-strong md:pl-4 md:text-right">
+            {meta.map((line, i) => (
+              <>
+                {i > 0 && <br />}
+                {line}
+              </>
+            ))}
+          </p>
+        )}
+      </div>
+      {hero && (
+        <div class="mt-9">
+          <slot name="hero" />
+        </div>
+      )}
+    </header>
+
+    <div class="mx-auto grid max-w-[1200px] items-start gap-2 px-[var(--gutter)] pb-28 lg:grid-cols-[210px_minmax(0,1fr)] lg:gap-16">
+      <Toc heading={tocHeading} headings={headings} />
+      <main class="prose-v min-w-0">
+        <slot />
+        <Pager previous={pages[index - 1]} next={pages[index + 1]} />
+      </main>
+    </div>
+
+    <script>
+      import '../scripts/site';
+    </script>
+  </body>
+</html>
+
+<style is:global>
+  :root {
+    --gutter: 32px;
+  }
+  @media (max-width: 960px) {
+    :root {
+      --gutter: 18px;
+    }
+  }
+</style>
