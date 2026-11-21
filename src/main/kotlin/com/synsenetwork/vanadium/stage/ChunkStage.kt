@@ -54,6 +54,12 @@ class ChunkStage(private val cache: ServerChunkCache, private val level: ServerL
 
     private val structures = cache as? ParallelChunkCache
     private val deferred = ConcurrentLinkedQueue<SpawnTask>()
+    private val thunderPool = ArrayList<ThunderTask>()
+    private var thunderCount = 0
+    private val spawnPool = ArrayList<SpawnTask>()
+    private var spawnCount = 0
+    private var spawnState: NaturalSpawner.SpawnState? = null
+    private var spawnCategories: List<MobCategory>? = null
 
     /** Read by chunk tasks during the wave; written before it. All chunks of one pass share the speed vanilla reads once. */
     @Volatile
@@ -68,6 +74,7 @@ class ChunkStage(private val cache: ServerChunkCache, private val level: ServerL
     /** `tickChunks` HEAD: starts the spawning stage and drops what a failed wave left deferred. */
     fun beginTick() {
         Vanadium.scheduler.begin(Stage.SPAWNING)
+        clearSpawningTasks()
         deferred.clear()
     }
 
@@ -79,7 +86,8 @@ class ChunkStage(private val cache: ServerChunkCache, private val level: ServerL
             return
         }
         val pos = chunk.pos
-        Vanadium.scheduler.enqueue(Stage.SPAWNING, pos.x(), pos.z(), Runnable { level.tickThunder(chunk) }, null)
+        val task = borrowThunderTask(chunk)
+        Vanadium.scheduler.enqueue(Stage.SPAWNING, pos.x(), pos.z(), task, null)
     }
 
     /** Replaces `tickSpawningChunk`'s `spawnForChunk`. */
@@ -89,9 +97,11 @@ class ChunkStage(private val cache: ServerChunkCache, private val level: ServerL
             NaturalSpawner.spawnForChunk(level, chunk, state, categories)
             return
         }
+        spawnState = state
+        spawnCategories = categories
         val pos = chunk.pos
-        val spawn = Runnable { NaturalSpawner.spawnForChunk(level, chunk, state, categories) }
-        Vanadium.scheduler.enqueue(Stage.SPAWNING, pos.x(), pos.z(), SpawnTask(chunk, spawn), null)
+        val task = borrowSpawnTask(chunk)
+        Vanadium.scheduler.enqueue(Stage.SPAWNING, pos.x(), pos.z(), task, null)
     }
 
     /**
@@ -101,13 +111,17 @@ class ChunkStage(private val cache: ServerChunkCache, private val level: ServerL
      */
     fun tickChunks(map: ChunkMap, consumer: Consumer<LevelChunk>, original: Operation<Void>) {
         val scheduler = Vanadium.scheduler
-        structures?.beginStructureWave()
         try {
-            scheduler.run(Stage.SPAWNING)
+            structures?.beginStructureWave()
+            try {
+                scheduler.run(Stage.SPAWNING)
+            } finally {
+                structures?.endStructureWave()
+            }
+            runDeferred()
         } finally {
-            structures?.endStructureWave()
+            clearSpawningTasks()
         }
-        runDeferred()
         scheduler.begin(Stage.CHUNK)
         val config = Vanadium.config
         if (config.enabled && config.parallelChunkTicks) {
@@ -129,13 +143,61 @@ class ChunkStage(private val cache: ServerChunkCache, private val level: ServerL
         while (true) {
             val task = deferred.poll() ?: break
             count++
-            task.spawn.run()
+            try {
+                task.spawn.run()
+            } finally {
+                task.chunk = null
+            }
         }
         return count
     }
 
+    private fun borrowThunderTask(chunk: LevelChunk): ThunderTask {
+        val index = thunderCount++
+        val task = if (index < thunderPool.size) {
+            thunderPool[index]
+        } else {
+            ThunderTask().also { thunderPool.add(it) }
+        }
+        task.chunk = chunk
+        return task
+    }
+
+    private fun borrowSpawnTask(chunk: LevelChunk): SpawnTask {
+        val index = spawnCount++
+        val task = if (index < spawnPool.size) {
+            spawnPool[index]
+        } else {
+            SpawnTask().also { spawnPool.add(it) }
+        }
+        task.chunk = chunk
+        return task
+    }
+
+    private fun clearSpawningTasks() {
+        for (i in 0 until thunderCount) thunderPool[i].chunk = null
+        thunderCount = 0
+        for (i in 0 until spawnCount) spawnPool[i].chunk = null
+        spawnCount = 0
+        spawnState = null
+        spawnCategories = null
+    }
+
     /** Current entity-ticking positions, in visit order. For checks; server thread. */
     fun cachedPositions(): LongArray = positions.copyOf(count)
+
+    private inner class ThunderTask : Runnable {
+        var chunk: LevelChunk? = null
+
+        override fun run() {
+            val target = chunk ?: return
+            try {
+                level.tickThunder(target)
+            } finally {
+                chunk = null
+            }
+        }
+    }
 
     /**
      * One chunk's spawn attempt in the spawning wave. Spawn checks look up structure starts, which can be chunks that
@@ -145,10 +207,23 @@ class ChunkStage(private val cache: ServerChunkCache, private val level: ServerL
      * chunks keep their thunder-then-spawn order; deferral is rare outside joins and exploration, when nearby
      * structure chunks are still generating.
      */
-    internal inner class SpawnTask(private val chunk: ChunkAccess, val spawn: Runnable) : Runnable {
+    internal inner class SpawnTask(
+        var chunk: ChunkAccess? = null,
+        customSpawn: Runnable? = null,
+    ) : Runnable {
+        val spawn: Runnable = customSpawn ?: Runnable {
+            val target = chunk as? LevelChunk ?: return@Runnable
+            NaturalSpawner.spawnForChunk(level, target, spawnState!!, spawnCategories!!)
+        }
+
         override fun run() {
+            val target = chunk ?: return
             // Checking first keeps the common deferral free of partial spawns; the signal catches other lookups.
-            if (!structureStartsAvailable(chunk) || !WorkerPool.runDeferrable(spawn)) deferred.add(this)
+            if (!structureStartsAvailable(target) || !WorkerPool.runDeferrable(spawn)) {
+                deferred.add(this)
+            } else {
+                chunk = null
+            }
         }
     }
 

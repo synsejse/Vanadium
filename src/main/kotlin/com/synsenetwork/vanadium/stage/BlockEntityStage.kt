@@ -56,10 +56,19 @@ class BlockEntityStage(private val level: ServerLevel, private val tickers: Muta
             return
         }
         val blockEntity = direct.blockEntity
+        val task = ticker as BlockEntityTaskAccess
         if (config.hasSerialBlockEntityRules()) {
-            // No rule can name an unregistered type.
-            val id = BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(blockEntity.type)
-            if (id != null && config.isSerialBlockEntity(id)) {
+            val rulesKey = config.serialBlockEntityRulesKey()
+            val serial = if (task.`vanadium$serialRulesKey`() === rulesKey) {
+                task.`vanadium$isSerial`()
+            } else {
+                // No rule can name an unregistered type.
+                val id = BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(blockEntity.type)
+                val matched = id != null && config.isSerialBlockEntity(id)
+                task.`vanadium$setSerial`(rulesKey, matched)
+                matched
+            }
+            if (serial) {
                 ticker.tick()
                 return
             }
@@ -74,7 +83,7 @@ class BlockEntityStage(private val level: ServerLevel, private val tickers: Muta
         }
         val scheduler = Vanadium.scheduler
         val label = if (scheduler.detailedDiagnostics) BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(blockEntity.type).toString() else null
-        scheduler.enqueue(Stage.BLOCK_ENTITY, chunkX, chunkZ, ticker::tick, label)
+        scheduler.enqueue(Stage.BLOCK_ENTITY, chunkX, chunkZ, task, label)
     }
 
     /**

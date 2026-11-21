@@ -29,6 +29,31 @@ class ConcurrentMapsTest {
     }
 
     @Test
+    fun long2LongPutGetRemoveDefaultsAndEntryViews() {
+        val map = ConcurrentLongLongMap()
+        map.defaultReturnValue(Long.MAX_VALUE)
+        assertEquals(Long.MAX_VALUE, map.get(1L))
+        assertEquals(Long.MAX_VALUE, map.put(1L, 42L))
+        assertEquals(42L, map.put(1L, 99L))
+        assertEquals(99L, map.get(1L))
+        assertTrue(map.containsKey(1L))
+        val keys = longArrayOf(-5L, 0L, 1L shl 40, Long.MIN_VALUE)
+        for (k in keys) map.put(k, k xor 123L)
+        val it = map.long2LongEntrySet().iterator()
+        while (it.hasNext()) {
+            val entry = it.next()
+            if (entry.longKey == 1L) entry.setValue(777L)
+            if (entry.longKey == 0L) it.remove()
+        }
+        assertEquals(777L, map.get(1L))
+        assertFalse(map.containsKey(0L))
+        assertEquals(Long.MAX_VALUE, map.remove(0L))
+        assertEquals(4, map.size)
+        map.clear()
+        assertTrue(map.isEmpty())
+    }
+
+    @Test
     fun long2BytePutGetRemoveAndDefaults() {
         val map = ConcurrentLongByteMap()
         assertEquals(0, map.put(1L, 5))
