@@ -36,6 +36,7 @@
     "util.ClassInstanceMultiMapMixin",
     "util.ThreadingDetectorMixin",
     "util.profiling.ProfilerMixin",
+    "world.entity.EntityInsideBlocksMixin",
     "world.entity.EntityMixin",
     "world.entity.EntitySuffocationMixin",
     "world.entity.EntityTickRuleMixin",

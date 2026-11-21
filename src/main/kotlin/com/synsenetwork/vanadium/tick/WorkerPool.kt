@@ -842,6 +842,10 @@ abstract class TickThread(name: String) : Thread(name) {
     /** Per-thread multi-cell candidate buffer for [com.synsenetwork.vanadium.entity.CrowdGrid]. */
     @JvmField
     var crowdScratch: Any? = null
+
+    /** Per-thread visited-block table for [com.synsenetwork.vanadium.entity.InsideBlockFastPath]. */
+    @JvmField
+    var insideBlockScratch: Any? = null
     private companion object {
         private val SEED = AtomicLong(System.nanoTime() xor -0x61c8864680b583ebL)
 
