@@ -3,10 +3,12 @@ package com.synsenetwork.vanadium.spawning
 import com.synsenetwork.vanadium.Vanadium
 import com.synsenetwork.vanadium.entity.ColumnScan
 import com.synsenetwork.vanadium.tick.PreparationKind
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap
 import java.lang.reflect.Field
 import java.util.function.Predicate
 import net.minecraft.server.level.ChunkMap
 import net.minecraft.server.level.ServerLevel
+import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.level.LocalMobCapCalculator
 import net.minecraft.world.level.NaturalSpawner
@@ -25,14 +27,29 @@ object SpawnPreparation {
     }
 
     private val sourceCapture = ThreadLocal<SourceCapture?>()
+    private val sharedPlayersNear = ThreadLocal<Long2ObjectMap<List<ServerPlayer>>?>()
+
+    /** Shared per-chunk player cache for parallel jobs constructed inside [count], or null outside. */
+    @JvmStatic
+    fun sharedPlayersNear(): Long2ObjectMap<List<ServerPlayer>>? = sharedPlayersNear.get()
 
     /**
      * Replaces `tickChunks`' `createState` with parallel spawning on: the world's entities, counted in slices.
      * The caller ([SpawnCounts.prepare]) decides that parallel spawning is on.
      */
     fun count(chunkCount: Int, level: ServerLevel, chunks: NaturalSpawner.ChunkGetter,
-              localCaps: LocalMobCapCalculator, chunkMap: ChunkMap): NaturalSpawner.SpawnState =
-        count(chunkCount, level, capture(chunkCount, level, chunks, localCaps), chunks, localCaps) { LocalMobCapCalculator(chunkMap) }
+              localCaps: LocalMobCapCalculator, chunkMap: ChunkMap): NaturalSpawner.SpawnState {
+        val shared = localCaps.playersNearChunk
+        return count(chunkCount, level, capture(chunkCount, level, chunks, localCaps), chunks, localCaps) {
+            val previous = sharedPlayersNear.get()
+            sharedPlayersNear.set(shared)
+            try {
+                LocalMobCapCalculator(chunkMap)
+            } finally {
+                if (previous == null) sharedPlayersNear.remove() else sharedPlayersNear.set(previous)
+            }
+        }
+    }
 
     /**
      * The entity input `createState` would count, after other mods' wrappers (notably Lithium's section
@@ -172,7 +189,9 @@ object SpawnPreparation {
         result.spawnPotential.charges.addAll(state.spawnPotential.charges)
         val target = result.localMobCapCalculator
         val source = state.localMobCapCalculator
-        target.playersNearChunk.putAll(source.playersNearChunk)
+        if (target.playersNearChunk !== source.playersNearChunk) {
+            target.playersNearChunk.putAll(source.playersNearChunk)
+        }
         source.playerMobCounts.forEach { (player, counts) ->
             val existing = target.playerMobCounts[player]
             if (existing == null) {

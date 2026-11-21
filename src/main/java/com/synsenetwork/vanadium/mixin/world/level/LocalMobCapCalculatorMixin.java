@@ -1,6 +1,7 @@
 package com.synsenetwork.vanadium.mixin.world.level;
 
 import com.synsenetwork.vanadium.collections.ConcurrentLongObjectMap;
+import com.synsenetwork.vanadium.spawning.SpawnPreparation;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import java.util.List;
 import java.util.Map;
@@ -32,7 +33,8 @@ public abstract class LocalMobCapCalculatorMixin {
 
     @Inject(method = "<init>", at = @At("RETURN"))
     private void vanadium$installConcurrentMaps(CallbackInfo ci) {
-        this.playersNearChunk = new ConcurrentLongObjectMap<>(512);
+        Long2ObjectMap<List<ServerPlayer>> shared = SpawnPreparation.sharedPlayersNear();
+        this.playersNearChunk = shared != null ? shared : new ConcurrentLongObjectMap<>(512);
         this.playerMobCounts = new ConcurrentHashMap<>();
     }
 
