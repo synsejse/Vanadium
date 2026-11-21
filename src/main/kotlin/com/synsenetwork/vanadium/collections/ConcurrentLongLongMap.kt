@@ -5,21 +5,22 @@ import it.unimi.dsi.fastutil.longs.Long2LongMap
 import it.unimi.dsi.fastutil.objects.AbstractObjectSet
 import it.unimi.dsi.fastutil.objects.ObjectIterator
 import it.unimi.dsi.fastutil.objects.ObjectSet
-import java.util.concurrent.ConcurrentHashMap
+import org.jctools.maps.NonBlockingHashMapLong
 
 /**
- * Thread-safe [Long2LongMap] over a [ConcurrentHashMap], replacing vanilla's `LevelTicks.nextTickForContainer`
- * so concurrent chunk tick scheduling never contends on a level-wide monitor. Keys are mixed via
- * [PackedPositionKeys] and decoded in views; iterator writes and removals write through to the backing map.
+ * Thread-safe [Long2LongMap] over JCTools [NonBlockingHashMapLong], replacing vanilla's
+ * `LevelTicks.nextTickForContainer` so concurrent chunk tick scheduling never contends on a level-wide
+ * monitor or boxes position keys. Keys are mixed via [PackedPositionKeys] and decoded in views;
+ * iterator writes and removals write through to the backing map.
  */
 class ConcurrentLongLongMap @JvmOverloads constructor(initialCapacity: Int = 64) : AbstractLong2LongMap() {
-    private val backing = ConcurrentHashMap<Long, Long>(initialCapacity)
+    private val backing = NonBlockingHashMapLong<Long>(initialCapacity)
 
     override val size: Int get() = backing.size
 
     override fun isEmpty(): Boolean = backing.isEmpty()
 
-    override fun get(key: Long): Long = backing[PackedPositionKeys.mix(key)] ?: defRetValue
+    override fun get(key: Long): Long = backing.get(PackedPositionKeys.mix(key)) ?: defRetValue
 
     override fun containsKey(key: Long): Boolean = backing.containsKey(PackedPositionKeys.mix(key))
 
