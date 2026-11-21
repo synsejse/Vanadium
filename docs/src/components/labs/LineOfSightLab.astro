@@ -1,0 +1,55 @@
+<div class="workbench">
+  <div class="wb-bar">
+    <div class="wb-title">Line-of-sight DDA raycast (click grid cells to cycle air, full cube, partial shape)</div>
+    <div class="wb-controls">
+      <button class="btn" id="losPresetClear" type="button">
+        Open air
+      </button>
+      <button class="btn selected" id="losPresetWall" type="button">
+        Stone wall
+      </button>
+      <button class="btn" id="losPresetPartial" type="button">
+        Fence / partial
+      </button>
+    </div>
+  </div>
+  <div class="los-layout">
+    <div class="canvas-frame" style="padding: 10px;">
+      <canvas class="lab-canvas" height="224" id="losCanvas" width="384"></canvas>
+    </div>
+    <div class="meters">
+      <div class="verdict-box">
+        <div class="verdict-title" id="losVerdict"></div>
+        <div class="verdict-body" id="losDetails"></div>
+      </div>
+      <div class="meter-row">
+        <div class="meter-head">
+          <span style="color: var(--vanilla-ink)">Vanilla heap allocations for this ray</span>
+          <span class="meter-val" id="losVanillaBytes" style="color: var(--vanilla-ink)"></span>
+        </div>
+        <div class="meter-track">
+          <div class="meter-fill" id="losVanillaBar" style="width:100%; background:var(--vanilla)"></div>
+        </div>
+      </div>
+      <div class="meter-row">
+        <div class="meter-head">
+          <span style="color: var(--vanadium-ink)">Vanadium heap allocations for this ray</span>
+          <span class="meter-val" id="losVanadiumBytes" style="color: var(--signal-ink)"></span>
+        </div>
+        <div class="meter-track">
+          <div class="meter-fill" id="losVanadiumBar" style="width:0%; background:var(--signal)"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="wb-foot">
+    <span>
+      Verified against vanilla with 1,280 live inside-block parity cases and 750 live line-of-sight parity cases across
+      COLLIDER, VISUAL, OUTLINE, and fluid modes.
+    </span>
+  </div>
+</div>
+
+<script>
+  import '../../scripts/labs/lineOfSight';
+</script>

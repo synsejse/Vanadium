@@ -1,0 +1,283 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/archivo/wdth.css';
+@import '@fontsource-variable/source-serif-4/opsz.css';
+@import '@fontsource-variable/source-serif-4/opsz-italic.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+@import './labs.css';
+
+/*
+ * An assay sheet for element 23. The accents are vanadium's own oxidation-state colours, each with one job:
+ *   V(IV) vanadyl blue  = Vanadium      V(V) pervanadyl yellow = vanilla
+ *   V(III) green        = gains / safe  V(II) violet           = secondary marks
+ * Grounds are steel greys. Alert red sits outside the series on purpose. No rounded corners anywhere.
+ */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  --canvas: #1e2226;
+  --surface: #262b30;
+  --surface-inset: #191c20;
+  --ink: #e9ecee;
+  --ink-prose: #d3d8dc;
+  --ink-secondary: #a5aeb6;
+  --ink-muted: #7d8790;
+  --rule: rgba(233, 236, 238, 0.1);
+  --rule-strong: rgba(233, 236, 238, 0.2);
+
+  --vanadium: #3d74d6;
+  --vanadium-ink: #7fa6f0;
+  --vanadium-tint: rgba(61, 116, 214, 0.16);
+  --vanilla: #d8a62a;
+  --vanilla-ink: #e8c060;
+  --vanilla-tint: rgba(216, 166, 42, 0.14);
+  --signal: #4f9a5a;
+  --signal-ink: #7cc286;
+  --signal-tint: rgba(79, 154, 90, 0.16);
+  --alert: #d9594f;
+  --alert-tint: rgba(217, 89, 79, 0.15);
+  --partial: #a27fdc;
+
+  /* Shiki's css-variables theme, mapped onto the same series. */
+  --shiki-foreground: var(--ink);
+  --shiki-background: var(--surface-inset);
+  --shiki-token-keyword: var(--partial);
+  --shiki-token-function: var(--vanadium-ink);
+  --shiki-token-string: var(--signal-ink);
+  --shiki-token-string-expression: var(--signal-ink);
+  --shiki-token-constant: var(--vanilla-ink);
+  --shiki-token-comment: var(--ink-muted);
+  --shiki-token-parameter: var(--ink);
+  --shiki-token-punctuation: var(--ink-secondary);
+  --shiki-token-link: var(--vanadium-ink);
+
+  color-scheme: dark;
+}
+
+[data-theme='light'] {
+  --canvas: #eceeef;
+  --surface: #f8f9f9;
+  --surface-inset: #e1e4e6;
+  --ink: #15191d;
+  --ink-prose: #262c32;
+  --ink-secondary: #4b555e;
+  --ink-muted: #69737c;
+  --rule: rgba(21, 25, 29, 0.12);
+  --rule-strong: rgba(21, 25, 29, 0.24);
+
+  --vanadium: #2a5cbf;
+  --vanadium-ink: #2350a8;
+  --vanadium-tint: rgba(42, 92, 191, 0.1);
+  --vanilla: #b88a12;
+  --vanilla-ink: #7d5c00;
+  --vanilla-tint: rgba(184, 138, 18, 0.13);
+  --signal: #3b7f46;
+  --signal-ink: #2c6a36;
+  --signal-tint: rgba(59, 127, 70, 0.12);
+  --alert: #bf3b31;
+  --alert-tint: rgba(191, 59, 49, 0.1);
+  --partial: #6e48b8;
+
+  color-scheme: light;
+}
+
+@theme static {
+  --font-ui: 'Archivo Variable', 'Helvetica Neue', Arial, system-ui, sans-serif;
+  --font-prose: 'Source Serif 4 Variable', Georgia, 'Times New Roman', serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-sans: var(--font-ui);
+  --radius-*: initial;
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-inset: var(--surface-inset);
+  --color-ink: var(--ink);
+  --color-prose: var(--ink-prose);
+  --color-ink-2: var(--ink-secondary);
+  --color-muted: var(--ink-muted);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-vanadium: var(--vanadium);
+  --color-vanadium-ink: var(--vanadium-ink);
+  --color-vanadium-tint: var(--vanadium-tint);
+  --color-vanilla: var(--vanilla);
+  --color-vanilla-ink: var(--vanilla-ink);
+  --color-vanilla-tint: var(--vanilla-tint);
+  --color-signal: var(--signal);
+  --color-signal-ink: var(--signal-ink);
+  --color-alert: var(--alert);
+  --color-partial: var(--partial);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      transition: none !important;
+      animation: none !important;
+    }
+  }
+  body {
+    @apply bg-canvas font-ui text-ink antialiased;
+    font-size: 15px;
+    line-height: 1.55;
+    font-variant-numeric: tabular-nums;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: var(--vanadium-tint);
+    color: var(--ink);
+  }
+  :focus-visible {
+    outline: 2px solid var(--vanadium-ink);
+    outline-offset: 2px;
+  }
+  * {
+    border-radius: 0;
+  }
+}
+
+@layer components {
+  /* The wide, heavy display cut: stamped bar stock. */
+  .display {
+    font-stretch: 125%;
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    line-height: 0.98;
+    text-wrap: balance;
+  }
+  .wide {
+    font-stretch: 112%;
+  }
+
+  .btn {
+    @apply cursor-pointer border border-rule-strong bg-transparent px-3 py-1.5 font-ui text-[13px] leading-tight font-[550] text-ink hover:border-ink-2;
+  }
+  .btn.primary {
+    @apply border-vanadium bg-vanadium text-white;
+  }
+  .btn.primary:hover {
+    background: color-mix(in srgb, var(--vanadium) 86%, #fff);
+  }
+  .btn.selected {
+    @apply border-vanadium bg-vanadium-tint;
+  }
+  .btn.subtle {
+    @apply border-rule px-2 py-0.5 text-xs text-ink-2;
+  }
+
+  /* MDX content: serif prose, sans structure. */
+  .prose-v {
+    & h2 {
+      @apply mt-14 mb-4 border-t border-rule pt-14 font-ui text-[clamp(24px,2.6vw,30px)] leading-[1.12] font-[750] tracking-[-0.022em] text-balance text-ink;
+      font-stretch: 112%;
+      scroll-margin-top: 76px;
+    }
+    & > h2:first-child,
+    & > span:first-child + h2 {
+      @apply mt-0 border-t-0 pt-11;
+    }
+    & h3 {
+      @apply mt-9 mb-2.5 font-ui text-lg leading-snug font-[650] text-ink;
+      scroll-margin-top: 76px;
+    }
+    & p,
+    & ul,
+    & ol {
+      @apply max-w-[68ch] font-prose text-[17px] leading-[1.66] text-prose;
+    }
+    & p {
+      @apply mb-4 text-pretty;
+    }
+    & ul,
+    & ol {
+      @apply mb-[18px] pl-[22px];
+    }
+    & ul {
+      list-style: disc;
+    }
+    & ol {
+      list-style: decimal;
+    }
+    & li {
+      @apply mb-2 pl-0.5;
+    }
+    & li::marker {
+      color: var(--ink-muted);
+    }
+    & strong {
+      @apply font-[650] text-ink;
+    }
+    & a {
+      color: var(--vanadium-ink);
+      text-decoration: underline;
+      text-decoration-color: color-mix(in srgb, var(--vanadium-ink) 35%, transparent);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 0.18em;
+      &:hover {
+        text-decoration-color: currentColor;
+      }
+    }
+    & :not(pre) > code {
+      @apply bg-inset px-[0.34em] py-[0.12em] font-mono text-[0.84em] text-ink;
+      font-variant-numeric: normal;
+    }
+
+    & table {
+      @apply my-5 mb-7 table w-full border-t-2 border-muted font-ui text-sm max-md:block max-md:overflow-x-auto;
+      border-collapse: collapse;
+      scrollbar-width: thin;
+    }
+    & th,
+    & td {
+      @apply border-b border-rule py-2.5 pr-3.5 text-left align-top;
+    }
+    & th:last-child,
+    & td:last-child {
+      @apply pr-0;
+    }
+    & th {
+      @apply border-b-rule-strong text-[13px] font-[650] whitespace-nowrap text-ink;
+    }
+    & td {
+      @apply text-ink-2;
+    }
+    & th[align='right'],
+    & td[align='right'] {
+      @apply text-right whitespace-nowrap text-ink;
+    }
+    & tbody tr:hover td {
+      background: color-mix(in srgb, var(--surface) 70%, transparent);
+    }
+    & .gain {
+      @apply font-[650] text-signal-ink;
+    }
+  }
+
+  /* Highlighted code (built by src/lib/shiki.mjs). */
+  figure.code {
+    @apply my-5 mb-6 max-w-full overflow-hidden bg-inset;
+    & .code-bar {
+      @apply flex items-center justify-between border-b border-rule px-3.5 py-2 font-ui text-[12.5px] font-[550] text-ink-2;
+    }
+    & .code-copy {
+      @apply cursor-pointer border border-rule px-2 py-0.5 font-ui text-xs text-ink-2 hover:border-ink-2;
+    }
+    & pre {
+      @apply overflow-x-auto px-4 pt-3.5 pb-4 font-mono text-[12.6px] leading-[1.6];
+      background: transparent !important;
+      font-variant-numeric: normal;
+      scrollbar-width: thin;
+      scrollbar-color: var(--rule-strong) transparent;
+    }
+  }
+}

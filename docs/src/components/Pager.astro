@@ -1,0 +1,32 @@
+---
+import type { CollectionEntry } from 'astro:content';
+import { pageHref } from '../lib/links';
+
+interface Props {
+  previous: CollectionEntry<'docs'> | undefined;
+  next: CollectionEntry<'docs'> | undefined;
+}
+const { previous, next } = Astro.props;
+---
+
+<nav aria-label="Pagination" class="not-prose mt-20 grid grid-cols-1 border-t-2 border-muted sm:grid-cols-2">
+  {previous && (
+    <a href={pageHref(previous.id)} class="group flex flex-col gap-1 py-4 text-ink no-underline">
+      <span class="text-[13px] text-muted">Previous page</span>
+      <span class="text-xl font-[750] tracking-[-0.015em] [font-stretch:112%] group-hover:text-vanadium-ink">
+        {previous.data.nav}
+      </span>
+    </a>
+  )}
+  {next && (
+    <a
+      href={pageHref(next.id)}
+      class="group flex flex-col items-start gap-1 py-4 text-ink no-underline sm:col-start-2 sm:items-end sm:text-right"
+    >
+      <span class="text-[13px] text-muted">Next page</span>
+      <span class="text-xl font-[750] tracking-[-0.015em] [font-stretch:112%] group-hover:text-vanadium-ink">
+        {next.data.nav}
+      </span>
+    </a>
+  )}
+</nav>

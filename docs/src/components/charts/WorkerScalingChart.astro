@@ -1,0 +1,182 @@
+---
+/** Throughput by worker count, from the first table on the performance page, with min–max bands and tooltips. */
+---
+
+<figure class="not-prose my-6 bg-surface p-5" id="worker-scaling-chart">
+  <figcaption class="mb-4 flex flex-wrap items-start justify-between gap-3">
+    <span>
+      <span class="block font-ui text-[15px] font-bold text-ink">Throughput by worker count</span>
+      <span class="block text-[13px] text-ink-2">
+        Uncapped TPS, mean of the runs with their min–max band. The dashed line is Lithium alone.
+      </span>
+    </span>
+    <span class="flex gap-1.5" role="group" aria-label="Scale">
+      <button class="btn selected" type="button" data-mode="tps" aria-pressed="true">
+        TPS
+      </button>
+      <button class="btn" type="button" data-mode="speedup" aria-pressed="false">
+        Speed-up over Lithium
+      </button>
+    </span>
+  </figcaption>
+  <div class="scaling-panels grid gap-6 md:grid-cols-3"></div>
+</figure>
+
+<script>
+  import { mount, Plot, baseStyle, type Palette } from '../../scripts/charts';
+  import { workerScaling, DEFAULT_WORKERS, type Workload } from '../../data/performance';
+
+  type Mode = 'tps' | 'speedup';
+  type Point = { workload: string; workers: number; mean: number; min: number; max: number; speedup: number };
+
+  const figure = document.getElementById('worker-scaling-chart');
+  const panels = figure?.querySelector<HTMLElement>('.scaling-panels');
+  if (figure && panels) {
+    let mode: Mode = 'tps';
+    const points = (w: Workload): Point[] =>
+      w.byWorkers.map(([workers, sample]) => ({
+        workload: w.name,
+        workers,
+        ...sample,
+        speedup: sample.mean / w.lithium.mean,
+      }));
+    const tooltip = (d: Point) =>
+      `${d.workload}, ${d.workers} workers\n${d.mean.toLocaleString()} TPS (${d.min.toLocaleString()}–${d.max.toLocaleString()})\n${d.speedup.toFixed(1)}× Lithium alone`;
+    const xAxis = { label: 'Workers', domain: [0, 72], ticks: [0, 16, 32, 48, 64, 72] } as const;
+
+    const panel = (w: Workload) => (width: number, p: Palette) => {
+      const data = points(w);
+      return Plot.plot({
+        width,
+        height: 240,
+        marginTop: 34,
+        marginRight: 12,
+        style: baseStyle(p),
+        title: w.name,
+        subtitle: w.detail,
+        x: xAxis,
+        y: { label: 'TPS', grid: true, nice: true, zero: true },
+        marks: [
+          Plot.gridY({ stroke: p.rule, strokeOpacity: 1 }),
+          Plot.ruleX([DEFAULT_WORKERS], { stroke: p.ruleStrong }),
+          Plot.areaY(data, {
+            x: 'workers',
+            y1: 'min',
+            y2: 'max',
+            fill: p.vanadium,
+            fillOpacity: 0.18,
+            curve: 'monotone-x',
+          }),
+          Plot.ruleY([w.lithium.mean], { stroke: p.vanilla, strokeDasharray: '4 3', strokeWidth: 1.5 }),
+          Plot.text([w.lithium.mean], {
+            x: 72,
+            y: (v: number) => v,
+            text: () => `Lithium alone ${w.lithium.mean}`,
+            textAnchor: 'end',
+            dy: -7,
+            fill: p.vanilla,
+            fontWeight: 600,
+          }),
+          Plot.lineY(data, { x: 'workers', y: 'mean', stroke: p.vanadium, strokeWidth: 2.25, curve: 'monotone-x' }),
+          Plot.dot(data, { x: 'workers', y: 'mean', r: 3, fill: p.vanadium }),
+          Plot.tip(
+            data,
+            Plot.pointerX({ x: 'workers', y: 'mean', title: tooltip, fill: p.surface, stroke: p.ruleStrong }),
+          ),
+        ],
+      });
+    };
+
+    const speedup = (width: number, p: Palette) => {
+      const data = workerScaling.flatMap(points);
+      const colours = [p.vanadium, p.signal, p.partial];
+      return Plot.plot({
+        width,
+        height: 320,
+        marginRight: 96,
+        style: baseStyle(p),
+        x: xAxis,
+        y: { label: '× Lithium alone', grid: true, zero: true },
+        color: { domain: workerScaling.map((w) => w.name), range: colours },
+        marks: [
+          Plot.gridY({ stroke: p.rule, strokeOpacity: 1 }),
+          Plot.ruleY([1], { stroke: p.vanilla, strokeDasharray: '4 3' }),
+          Plot.ruleX([DEFAULT_WORKERS], { stroke: p.ruleStrong }),
+          Plot.lineY(data, { x: 'workers', y: 'speedup', stroke: 'workload', strokeWidth: 2.25, curve: 'monotone-x' }),
+          Plot.dot(data, { x: 'workers', y: 'speedup', fill: 'workload', r: 3 }),
+          Plot.text(
+            data,
+            Plot.selectLast({
+              x: 'workers',
+              y: 'speedup',
+              z: 'workload',
+              text: 'workload',
+              fill: 'workload',
+              dx: 8,
+              textAnchor: 'start',
+              fontWeight: 650,
+            }),
+          ),
+          Plot.tip(
+            data,
+            Plot.pointer({ x: 'workers', y: 'speedup', title: tooltip, fill: p.surface, stroke: p.ruleStrong }),
+          ),
+        ],
+      });
+    };
+
+    const render = () => {
+      panels.replaceChildren();
+      panels.classList.toggle('md:grid-cols-3', mode === 'tps');
+      const renderers = mode === 'tps' ? workerScaling.map(panel) : [speedup];
+      for (const renderer of renderers) {
+        const cell = document.createElement('div');
+        panels.append(cell);
+        mount(cell, renderer);
+      }
+    };
+
+    for (const button of figure.querySelectorAll<HTMLButtonElement>('button[data-mode]')) {
+      button.addEventListener('click', () => {
+        mode = button.dataset.mode === 'speedup' ? 'speedup' : 'tps';
+        for (const other of figure.querySelectorAll<HTMLButtonElement>('button[data-mode]')) {
+          const active = other === button;
+          other.classList.toggle('selected', active);
+          other.setAttribute('aria-pressed', String(active));
+        }
+        render();
+      });
+    }
+    render();
+  }
+</script>
+
+<style is:global>
+  #worker-scaling-chart h2,
+  #worker-scaling-chart h3 {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    font-family: var(--font-ui);
+    max-width: none;
+  }
+  #worker-scaling-chart [aria-label] h2 {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--ink);
+  }
+  #worker-scaling-chart figure > h2 {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--ink);
+  }
+  #worker-scaling-chart figure > h3 {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--ink-muted);
+    margin-bottom: 4px;
+  }
+  #worker-scaling-chart figure {
+    margin: 0;
+  }
+</style>

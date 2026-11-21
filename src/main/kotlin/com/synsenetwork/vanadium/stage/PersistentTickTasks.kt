@@ -30,7 +30,7 @@ import kotlin.math.ceil
  * participant. Groups time themselves; that is the only measurement. Groups are cut again, without visiting
  * members, only when a kind's ideal size drifts; members are reordered only when the list is rebuilt or a kind
  * becomes clearly costlier than one ahead of it. Correctness never depends on the order. With homes ([WaveHomes]),
- * each kind is also cut into equal slices of member order, one per home. ARCHITECTURE.md ("Flat entity wave")
+ * each kind is also cut into equal slices of member order, one per home. docs/src/content/docs/architecture.mdx ("Flat entity wave")
  * explains why.
  *
  * Each [dispatch] runs in three steps: assembly ([plan]: order and groups, from the learned costs), the wave, and

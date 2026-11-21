@@ -11,6 +11,8 @@ pkgs.mkShellNoCC {
     unzip
     zip
     nixfmt
+    # The documentation site in docs/ (Astro).
+    nodejs_24
   ];
 
   JAVA_HOME = "${pkgs.jdk25}";

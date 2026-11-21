@@ -155,7 +155,7 @@ internal class SpinPolicy(
     /**
      * Set by [tickEnded]: how long before the next tick the server thread spins instead of sleeping ([ServerSpin]).
      * [IdleWorkers.BALANCED] and [IdleWorkers.HOT] spin through the whole gap ([Long.MAX_VALUE]): a 1 or 5 ms window
-     * measured no faster than none (docs/PERFORMANCE.md). Zero in [IdleWorkers.LEAN] and after a tick that ran
+     * measured no faster than none (docs/src/content/docs/performance.mdx). Zero in [IdleWorkers.LEAN] and after a tick that ran
      * nothing in parallel.
      */
     var serverWindowNanos = 0L

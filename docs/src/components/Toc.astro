@@ -1,0 +1,32 @@
+---
+import type { MarkdownHeading } from 'astro';
+
+interface Props {
+  heading: string;
+  headings: MarkdownHeading[];
+}
+const { heading, headings } = Astro.props;
+const entries = headings.filter((h) => h.depth === 2 || h.depth === 3);
+---
+
+<aside
+  class="pt-6 lg:sticky lg:top-[76px] lg:max-h-[calc(100vh-90px)] lg:overflow-y-auto lg:pt-11 [scrollbar-width:thin]"
+  aria-label="On this page"
+>
+  <p class="mb-2.5 text-[13px] font-[650] text-ink">{heading}</p>
+  <ul id="tocList" class="border-l border-rule-strong">
+    {entries.map((h) => (
+      <li>
+        <a
+          href={`#${h.slug}`}
+          class:list={[
+            '-ml-px block border-l-2 border-transparent py-1 leading-[1.4] text-ink-2 no-underline hover:text-ink [&.active]:border-vanadium [&.active]:font-semibold [&.active]:text-ink',
+            h.depth === 2 ? 'pl-3.5 text-[13.5px]' : 'pl-[26px] text-[13px] text-muted',
+          ]}
+        >
+          {h.text}
+        </a>
+      </li>
+    ))}
+  </ul>
+</aside>

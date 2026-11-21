@@ -1,0 +1,49 @@
+<div class="workbench">
+  <div class="wb-bar">
+    <div class="wb-title">Chebyshev isolation buffer and parallel round scheduling</div>
+    <div class="wb-controls">
+      <button class="btn" data-iso="1" type="button">
+        Isolation 1
+      </button>
+      <button class="btn selected" data-iso="2" type="button">
+        Isolation 2 (default)
+      </button>
+      <button class="btn" data-iso="3" type="button">
+        Isolation 3
+      </button>
+      <button class="btn primary" id="regStepBtn" type="button">
+        Step parallel wave
+      </button>
+      <button class="btn" id="regResetBtn" type="button">
+        Reset
+      </button>
+    </div>
+  </div>
+  <div class="region-wrap">
+    <div aria-label="10 by 10 chunk grid" class="chunk-grid" id="regionGrid" role="grid"></div>
+    <div class="region-readout">
+      <div class="stage-legend" style="margin-bottom: 12px;">
+        <span class="stage-key">
+          <span class="swatch" style="background:var(--vanadium)"></span>Claimed / inspected
+        </span>
+        <span class="stage-key">
+          <span class="swatch" style="background:var(--vanilla)"></span>Isolation buffer
+        </span>
+        <span class="stage-key">
+          <span class="swatch" style="background:var(--signal)"></span>Safe in parallel / done
+        </span>
+      </div>
+      <p id="regStatus">
+        Select any chunk cell to inspect its Chebyshev isolation halo, or press <strong>Step parallel wave</strong>
+        to watch non-conflicting regions execute simultaneously.
+      </p>
+      <div class="region-summary" id="regStats">
+        Round 0: 9 active regions. Vanilla requires 9 serial steps.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  import '../../scripts/labs/regions';
+</script>

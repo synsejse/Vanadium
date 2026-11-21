@@ -1,0 +1,47 @@
+<div class="workbench">
+  <div class="wb-bar">
+    <div class="wb-title">Move pointer across a 16×16 section holding 64 mobs</div>
+    <div class="wb-controls">
+      <button class="btn" id="cgShuffleBtn" type="button">
+        Respawn 64 mobs
+      </button>
+      <button class="btn" id="cgSizeBtn" type="button">
+        Box size: small push
+      </button>
+    </div>
+  </div>
+  <div class="canvas-pair">
+    <div class="canvas-frame">
+      <div class="canvas-meta">
+        <span style="color: var(--vanilla-ink)">Vanilla section scan</span>
+        <span class="canvas-num" id="cgVanillaCount" style="color: var(--vanilla-ink)"></span>
+      </div>
+      <canvas class="lab-canvas" height="240" id="cgVanillaCanvas" width="340"></canvas>
+    </div>
+    <div class="canvas-frame">
+      <div class="canvas-meta">
+        <span style="color: var(--vanadium-ink)">Vanadium CrowdGrid (2×2 XZ cells)</span>
+        <span class="canvas-num" id="cgVanadiumCount" style="color: var(--signal-ink)"></span>
+      </div>
+      <canvas class="lab-canvas" height="240" id="cgVanadiumCanvas" width="340"></canvas>
+    </div>
+  </div>
+  <div class="wb-foot">
+    <div class="stage-legend">
+      <span class="stage-key">
+        <span class="swatch" style="background:var(--vanilla)"></span>Box tested
+      </span>
+      <span class="stage-key">
+        <span class="swatch" style="background:var(--signal)"></span>Intersecting hit
+      </span>
+      <span class="stage-key">
+        <span class="swatch" style="background:var(--ink-muted)"></span>Skipped untouched
+      </span>
+    </div>
+    <span>Grid builds on the server thread once a section reaches 24 entities and drops below 12.</span>
+  </div>
+</div>
+
+<script>
+  import '../../scripts/labs/crowdgrid';
+</script>

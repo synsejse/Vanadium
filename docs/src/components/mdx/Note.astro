@@ -1,0 +1,15 @@
+---
+interface Props {
+  tone?: 'info' | 'warn';
+}
+const { tone = 'info' } = Astro.props;
+---
+
+<aside
+  class:list={[
+    'my-[22px] max-w-[68ch] border-l-2 px-[18px] py-3.5 [&_p]:!mb-2 [&_p:last-child]:!mb-0 [&_p]:!text-base',
+    tone === 'warn' ? 'border-vanilla bg-vanilla-tint' : 'border-vanadium bg-vanadium-tint',
+  ]}
+>
+  <slot />
+</aside>

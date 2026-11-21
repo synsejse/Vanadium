@@ -2,7 +2,7 @@
 
 Vanadium is a Kotlin Fabric mod (Java 25 bytecode) targeting **Minecraft 26.3 with official unobfuscated
 names**. Mixins stay in Java; everything else is Kotlin, loaded through Fabric Language Kotlin.
-Read `README.md`, `docs/DEVELOPMENT.md`, and `docs/ARCHITECTURE.md` before changing tick paths.
+Read `README.md`, `docs/src/content/docs/development.mdx`, and `docs/src/content/docs/architecture.mdx` before changing tick paths.
 Version sources are `gradle.properties`, `build.gradle.kts`, and `gradle/wrapper/gradle-wrapper.properties`.
 Verification conventions and typed tasks live in `buildSrc/`; Loom's pinned version comes from `gradle.properties`.
 Do not upgrade Minecraft, mappings, Loom, Gradle, Kotlin, or runtime mods as incidental cleanup.
@@ -15,8 +15,8 @@ Do not upgrade Minecraft, mappings, Loom, Gradle, Kotlin, or runtime mods as inc
   `nix-shell --run './gradlew runClient'` launches the interactive client.
 - Always use `./gradlew`, not a system Gradle. Kotlin and Java compile with a Java 25 toolchain.
   The first build needs network access for Gradle, Minecraft, and Maven artifacts.
-- Every task, what it checks and its `-P` properties are in [DEVELOPMENT.md](docs/DEVELOPMENT.md#tasks)
-  (live fixtures' properties and outputs in [PROFILING.md](docs/PROFILING.md)). The ones you need most:
+- Every task, what it checks and its `-P` properties are in [development.mdx](docs/src/content/docs/development.mdx#tasks)
+  (live fixtures' properties and outputs in [profiling.mdx](docs/src/content/docs/profiling.mdx)). The ones you need most:
   - `./gradlew build`: compile, access widener, unit tests, `checkModDependencies` (a pin change in
     `gradle.properties` updates the `fabric.mod.json` minimum in the same commit), jars.
   - `./gradlew test --tests '<package>.*' --rerun-tasks`: focused tests; `--rerun-tasks` really reruns
@@ -42,7 +42,7 @@ not flattened into Gradle's development classpath. Fabric API and Cloth Config a
 
 Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/` (logic) or
 `src/main/java/` (mixins, duck interfaces and the bootstrap-time classes listed below).
-[ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how the parts work; the rules below are the invariants.
+[architecture.mdx](docs/src/content/docs/architecture.mdx) explains how the parts work; the rules below are the invariants.
 
 - **Kotlin vs. Java:** Mixin classes must be Java. So are the duck interfaces they implement
   (`vanadium$`-prefixed methods: `NavigationAccess`, `NavigationState`, `PathNavigationRegionAccess`, `InteractionAccess`,
@@ -97,9 +97,12 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
   `mixin/world/entity/ai/village/poi/`, `EntitySectionMovementTrackingMixin` in `mixin/world/level/entity/`.
 - `config/`, `commands/`: TOML config (and its retired-key warnings), live options, validated
   `-Dvanadium.*` properties (`DeveloperProperties`), and Brigadier command registration. Every option,
-  property and command is documented once in [CONFIGURATION.md](docs/CONFIGURATION.md).
+  property and command is documented once in [configuration.mdx](docs/src/content/docs/configuration.mdx).
 - `src/main/resources/vanadium.mixins.json`: required mixin registration.
 - `src/main/resources/vanadium.accesswidener`: access required by mixins.
+- `docs/`: the documentation site (Astro, TypeScript only, Tailwind; pages are MDX in `docs/src/content/docs/`).
+  `cd docs && npm run format && npm run check && npm run build` after changing it (Prettier, 120 columns); see the documentation-site section of
+  [development.mdx](docs/src/content/docs/development.mdx#documentation-site).
 - `src/test/kotlin/`: JUnit 5 unit tests (`kotlin.test`), benchmarks, and the live test mods
   (`integration/`, `featurebench/`, `mixedbench/`, `coldexplosion/`, shared `live/`); `src/test/java/` holds only the
   fixtures' test mixins (feature bench, cold-explosion observer).
@@ -210,4 +213,4 @@ Behaviour and performance are settled; new and changed code must also read well.
   boxing or per-item allocation. Keep primitive and indexed loops, `!!` on dense arrays whose slots are known to be
   filled, and JIT-motivated splits that a comment explains (`WorkerPool`'s single `runTask` call site, the
   `phase`/`drain` methods). A readability change that alters tick-path bytecode needs a `javap -c` check and an
-  A/B benchmark ([PROFILING.md](docs/PROFILING.md)); comments, renames and moving unchanged code do not.
+  A/B benchmark ([profiling.mdx](docs/src/content/docs/profiling.mdx)); comments, renames and moving unchanged code do not.
