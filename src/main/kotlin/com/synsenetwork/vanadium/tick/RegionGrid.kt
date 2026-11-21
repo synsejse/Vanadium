@@ -79,6 +79,14 @@ class RegionGrid {
         private set
     private var stamps = IntArray(64)
     private var colourStamps = IntArray(64)
+    private var cliqueOf = IntArray(64)
+    private var cliqueSize = IntArray(64)
+    private var cliqueHits = IntArray(64)
+    private var cliqueStamp = IntArray(64)
+
+    /** Upper bound on simultaneously runnable regions in the current plan, from a greedy clique cover. */
+    internal var maxConcurrency = 0
+        private set
 
     /** Estimated cost of one task, from previous waves; sets the smallest region worth claiming. */
     private var nanosPerTask = 0.0
@@ -175,6 +183,7 @@ class RegionGrid {
         if (planned.size > 1) planned.sortWith(HEAVIEST_FIRST)
         buildConflicts(isolation)
         colour()
+        boundConcurrency()
     }
 
     /** Estimated work of the queued tasks, or 0 before any wave was measured. */
@@ -362,6 +371,57 @@ class RegionGrid {
             colours[i] = c
         }
         colourStamps.fill(0)
+    }
+
+    /**
+     * Greedy clique cover of the conflict graph: every clique is a set of mutually conflicting regions, so at
+     * most one region per clique can run at a time. The number of cliques is therefore a sound upper bound on
+     * maximum concurrency, keeping conflict-bound waves from waking workers that would only spin.
+     */
+    private fun boundConcurrency() {
+        val n = planned.size
+        if (n <= 1) {
+            maxConcurrency = n
+            return
+        }
+        if (cliqueOf.size < n) {
+            val size = n * 2
+            cliqueOf = IntArray(size)
+            cliqueSize = IntArray(size)
+            cliqueHits = IntArray(size)
+            cliqueStamp = IntArray(size)
+        }
+        cliqueOf.fill(-1, 0, n)
+        var cliques = 0
+        for (i in 0 until n) {
+            var joined = -1
+            val mark = i + 1
+            for (k in neighborStart[i] until neighborStart[i + 1]) {
+                val c = cliqueOf[neighbors[k]]
+                if (c < 0) continue
+                val hits = if (cliqueStamp[c] == mark) {
+                    cliqueHits[c] + 1
+                } else {
+                    cliqueStamp[c] = mark
+                    1
+                }
+                cliqueHits[c] = hits
+                if (hits == cliqueSize[c]) {
+                    joined = c
+                    break
+                }
+            }
+            if (joined >= 0) {
+                cliqueOf[i] = joined
+                cliqueSize[joined]++
+            } else {
+                cliqueOf[i] = cliques
+                cliqueSize[cliques] = 1
+                cliques++
+            }
+        }
+        cliqueStamp.fill(0, 0, cliques)
+        maxConcurrency = cliques
     }
 
     companion object {

@@ -150,4 +150,32 @@ class RegionGridTest {
         assertEquals(130, grid.plan(5, 2).sumOf { it.taskCount }, "a rebuilt plan still covers every task")
         grid.endTick()
     }
+
+    @Test
+    fun cliqueCoverBoundsConcurrencyAcrossClusters() {
+        val grid = RegionGrid()
+        // Four well-separated 3x3 clusters with isolation = 2: each cluster is one clique (max 1 running at once).
+        val bases = listOf(0 to 0, 20 to 0, 0 to 20, 20 to 20)
+        val chunks = bases.flatMap { (bx, bz) -> (0..2).flatMap { dx -> (0..2).map { dz -> (bx + dx) to (bz + dz) } } }
+        fill(grid, chunks) { _, _ -> 4 }
+        val regions = grid.plan(24, 2)
+        assertTrue(regions.size >= 16, "expected clusters to split into multiple regions, got ${regions.size}")
+        assertEquals(4, grid.maxConcurrency, "four isolated 3x3 cliques at isolation 2 can run at most 4 regions at once")
+        grid.endTick()
+
+        // A single 3x3 cluster at isolation = 2 has concurrency 1.
+        val single = RegionGrid()
+        fill(single, square(0, 3)) { _, _ -> 4 }
+        val singleRegions = single.plan(24, 2)
+        assertTrue(singleRegions.size > 1)
+        assertEquals(1, single.maxConcurrency)
+        single.endTick()
+
+        // Independent chunks far apart retain full concurrency.
+        val independent = RegionGrid()
+        fill(independent, (0 until 12).map { it * 6 to 0 }) { _, _ -> 4 }
+        assertEquals(12, independent.plan(24, 2).size)
+        assertEquals(12, independent.maxConcurrency)
+        independent.endTick()
+    }
 }

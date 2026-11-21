@@ -1,8 +1,8 @@
 package com.synsenetwork.vanadium.tick
 
 import com.synsenetwork.vanadium.config.DeveloperProperties
-import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicIntegerArray
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicLongArray
@@ -448,7 +448,7 @@ class WorkerPool internal constructor(
                     continue
                 }
                 waiterParked = true
-                if (counters.get(REMAINING) != 0) LockSupport.park(this)
+                if (counters.get(REMAINING) != 0 && (serving == null || !serving.hasRequests)) LockSupport.park(this)
                 waiterParked = false
                 if (Thread.interrupted()) interrupted = true
             }
@@ -461,7 +461,7 @@ class WorkerPool internal constructor(
         fun <T> callOnCaller(work: Supplier<T>, stalled: Runnable?): T {
             val state = caller ?: return work.get()
             val request = CallerRequest(work, Thread.currentThread())
-            state.requests.add(request)
+            state.enqueueRequest(request)
             LockSupport.unpark(waiter)
             val since = System.nanoTime()
             var reported = stalled == null
@@ -724,6 +724,7 @@ class WorkerPool internal constructor(
 
     /** A helper's [callOnWaveCaller] work; [result] and [failure] are published by [done]. */
     internal class CallerRequest(val work: Supplier<*>, val requester: Thread) {
+        var next: CallerRequest? = null
         var result: Any? = null
         var failure: Throwable? = null
 
@@ -737,31 +738,52 @@ class WorkerPool internal constructor(
         var parallelWaves = 0
         val afterWave = ArrayList<Runnable>()
 
-        /** Helpers' [callOnWaveCaller] work, from every wave this thread is running (nested ones included). */
-        val requests = ConcurrentLinkedQueue<CallerRequest>()
+        /** Helpers' [callOnWaveCaller] work as a lock-free intrusive stack; single atomic check on wave loops. */
+        private val requests = AtomicReference<CallerRequest?>()
 
-        val hasRequests: Boolean get() = !requests.isEmpty()
+        /** Single volatile read on wave spin loops: true iff at least one request is already linked and ready to serve. */
+        val hasRequests: Boolean get() = requests.get() != null
+
+        fun enqueueRequest(request: CallerRequest) {
+            while (true) {
+                val head = requests.get()
+                request.next = head
+                if (requests.compareAndSet(head, request)) return
+            }
+        }
 
         /**
-         * Runs every queued request on this thread, outside any task of its own, and releases its requester. The
-         * work is never deferrable: it is the rerun the requester could not do itself.
+         * Runs every queued request on this thread in arrival order, outside any task of its own, and releases its
+         * requester. The work is never deferrable: it is the rerun the requester could not do itself.
          */
         fun serveRequests() {
             while (true) {
-                val request = requests.poll() ?: return
-                val outerDeferrable = deferrable
-                val outerDeferred = deferred
-                deferrable = false
-                try {
-                    request.result = request.work.get()
-                } catch (t: Throwable) {
-                    request.failure = t
-                } finally {
-                    deferrable = outerDeferrable
-                    deferred = outerDeferred
+                var stack: CallerRequest? = requests.getAndSet(null) ?: return
+                var fifo: CallerRequest? = null
+                while (stack != null) {
+                    val next = stack.next
+                    stack.next = fifo
+                    fifo = stack
+                    stack = next
                 }
-                request.done = true
-                LockSupport.unpark(request.requester)
+                while (fifo != null) {
+                    val request = fifo
+                    fifo = request.next
+                    request.next = null
+                    val outerDeferrable = deferrable
+                    val outerDeferred = deferred
+                    deferrable = false
+                    try {
+                        request.result = request.work.get()
+                    } catch (t: Throwable) {
+                        request.failure = t
+                    } finally {
+                        deferrable = outerDeferrable
+                        deferred = outerDeferred
+                    }
+                    request.done = true
+                    LockSupport.unpark(request.requester)
+                }
             }
         }
 

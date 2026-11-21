@@ -24,3 +24,4 @@ accessible method net/minecraft/world/level/pathfinder/WalkNodeEvaluator getPath
 accessible method net/minecraft/world/level/pathfinder/Path setDebug (Ljava/util/List;Ljava/util/List;Ljava/util/Set;)V
 accessible class net/minecraft/world/entity/ai/village/poi/PoiManager$DistanceTracker
 accessible field net/minecraft/world/level/entity/EntitySection storage Lnet/minecraft/util/ClassInstanceMultiMap;
+accessible field net/minecraft/world/level/chunk/ChunkAccess structureReferences Ljava/util/Map;

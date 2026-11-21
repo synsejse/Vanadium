@@ -229,7 +229,7 @@ class TickScheduler internal constructor(
     private fun runWave(stage: Stage, grid: RegionGrid, recording: TickProfile?) {
         val regions = grid.plan(pool.workerCount + 1, isolation)
         recording?.recordWave(stage, regions)
-        var participants = participants(regions.size, grid.estimatedNanos)
+        var participants = participants(minOf(regions.size, maxOf(1, grid.maxConcurrency)), grid.estimatedNanos)
         val limit = spawnParticipants
         if (stage == Stage.SPAWNING && limit != null) participants = minOf(participants, limit)
         runMeasured(stage, grid.taskCount, regions.size, participants, isolation, recording) { watch, waitRecorder ->
@@ -256,6 +256,18 @@ class TickScheduler internal constructor(
             try {
                 if (regions.size == 1) {
                     tasks[0].run()
+                    return
+                }
+                if (participants == 1) {
+                    var failure: Throwable? = null
+                    for (i in tasks.indices) {
+                        try {
+                            tasks[i].run()
+                        } catch (t: Throwable) {
+                            if (failure == null) failure = t
+                        }
+                    }
+                    if (failure != null) throw RuntimeException("Vanadium worker task failed", failure)
                     return
                 }
                 // Heavy regions pack best by dynamic claiming; cheap ones by dataflow, which never scans.
