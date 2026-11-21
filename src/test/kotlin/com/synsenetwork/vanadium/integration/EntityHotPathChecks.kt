@@ -9,7 +9,9 @@ import net.minecraft.world.entity.EntitySpawnReason
 import net.minecraft.world.entity.EntityType
 import net.minecraft.world.entity.EntityTypes
 import net.minecraft.world.entity.InsideBlockEffectApplier
+import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.level.BlockGetter
+import net.minecraft.world.level.ClipContext
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.SlabBlock
@@ -17,6 +19,7 @@ import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.properties.SlabType
 import net.minecraft.world.level.pathfinder.WalkNodeEvaluator
 import net.minecraft.world.phys.AABB
+import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import net.minecraft.world.phys.shapes.BooleanOp
 import net.minecraft.world.phys.shapes.Shapes
@@ -38,8 +41,9 @@ internal object EntityHotPathChecks {
         try {
             val suffocating = checkIsInWall(level)
             val insideHits = checkInsideBlocksParity(level)
+            val losClear = checkHasLineOfSightParity(level)
             checkPathTypeCache(level)
-            println("ENTITY_HOT_PATH_CHECKS_PASSED inWall=$suffocating insideBlocks=$insideHits")
+            println("ENTITY_HOT_PATH_CHECKS_PASSED inWall=$suffocating insideBlocks=$insideHits losClear=$losClear")
         } finally {
             for (pos in BlockPos.betweenClosed(ORIGIN.offset(-4, -3, -4), ORIGIN.offset(4, 3, 4))) {
                 level.setBlock(pos, Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS)
@@ -278,6 +282,91 @@ internal object EntityHotPathChecks {
             true
         }
         return lastStep + 1
+    }
+
+    private fun checkHasLineOfSightParity(level: ServerLevel): Int {
+        val palette = listOf(
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.STONE.defaultBlockState(),
+            Blocks.GLASS.defaultBlockState(),
+            Blocks.STONE_SLAB.defaultBlockState().setValue(SlabBlock.TYPE, SlabType.BOTTOM),
+            Blocks.STONE_SLAB.defaultBlockState().setValue(SlabBlock.TYPE, SlabType.TOP),
+            Blocks.OAK_STAIRS.defaultBlockState(),
+            Blocks.OAK_FENCE.defaultBlockState(),
+            Blocks.SHORT_GRASS.defaultBlockState(),
+            Blocks.WATER.defaultBlockState(),
+            Blocks.SCAFFOLDING.defaultBlockState(),
+            Blocks.CAULDRON.defaultBlockState(),
+        )
+        val viewer = EntityTypes.ZOMBIE.create(level, EntitySpawnReason.COMMAND)!!
+        val target = EntityTypes.VILLAGER.create(level, EntitySpawnReason.COMMAND)!!
+        val blockModes = listOf(ClipContext.Block.COLLIDER, ClipContext.Block.VISUAL, ClipContext.Block.OUTLINE)
+        val fluidModes = listOf(ClipContext.Fluid.NONE, ClipContext.Fluid.ANY, ClipContext.Fluid.SOURCE_ONLY)
+        val random = Random(2633)
+        var clear = 0
+        var blocked = 0
+
+        repeat(25) { round ->
+            for (pos in BlockPos.betweenClosed(ORIGIN.offset(-4, -2, -4), ORIGIN.offset(4, 2, 4))) {
+                val state = if (round == 0) Blocks.AIR.defaultBlockState() else palette[random.nextInt(palette.size)]
+                level.setBlock(pos, state, Block.UPDATE_CLIENTS)
+            }
+            repeat(30) { sample ->
+                val vx = ORIGIN.x + random.nextDouble(-4.5, 5.5)
+                val vy = ORIGIN.y + random.nextDouble(-2.0, 2.5)
+                val vz = ORIGIN.z + random.nextDouble(-4.5, 5.5)
+                val tx: Double
+                val ty: Double
+                val tz: Double
+                when (sample) {
+                    // Identical eye positions
+                    0 -> { tx = vx; ty = vy + viewer.eyeHeight; tz = vz }
+                    // Sub-epsilon distance
+                    1 -> { tx = vx + 1.0E-5; ty = vy + viewer.eyeHeight; tz = vz }
+                    // Over 128-block distance limit
+                    2 -> { tx = vx + 129.0; ty = vy + viewer.eyeHeight; tz = vz }
+                    // Axis-aligned face grazing ray
+                    3 -> { tx = ORIGIN.x + 4.0; ty = ORIGIN.y.toDouble(); tz = ORIGIN.z.toDouble() }
+                    else -> {
+                        tx = ORIGIN.x + random.nextDouble(-4.5, 5.5)
+                        ty = ORIGIN.y + random.nextDouble(-2.0, 3.0)
+                        tz = ORIGIN.z + random.nextDouble(-4.5, 5.5)
+                    }
+                }
+                viewer.setPos(vx, vy, vz)
+                target.setPos(tx, ty - target.eyeHeight, tz)
+
+                val bMode = blockModes[sample % blockModes.size]
+                val fMode = fluidModes[(sample / blockModes.size) % fluidModes.size]
+                val expected = vanillaHasLineOfSight(viewer, target, bMode, fMode, ty)
+                val actual = viewer.hasLineOfSight(target, bMode, fMode, ty)
+                check(actual == expected) {
+                    "hasLineOfSight mismatch round=$round sample=$sample block=$bMode fluid=$fMode " +
+                        "from=(${viewer.x},${viewer.eyeY},${viewer.z}) to=($tx,$ty,$tz): actual=$actual expected=$expected"
+                }
+                if (expected) clear++ else blocked++
+            }
+        }
+        check(clear > 50 && blocked > 50, "hasLineOfSight fixtures need both clear ($clear) and blocked ($blocked) outcomes")
+        return clear
+    }
+
+    /** Vanilla 26.3 `LivingEntity.hasLineOfSight`. */
+    private fun vanillaHasLineOfSight(
+        viewer: LivingEntity,
+        target: Entity,
+        block: ClipContext.Block,
+        fluid: ClipContext.Fluid,
+        targetY: Double,
+    ): Boolean {
+        if (target.level() !== viewer.level()) return false
+        val from = Vec3(viewer.x, viewer.eyeY, viewer.z)
+        val to = Vec3(target.x, targetY, target.z)
+        if (to.distanceTo(from) > 128.0) return false
+        return viewer.level().clip(ClipContext(from, to, block, fluid, viewer)).type == HitResult.Type.MISS
     }
 
     private fun checkPathTypeCache(level: ServerLevel) {
