@@ -51,6 +51,7 @@ class ServerIntegrationChecks : ModInitializer {
             runCheck("SectionMoveChecks.run") { SectionMoveChecks.run(level) }
             runCheck("TickSafetyChecks.run") { TickSafetyChecks.run(level) }
             runCheck("NavigationChecks.run") { NavigationChecks.run(level) }
+            runCheck("PathfindingParityChecks.run") { PathfindingParityChecks.run(level) }
             runCheck("TrackingChecks.run") { TrackingChecks.run(level) }
             runCheck("SpawnChecks.run") { SpawnChecks.run(level) }
             runCheck("EntitySectionChecks.run") { EntitySectionChecks.run(level) }

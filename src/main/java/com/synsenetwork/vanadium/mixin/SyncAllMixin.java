@@ -11,7 +11,6 @@ import net.minecraft.world.level.TicketStorage;
 import net.minecraft.world.level.gameevent.EuclideanGameEventListenerRegistry;
 import net.minecraft.world.level.levelgen.LegacyRandomSource;
 import net.minecraft.world.level.lighting.DynamicGraphMinFixedPoint;
-import net.minecraft.world.level.pathfinder.BinaryHeap;
 import net.minecraft.world.level.saveddata.maps.MapItemSavedData;
 import net.minecraft.world.ticks.LevelChunkTicks;
 import net.minecraft.world.ticks.LevelTicks;
@@ -22,8 +21,10 @@ import org.spongepowered.asm.mixin.Mixin;
  * ticks on any worker (every ticker re-registers with the border after it changes); both are rarely written.
  * POI records are not listed: their tickets are atomic ({@code PoiRecordMixin}), and a record monitor taken
  * under a section's (and the reverse, through the section's dirty callback) deadlocked villagers.
+ * {@code BinaryHeap} is not listed: {@code PathFinder.openSet} is private to {@code PathFinder} (already
+ * synchronized by {@code PathFinderMixin}) and {@code EnderDragon} ticks serially.
  */
-@Mixin(value = {BinaryHeap.class, LevelChunkTicks.class, DynamicGraphMinFixedPoint.class, PathNavigation.class,
+@Mixin(value = {LevelChunkTicks.class, DynamicGraphMinFixedPoint.class, PathNavigation.class,
         EuclideanGameEventListenerRegistry.class, LegacyRandomSource.class, AngerManagement.class, SimpleCriterionTrigger.class, LevelTicks.class,
         PoiSection.class, NaturalSpawner.SpawnState.class,
         MapItemSavedData.class, TicketStorage.class, LithiumInterner.class, WorldBorderPositionListenerMulti.class})
