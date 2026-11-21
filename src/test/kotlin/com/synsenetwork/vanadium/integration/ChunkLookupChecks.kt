@@ -36,9 +36,14 @@ internal object ChunkLookupChecks {
                     }
                 }
                 jobs.forEach { it.get(10, TimeUnit.SECONDS) }
-                // A loaded full chunk must not override a request for a different status.
+                // A loaded full chunk satisfies every lower ChunkStatus lock-free (matching vanilla FULL >= status).
                 val pos = positions.first()
-                check(source.getChunk(pos.x(), pos.z(), ChunkStatus.BIOMES, false) !== chunks.first(), "status lookup bypassed vanilla")
+                check(source.getChunk(pos.x(), pos.z(), ChunkStatus.STRUCTURE_STARTS, false) === chunks.first(),
+                    "FULL chunk missed STRUCTURE_STARTS lookup")
+                check(source.getChunk(pos.x(), pos.z(), ChunkStatus.STRUCTURE_REFERENCES, false) === chunks.first(),
+                    "FULL chunk missed STRUCTURE_REFERENCES lookup")
+                check(source.getChunk(pos.x(), pos.z(), ChunkStatus.BIOMES, false) === chunks.first(),
+                    "FULL chunk missed BIOMES lookup")
             }
             replacement.setLoaded(true)
             chunks.first().setLoaded(false)

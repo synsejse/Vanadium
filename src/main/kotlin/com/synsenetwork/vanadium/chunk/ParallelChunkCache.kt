@@ -49,6 +49,16 @@ class ParallelChunkCache(
     /** Full chunks published by `LevelChunk.setLoaded`; removal matches the published instance. */
     private val loadedChunks = NonBlockingHashMapLong<LevelChunk>()
 
+    /**
+     * Border proto-chunks (at `STRUCTURE_STARTS`/`STRUCTURE_REFERENCES`, outside [loadedChunks]) resolved during the
+     * active spawning wave. Cleared immediately after the wave ([endStructureWave]) so chunks are never retained
+     * across unloads and 36 spawning workers do not contend on the same structure-origin C2ME `ItemHolder`.
+     */
+    private val waveStructureChunks = NonBlockingHashMapLong<ChunkAccess>()
+
+    @Volatile
+    private var structureWaveActive = false
+
     private val loadLockMaintenance = Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "Vanadium-ChunkMaintenance-${level.dimension().identifier().path}").apply { isDaemon = true }
     }.apply {
@@ -61,18 +71,26 @@ class ParallelChunkCache(
             return CompletableFuture.supplyAsync({ getChunk(chunkX, chunkZ, requiredStatus, load) }, mainThreadProcessor).join()
         }
         val pos = ChunkPos.pack(chunkX, chunkZ)
-        val full = loadedFull(pos, requiredStatus)
+        val full = loadedChunks[pos]
         if (full != null) return full
         val worker = WorkerPool.isWorkerThread()
         var stalled: Runnable? = null
         if (worker || WorkerPool.isParallelWaveCaller()) {
+            val cacheStructure = structureWaveActive && isStructureStatus(requiredStatus)
+            if (cacheStructure) {
+                val cached = waveStructureChunks[pos]
+                if (cached != null && cached.persistedStatus.isOrAfter(requiredStatus)) return cached
+            }
             // A wave participant: only a chunk the chunk system has already completed is used where it stands.
             // Anything else needs the server thread, mid-wave: chunk-system work would overlap the other
             // participants, so a deferrable task reruns after the wave instead.
             val holder = getVisibleChunkIfPresent(pos)
             if (holder != null) {
                 val chunk = completed(holder, requiredStatus)
-                if (chunk != null) return chunk
+                if (chunk != null) {
+                    if (cacheStructure) waveStructureChunks.putIfAbsent(pos, chunk)
+                    return chunk
+                }
             } else if (!load) {
                 return null
             }
@@ -89,10 +107,18 @@ class ParallelChunkCache(
 
     /** Under the load lock: the previous holder's full chunk was published by setLoaded before its load completed. */
     private fun getChunkUnderLoadLock(chunkX: Int, chunkZ: Int, pos: Long, status: ChunkStatus, load: Boolean): ChunkAccess? =
-        loadedFull(pos, status) ?: super.getChunk(chunkX, chunkZ, status, load)
+        loadedChunks[pos] ?: super.getChunk(chunkX, chunkZ, status, load)
 
-    private fun loadedFull(pos: Long, status: ChunkStatus): LevelChunk? =
-        if (status == ChunkStatus.FULL) loadedChunks[pos] else null
+    /** Enables the short-lived spawning-wave proto-chunk structure cache; server thread, before `Stage.SPAWNING`. */
+    fun beginStructureWave() {
+        structureWaveActive = true
+    }
+
+    /** Clears the spawning-wave proto-chunk structure cache; server thread, right after `Stage.SPAWNING`. */
+    fun endStructureWave() {
+        structureWaveActive = false
+        if (!waveStructureChunks.isEmpty()) waveStructureChunks.clear()
+    }
 
     /**
      * Whether a worker can get [status] at packed [pos] without the server thread: a published full chunk, or a
@@ -101,8 +127,15 @@ class ParallelChunkCache(
      */
     fun isAvailable(pos: Long, status: ChunkStatus): Boolean {
         if (loadedChunks.containsKey(pos)) return true
+        val cacheStructure = structureWaveActive && isStructureStatus(status)
+        if (cacheStructure) {
+            val cached = waveStructureChunks[pos]
+            if (cached != null && cached.persistedStatus.isOrAfter(status)) return true
+        }
         val holder = getVisibleChunkIfPresent(pos) ?: return false
-        return completed(holder, status) != null
+        val chunk = completed(holder, status) ?: return false
+        if (cacheStructure) waveStructureChunks.putIfAbsent(pos, chunk)
+        return true
     }
 
     /**
@@ -160,6 +193,7 @@ class ParallelChunkCache(
             super.close()
         } finally {
             loadLockMaintenance.close()
+            endStructureWave()
             synchronized(loadedChunks) { loadedChunks.clear() }
             loadLocks.evictIdle()
         }
@@ -171,6 +205,9 @@ class ParallelChunkCache(
 
         /** Shared by all worlds: one warning a minute is enough to name the caller. */
         val lastWorkerWaitWarning = AtomicLong()
+
+        fun isStructureStatus(status: ChunkStatus): Boolean =
+            status === ChunkStatus.STRUCTURE_STARTS || status === ChunkStatus.STRUCTURE_REFERENCES
 
         /** Minecraft owns this shared executor; only its identity is compared. */
         fun isMinecraftMainWorker(thread: Thread): Boolean =
