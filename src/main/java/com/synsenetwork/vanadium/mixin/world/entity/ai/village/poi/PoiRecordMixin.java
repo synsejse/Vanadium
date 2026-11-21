@@ -17,7 +17,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 
 /**
  * A record's free tickets are its only mutable state. They change by compare-and-set and are read as volatile, so
- * a record takes no monitor and is a leaf of the POI lock hierarchy (docs/ARCHITECTURE.md, "POI locking"): it is
+ * a record takes no monitor and is a leaf of the POI lock hierarchy (docs/architecture.html, "POI locking"): it is
  * read under a section's monitor and, for village centres, under the distance graph's. A ticket change runs the
  * section's dirty callback after the swap, holding nothing; that callback reaches the graph. Records were
  * synchronized through {@code SyncAllMixin}, which made a ticket change (record, then graph and section) and a

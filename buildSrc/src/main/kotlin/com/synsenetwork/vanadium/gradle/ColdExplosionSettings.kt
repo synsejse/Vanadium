@@ -2,7 +2,7 @@ package com.synsenetwork.vanadium.gradle
 
 /**
  * `-Pcold.*` properties of the manual cold-first-use explosion benchmark, validated before launch. One invocation
- * runs one arm in a fresh world and JVM; compare arms by alternating invocations (see docs/PROFILING.md).
+ * runs one arm in a fresh world and JVM; compare arms by alternating invocations (see docs/profiling.html).
  */
 class ColdExplosionSettings(property: (String) -> String?) {
     private val properties = StrictProperties(property)

@@ -19,11 +19,11 @@ enum class LiveFixture(
 
     /** Manual whole-server benchmark; its timeout grows with the requested ticks (see MixedBenchSettings). */
     MIXED_BENCH("mixedBench", "mixedbench", "mixed-bench", "mixedBenchJar", 10,
-        description = "Manual realistic whole-server benchmark (one mode per run; see docs/PROFILING.md)"),
+        description = "Manual realistic whole-server benchmark (one mode per run; see docs/profiling.html)"),
 
     /** Manual cold-first-use explosion benchmark (one arm per run; see ColdExplosionSettings). */
     COLD_EXPLOSION("coldExplosion", "coldexplosion", "cold-explosion", "coldExplosionJar", 10, listOf("cold-explosion.mixins.json"),
-        "Manual first-explosion (cold first use) benchmark (one arm per run; see docs/PROFILING.md)");
+        "Manual first-explosion (cold first use) benchmark (one arm per run; see docs/profiling.html)");
 
     val descriptor: String get() = "$modName.fabric.mod.json"
     val jarName: String get() = "$modName.jar"

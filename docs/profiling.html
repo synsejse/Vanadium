@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Profiling Vanadium — Vanadium</title>
+<link rel="stylesheet" href="site.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="index.html">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" aria-hidden="true">
+        <rect x=".5" y=".5" width="255" height="255" rx="56" fill="#181e29" stroke="#fff" stroke-opacity=".14"/>
+        <g fill="#346bf1" transform="translate(128 128) scale(.8) translate(-128 -128)">
+          <path d="M24 56h16l40 144h-16z" fill-opacity=".35"/>
+          <path d="M48 56h16l40 144h-16z" fill-opacity=".65"/>
+          <path d="M72 56h16l40 144h-16z" fill-opacity="1"/>
+          <path d="M216 56h-16l-40 144h-16z" fill-opacity=".35"/>
+          <path d="M192 56h-16l-40 144h-16z" fill-opacity=".65"/>
+          <path d="M168 56h-16l-40 144h-16z" fill-opacity="1"/>
+        </g>
+      </svg>
+      <span>Vanadium</span>
+    </a>
+    <nav class="site-nav" aria-label="Documentation">
+      <a href="index.html">Overview</a>
+      <a href="architecture.html">Architecture</a>
+      <a href="configuration.html">Configuration</a>
+      <a href="development.html">Development</a>
+      <a href="performance.html">Performance</a>
+      <a href="profiling.html" aria-current="page">Profiling</a>
+    </nav>
+    <div class="topbar-right">
+      <button class="btn" id="themeBtn" type="button">Light theme</button>
+    </div>
+  </div>
+</header>
+
+<header class="page-head">
+  <div class="page-head-grid">
+    <div>
+      <h1>Profiling Vanadium</h1>
+      <p class="page-summary">
+        In-game captures, spark worker recipes, JDK Flight Recorder events, the mixed whole-server
+        benchmark fixture, and the cold first-use explosion fixture.
+      </p>
+    </div>
+    <div class="page-meta">
+      JDK tools via <code>nix develop</code><br />
+      Inspect JFR in Mission Control or <code>jfr</code>
+    </div>
+  </div>
+</header>
+
+<div class="doc-shell">
+  <aside class="toc" aria-label="On this page">
+    <div class="toc-heading">Sections</div>
+    <ul id="tocList">
+      <li><a href="#in-game-commands" class="active">In-game commands</a></li>
+      <li><a href="#spark">spark</a></li>
+      <li><a href="#flight-recorder">Flight Recorder</a></li>
+      <li><a href="#mixed-whole-server-benchmark">Mixed whole-server benchmark</a></li>
+      <li><a href="#tick-timing" class="sub">Tick timing</a></li>
+      <li><a href="#spawn-contention-arms" class="sub">Spawn contention arms</a></li>
+      <li><a href="#cold-first-use-explosion">Cold first-use explosion</a></li>
+    </ul>
+  </aside>
+
+  <main class="article">
+    <section class="chapter" id="in-game-commands">
+      <h2>In-game commands</h2>
+      <p>
+        Use the JDK tools supplied by <code>nix develop</code>, or open recordings in JDK Mission Control.
+        Performance measurements must hold worker count, isolation, C2ME budget, heap, flags,
+        mods and workload fixed. <code>enabled=false</code> keeps structural mixins and loaded-chunk lookups;
+        it is not a no-Vanadium control.
+      </p>
+      <ul>
+        <li><code>/vanadium benchmark 30</code> measures uncapped whole-server throughput using tick sprint.</li>
+        <li><code>/vanadium profile 30</code> captures tick/stage distributions at the current tick rate.</li>
+        <li><code>/vanadium profile report</code> repeats the last profile's summary.</li>
+      </ul>
+      <p>
+        Each prints a short summary and the path of its JSON result file. What the results contain, how
+        their measurements overlap and where the <code>VANADIUM_RESULT</code> JSON goes are in
+        <a href="configuration.html#reports">Configuration and commands</a>. A hung tick's crash report carries
+        Vanadium's wave state (<a href="configuration.html#watchdog-crash-reports">watchdog crash reports</a>).
+      </p>
+    </section>
+
+    <section class="chapter" id="spark">
+      <h2>spark</h2>
+      <p>
+        <a href="https://spark.lucko.me/">spark</a> samples CPU stacks, which Vanadium's captures do not. Its profiler
+        samples only the server thread by default, and most tick work runs on the workers. They are named
+        <code>Vanadium-Worker-1</code> to <code>Vanadium-Worker-N</code>, and spark's default grouping strips the trailing
+        number, so they appear together as one <code>Vanadium-Worker</code> pool. To sample the server thread and the
+        workers:
+      </p>
+      <div class="code-block">
+        <div class="code-block-bar">
+          <span>In-game spark commands</span>
+          <button class="btn subtle" data-copy-code type="button">Copy</button>
+        </div>
+<pre>/spark profiler start --thread Server.thread --thread Vanadium-Worker-.* --regex
+/spark profiler stop</pre>
+      </div>
+      <p>
+        Add <code>--not-combined</code> for one entry per worker, or <code>--only-ticks-over 50</code> to keep only slow ticks.
+        <code>--thread *</code> samples every thread, C2ME's and the JVM's included. Sampling cannot tie a stack to one
+        wave or stage; use the <a href="#flight-recorder">Flight Recorder</a> events for that.
+      </p>
+    </section>
+
+    <section class="chapter" id="flight-recorder">
+      <h2>Flight Recorder</h2>
+      <p>
+        Use the Minecraft JVM PID from <code>jcmd -l</code>, not the Gradle daemon PID. Always use an absolute
+        recording filename:
+      </p>
+      <div class="code-block">
+        <div class="code-block-bar">
+          <span>Shell</span>
+          <button class="btn subtle" data-copy-code type="button">Copy</button>
+        </div>
+<pre>jcmd &lt;pid&gt; JFR.start name=vanadium settings=profile duration=60s filename=/absolute/path/vanadium.jfr 'jdk.JavaMonitorEnter#threshold=100us' 'jdk.ThreadPark#threshold=100us' 'jdk.ExecutionSample#period=5ms'
+jcmd &lt;pid&gt; Thread.print
+jfr summary /absolute/path/vanadium.jfr
+jfr print --events 'vanadium.*,jdk.JavaMonitorEnter,jdk.ThreadPark' /absolute/path/vanadium.jfr</pre>
+      </div>
+      <p>
+        Vanadium emits <code>vanadium.ServerTick</code> (the server's tick work, from Fabric's <code>START_SERVER_TICK</code> to
+        <code>END_SERVER_TICK</code>), <code>vanadium.Wave</code> (one stage wave: stage, world, regions, tasks, participants and
+        isolation) and <code>vanadium.Preparation</code> (independent jobs), all on the server thread. They are
+        durations of work. A completion gap, the time between two ticks' completions that the live fixtures
+        report, also holds the pacing wait, tasks the server thread runs between ticks and JVM stops before
+        the tick, so a long gap can hold a short <code>ServerTick</code>; see <a href="#tick-timing">tick timing</a> for the
+        fixtures' clocks. Correlate these intervals with worker samples, monitor blocking, parks and
+        allocation samples in Mission Control. A wave's duration includes its lock waits and does not
+        establish CPU utilization by itself.
+      </p>
+      <p>
+        <code>./gradlew runIntegration -Plive.jfr=true</code> captures the isolated live suite with 100 µs
+        monitor thresholds. <code>./gradlew runFeatureBench</code> writes separate on/off JFR recordings and
+        paired timing/allocation CSV files. See <a href="development.html">Development</a> for filters and scale.
+        Feature timing samples exclude active JFR and are subsystem measurements rather than
+        multiplayer TPS or p99 latency. Published chart inputs and workload limits are documented
+        in <a href="performance.html">Performance evidence</a>.
+      </p>
+    </section>
+
+    <section class="chapter" id="mixed-whole-server-benchmark">
+      <h2>Mixed whole-server benchmark</h2>
+      <p>
+        <code>./gradlew runMixedBench</code> starts a fresh dedicated server (with the pinned C2ME and Lithium) in
+        <code>.vanadium/runs/mixedBench-UUID/</code> and measures a workload shaped like a small survival server.
+        It is manual only: it needs the accepted <code>.vanadium/eula.txt</code>, takes several minutes, and is never
+        part of <code>build</code> or <code>runIntegration</code>. Run one live server at a time.
+      </p>
+      <p>Workload, identical in both modes for the same properties:</p>
+      <ul>
+        <li>Generated terrain (seed 12345, normal world type, difficulty normal) with natural spawning, the day–night cycle and default game rules, except fixed clear weather and <code>mob_griefing</code> off. Every run starts at dusk (time 12000) once chunk loading has settled.</li>
+        <li><code>mixed.bases</code> bases 384 blocks apart. Each has a 32×32 platform above the terrain with twelve furnaces fed by hoppers from input and fuel chests and emptied by hoppers into output chests, two circulating hopper rings (24 hoppers), a repeater clock lighting ten lamps and firing ten pistons every 32 ticks, a hydrated 9×9 wheat farm, a fenced pen with sixteen animals, and four villagers with beds, job sites and a bell.</li>
+        <li><code>mixed.players</code> real <code>ServerPlayer</code>s over the mocked transport (<code>live/TestPlayer.kt</code>), assigned to bases in turn. The first round circles its base at walking speed; the next round sprints 192 blocks out and back, unloading chunks behind it and reloading them from disk. Routes are stone roads above the terrain so straight moves pass vanilla validation. Players are survival players with resistance, regeneration and saturation: mobs target and hit them, but none dies or starves.</li>
+        <li>Setup generates bases and routes, players join, and readiness waits at 20 TPS until the players entity-tick and the loaded-chunk count is steady for five seconds. Warmup (default 1,600 ticks) covers each explorer's first round trip, which generates its view corridor; measured windows then mostly load visited chunks from disk.</li>
+      </ul>
+      <p>
+        Windows are fixed numbers of ticks, so both modes advance the world equally. Without <code>mixed.sprint</code>
+        the server runs at its normal 20 TPS pacing (tick time and spare capacity matter, TPS drops only when
+        overloaded); with <code>mixed.sprint=true</code> it runs uncapped (throughput).
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Property</th>
+              <th>Default</th>
+              <th>Meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code>mixed.mode</code></td><td><code>enabled</code></td><td><code>enabled</code>, or <code>serial</code> (<code>enabled = false</code>; structural mixins remain, not a no-mod control).</td></tr>
+            <tr><td><code>mixed.players</code> / <code>mixed.bases</code></td><td><code>8</code> / <code>4</code></td><td>Simulated players and bases.</td></tr>
+            <tr><td><code>mixed.warmup</code> / <code>mixed.window</code> / <code>mixed.windows</code></td><td><code>1600</code> / <code>1200</code> / <code>5</code></td><td>Ticks before measuring, ticks per window, window count.</td></tr>
+            <tr><td><code>mixed.sprint</code></td><td><code>false</code></td><td>Uncapped ticking during warmup and windows.</td></tr>
+            <tr><td><code>mixed.workers</code> / <code>mixed.isolation</code></td><td><code>0</code> / <code>2</code></td><td><code>vanadium.toml</code> values (0 = automatic worker count).</td></tr>
+            <tr><td><code>mixed.parallelSpawning</code></td><td><code>true</code></td><td><code>false</code> writes <code>parallelSpawning = false</code> (serial spawning arm; needs <code>mixed.mode=enabled</code>).</td></tr>
+            <tr><td><code>mixed.c2me</code></td><td>C2ME default</td><td><code>globalExecutorParallelism</code>.</td></tr>
+            <tr><td><code>mixed.viewDistance</code> / <code>mixed.simulationDistance</code></td><td><code>8</code> / <code>6</code></td><td>Server view and simulation distance.</td></tr>
+            <tr><td><code>mixed.heap</code> / <code>mixed.jvmArgs</code></td><td><code>4g</code> / none</td><td><code>-Xms</code>/<code>-Xmx</code> and extra JVM flags (space-separated; collector flags rejected, use <code>mixed.gc</code>).</td></tr>
+            <tr><td><code>mixed.gc</code></td><td><code>g1</code></td><td><code>g1</code> (<code>-XX:+UseG1GC</code>) or <code>zgc</code> (<code>-XX:+UseZGC</code>, generational).</td></tr>
+            <tr><td><code>mixed.gcLog</code></td><td><code>false</code></td><td>GC and safepoint logging into the run's <code>gc.log</code>; <code>-Xloggc</code> and conflicting <code>-Xlog</code> flags are then rejected.</td></tr>
+            <tr><td><code>live.jfr</code></td><td><code>false</code></td><td>Record into <code>live.jfr</code> (100 µs monitor/park thresholds) from <code>mixed.jfrLead</code> ticks before the first window to the last.</td></tr>
+            <tr><td><code>mixed.jfrLead</code></td><td><code>200</code></td><td>Ticks of recording before the first window, at least 1; with warmup shorter than lead, starts at end of setup.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>Outputs in the run directory:</p>
+      <ul>
+        <li><code>mixed-bench/windows.csv</code>: per window, ticks, wall time, TPS, vanilla tick time (mean, p50, p95, p99, max), process CPU and Java-thread CPU by role (server thread, Vanadium workers, C2ME, other), CPU per tick, busy cores, allocation, GC count and time, entity counts by category, loaded chunks, and workload health (redstone lamp toggles, player position corrections, walker stalls, items smelted).</li>
+        <li><code>mixed-bench/threads.csv</code>: CPU and allocation per thread over all windows.</li>
+        <li><code>mixed-bench/entities.csv</code>: entity types, and item entities by item, at the end.</li>
+        <li><code>mixed-bench/ticks.csv</code>: every tick from setup end to last measured tick (<code>phase</code>, <code>window</code>, <code>tick_id</code>, <code>tick_ns</code>, <code>end_uptime_ns</code>). Buffered as primitives and written at each boundary.</li>
+        <li><code>mixed-bench/boundaries.csv</code>: <code>setup_end</code>, <code>jfr_start</code>, <code>ready_end</code>, <code>measure_start</code> and each <code>window_end</code>, with last completed tick, <code>mark_uptime_ns</code>, <code>work_before_row_ns</code> and wall-clock <code>epoch_us</code>.</li>
+        <li><code>gc.log</code> (with <code>mixed.gcLog=true</code>): <code>-Xlog:gc*,safepoint:file=gc.log:time,uptime,uptimenanos,level,tags:filecount=0</code>.</li>
+        <li><code>vanadium/results/mixed-bench-*.json</code>: the same windows with settings, JVM arguments, collectors, versions and Vanadium configuration (also logged as a <code>VANADIUM_RESULT</code> line).</li>
+      </ul>
+      <p>
+        A run passes only when every expected file exists with at least its expected rows, plus <code>gc.log</code> when
+        requested and a non-empty <code>live.jfr</code> with <code>live.jfr=true</code>. <code>gc_count</code>/<code>gc_ms</code> sum every
+        <code>GarbageCollectorMXBean</code>; under ZGC cycle and pause beans overlap, so compare GC pauses using
+        <code>gc.log</code> or JFR GC pause events rather than those columns.
+      </p>
+      <p>
+        A stalled tick or setup stops the run after five minutes (<code>max-tick-time</code>) with vanilla's crash
+        report. On early abort/SIGTERM the fixture logs <code>MIXED_BENCH_ABORTED</code>, flushes buffered ticks to
+        <code>ticks.csv</code> and stops JFR best-effort; a killed JVM or non-returning server thread loses ticks since
+        the last boundary. Alternate fresh runs (<code>enabled, serial, serial, enabled</code>) and compare per-window
+        distributions (p50/p95, CPU/tick, busy cores) across several runs per mode.
+      </p>
+
+      <h3 id="tick-timing">Tick timing</h3>
+      <p>Columns appended to <code>windows.csv</code> after the health columns, and the clocks behind them:</p>
+      <ul>
+        <li><strong>Clock:</strong> <code>*_uptime_ns</code> values are <code>System.nanoTime()</code> converted to JVM uptime, matching unified logging's <code>uptimenanos</code> so <code>gc.log</code> pauses line up directly with ticks (calibrated at setup in <code>MIXED_BENCH_CLOCK</code>).</li>
+        <li><strong>Completion:</strong> when the fixture's <code>END_SERVER_TICK</code> hook starts, after vanilla's <code>tickServer</code> returns. A tick's start is approximately <code>end_uptime_ns - tick_ns</code>.</li>
+        <li><strong>Window boundary <code>t0</code>:</strong> completion of the tick before the window. Boundary work runs on the server thread after <code>t0</code>, inside the next window's first gap.</li>
+        <li><strong><code>completion_span_ms</code> / <code>completion_tps</code>:</strong> last completion minus <code>t0</code>, and ticks over that span.</li>
+        <li><strong><code>max_gap_ms</code> / <code>max_gap_tick</code>:</strong> longest interval between consecutive completions and the tick that ends it. Stalls outside <code>tickServer</code> show here even when not in <code>tick_max_ms</code>.</li>
+        <li><strong><code>ticks_over_50ms</code> / <code>ticks_over_100ms</code>:</strong> ticks whose <code>tickServer</code> duration strictly exceeds the threshold; <code>tick_max_id</code> names the longest.</li>
+        <li><strong><code>rolling_tps_min_20t</code> / <code>rolling_tps_min_100t</code>:</strong> lowest <code>k / (t(j) - t(j-k))</code> over every complete run of <code>k</code> consecutive completions inside the window.</li>
+      </ul>
+      <p>
+        For attribution, <code>live.jfr</code> also contains <code>vanadium.MixedBenchTick</code> and
+        <code>vanadium.MixedBenchBoundary</code> instant events alongside <code>vanadium.ServerTick</code>. Startup and
+        first-use effects (class loading, mixin transforms) are not excluded; <a href="#cold-first-use-explosion">Cold first-use explosion</a>
+        isolates the first explosion.
+      </p>
+
+      <h3 id="spawn-contention-arms">Spawn contention arms</h3>
+      <p>
+        These arms measure how spawning time and whole-tick time move with fewer spawning participants. Every arm is
+        a fresh <code>runMixedBench</code> with identical properties; the result JSON records <code>spawnArm</code>,
+        <code>parallelSpawning</code>, <code>spawnParticipants</code> and JVM arguments.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th><code>spawnArm</code></th>
+              <th>Flags</th>
+              <th>Spawn count</th>
+              <th>Spawn attempts</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code>participants-auto</code></td><td>none (default)</td><td>parallel <code>SPAWN_COUNTS</code></td><td>scheduler estimate</td></tr>
+            <tr><td><code>participants-8</code> / <code>-4</code> / <code>-2</code></td><td><code>-Pmixed.jvmArgs=-Dvanadium.spawnParticipants=8</code> (4, 2)</td><td>parallel</td><td>waves offered at most 8 (4, 2) threads, server thread included</td></tr>
+            <tr><td><code>participants-1</code></td><td><code>-Pmixed.jvmArgs=-Dvanadium.spawnParticipants=1</code></td><td>parallel</td><td>spawning wave inline on server thread, region plan order, thunder in its region</td></tr>
+            <tr><td><code>serial-spawning</code></td><td><code>-Pmixed.parallelSpawning=false</code></td><td>vanilla serial <code>createState</code></td><td>vanilla <code>tickSpawningChunk</code> inline in shuffled order</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        See <a href="architecture.html#spawning-participants">Architecture</a> for what the cap bounds.
+        <code>participants-1</code> keeps parallel counting and the deferral wrapper (never deferring inline), while
+        <code>serial-spawning</code> uses vanilla's <code>createState</code> and shuffled chunk loop with no deferral path.
+      </p>
+      <div class="code-block">
+        <div class="code-block-bar">
+          <span>Spawn contention arm commands (alternate fresh JVMs, ≥4 runs per arm)</span>
+          <button class="btn subtle" data-copy-code type="button">Copy</button>
+        </div>
+<pre>./gradlew runMixedBench --no-configuration-cache                                   # participants-auto
+./gradlew runMixedBench --no-configuration-cache -Pmixed.jvmArgs=-Dvanadium.spawnParticipants=8
+./gradlew runMixedBench --no-configuration-cache -Pmixed.jvmArgs=-Dvanadium.spawnParticipants=4
+./gradlew runMixedBench --no-configuration-cache -Pmixed.jvmArgs=-Dvanadium.spawnParticipants=2
+./gradlew runMixedBench --no-configuration-cache -Pmixed.jvmArgs=-Dvanadium.spawnParticipants=1
+./gradlew runMixedBench --no-configuration-cache -Pmixed.parallelSpawning=false    # serial-spawning</pre>
+      </div>
+    </section>
+
+    <section class="chapter" id="cold-first-use-explosion">
+      <h2>Cold first-use explosion</h2>
+      <p>
+        <code>./gradlew runColdExplosion</code> reproduces the JVM's first <code>ServerExplosion</code> class load and
+        Mixin/ASM transform inside a creeper's fuse tick in the flat entity wave against warmed blasts on the same
+        path. It is manual only (accepted <code>.vanadium/eula.txt</code>, about a minute of ticks, never part of
+        <code>build</code> or <code>runIntegration</code>); run one live server at a time.
+      </p>
+      <p>
+        Twelve identical arenas sit on a ring 32 blocks from one creative observer player, each with a no-AI creeper
+        and a no-AI pig five blocks outward, plus a fenced pen of <code>cold.filler</code> AI cows so the entity wave
+        offers workers. Setup hurts a temporary pig with explosion and generic damage so damage paths are warm in
+        every arm.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="num">Tick</th>
+              <th><code>sham</code></th>
+              <th><code>warmup</code></th>
+              <th><code>load</code></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="num">100</td><td>nothing</td><td>ignite arena 0's creeper</td><td><code>Class.forName(ServerExplosion)</code> on server thread</td></tr>
+            <tr><td class="num">130</td><td>discard arena 0's creeper</td><td>arena 0 explodes (warmup blast)</td><td>discard arena 0's creeper</td></tr>
+            <tr><td class="num">300 + (k−1)×spacing</td><td>ignite arena k (k = 1..<code>cold.blasts</code>)</td><td>same</td><td>same</td></tr>
+            <tr><td class="num">ignition + 30</td><td>arena k explodes</td><td>same</td><td>same</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        A test-only mixin on <code>ServerLevel.explode</code> (<code>ExplosionObserver</code>) times every server
+        explosion on its own thread without touching <code>ServerExplosion</code> ahead of time.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Property</th>
+              <th>Default</th>
+              <th>Meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code>cold.arm</code></td><td><code>sham</code></td><td><code>sham</code>, <code>warmup</code> or <code>load</code>.</td></tr>
+            <tr><td><code>cold.blasts</code></td><td><code>8</code></td><td>Measured blasts, 2–11.</td></tr>
+            <tr><td><code>cold.spacing</code></td><td><code>100</code></td><td>Ticks between measured ignitions, at least 60.</td></tr>
+            <tr><td><code>cold.filler</code></td><td><code>200</code></td><td>AI cows in the pen, 0–400.</td></tr>
+            <tr><td><code>cold.mode</code></td><td><code>enabled</code></td><td><code>serial</code> sets <code>enabled = false</code>.</td></tr>
+            <tr><td><code>cold.workers</code></td><td><code>0</code></td><td><code>vanadium.toml</code> workers (0 = automatic); isolation 2, 2 GiB G1 heap.</td></tr>
+            <tr><td><code>cold.classLog</code></td><td><code>false</code></td><td><code>-Xlog:class+load=info:file=class-load.log:uptimenanos</code> in the run directory.</td></tr>
+            <tr><td><code>live.jfr</code></td><td><code>false</code></td><td><code>live.jfr</code> from readiness to end with <code>jdk.ClassLoad</code>/<code>ClassDefine</code> and <code>vanadium.ColdExplosion</code>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Outputs in <code>.vanadium/runs/coldExplosion-UUID/</code>: <code>cold-explosion/blasts.csv</code>,
+        <code>cold-explosion/ticks.csv</code>, <code>cold-explosion/blast-classes.csv</code> (with <code>cold.classLog</code>),
+        and <code>vanadium/results/cold-explosion-*.json</code>.
+      </p>
+      <div class="code-block">
+        <div class="code-block-bar">
+          <span>Cold explosion commands (alternate fresh JVMs, ≥4 runs per arm)</span>
+          <button class="btn subtle" data-copy-code type="button">Copy</button>
+        </div>
+<pre>./gradlew runColdExplosion --no-configuration-cache -Pcold.arm=sham
+./gradlew runColdExplosion --no-configuration-cache -Pcold.arm=warmup
+./gradlew runColdExplosion --no-configuration-cache -Pcold.arm=load                         # control, at least two runs
+./gradlew runColdExplosion --no-configuration-cache -Pcold.arm=sham -Pcold.classLog=true    # attribution, separate runs
+./gradlew runColdExplosion --no-configuration-cache -Pcold.arm=sham -Plive.jfr=true         # attribution, separate runs
+./gradlew runColdExplosion --no-configuration-cache -Pcold.arm=sham -Pcold.mode=serial      # same blasts off the entity wave</pre>
+      </div>
+      <p>
+        <strong>Reading the arms:</strong> The paired difference of blast 1 (<code>sham</code> minus <code>warmup</code>)
+        gives the first-use cost; comparing <code>load</code> isolates loading/transforming <code>ServerExplosion</code>
+        (<code>armActionMs</code>) from helper classes and first execution. <code>next1_ms</code>..<code>next5_ms</code>
+        show whether any stall spans more than one tick.
+      </p>
+      <p>
+        <strong>Limitations:</strong> Loom's run tasks launch with <code>fabric.development</code> and DEBUG logging to
+        <code>logs/debug.log</code>; for production-launcher measurements see <a href="performance.html#release-follow-up">release follow-up</a>.
+        <code>cold.classLog</code> and JFR add overhead to every class load, so keep timing runs separate from attribution runs.
+      </p>
+    </section>
+
+    <nav class="page-footer" aria-label="Pagination">
+      <a href="performance.html">
+        <span class="pf-dir">Previous page</span>
+        <span class="pf-title">Performance evidence</span>
+      </a>
+      <a class="next" href="index.html">
+        <span class="pf-dir">Back to start</span>
+        <span class="pf-title">Overview</span>
+      </a>
+    </nav>
+  </main>
+</div>
+
+<script src="site.js"></script>
+</body>
+</html>

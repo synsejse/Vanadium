@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Architecture — Vanadium</title>
+<link rel="stylesheet" href="site.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="index.html">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" aria-hidden="true">
+        <rect x=".5" y=".5" width="255" height="255" rx="56" fill="#181e29" stroke="#fff" stroke-opacity=".14"/>
+        <g fill="#346bf1" transform="translate(128 128) scale(.8) translate(-128 -128)">
+          <path d="M24 56h16l40 144h-16z" fill-opacity=".35"/>
+          <path d="M48 56h16l40 144h-16z" fill-opacity=".65"/>
+          <path d="M72 56h16l40 144h-16z" fill-opacity="1"/>
+          <path d="M216 56h-16l-40 144h-16z" fill-opacity=".35"/>
+          <path d="M192 56h-16l-40 144h-16z" fill-opacity=".65"/>
+          <path d="M168 56h-16l-40 144h-16z" fill-opacity="1"/>
+        </g>
+      </svg>
+      <span>Vanadium</span>
+    </a>
+    <nav class="site-nav" aria-label="Documentation">
+      <a href="index.html">Overview</a>
+      <a href="architecture.html" aria-current="page">Architecture</a>
+      <a href="configuration.html">Configuration</a>
+      <a href="development.html">Development</a>
+      <a href="performance.html">Performance</a>
+      <a href="profiling.html">Profiling</a>
+    </nav>
+    <div class="topbar-right">
+      <button class="btn" id="themeBtn" type="button">Light theme</button>
+    </div>
+  </div>
+</header>
+
+<header class="page-head">
+  <div class="page-head-grid">
+    <div>
+      <h1>Architecture</h1>
+      <p class="page-summary">
+        Vanadium parallelizes stages within a world. Worlds advance sequentially through one
+        server-owned scheduler and worker pool; it is not a server-per-region engine.
+      </p>
+    </div>
+    <div class="page-meta">
+      Package map, wave policies,<br />
+      lock hierarchies, and mod boundaries
+    </div>
+  </div>
+</header>
+
+<div class="doc-shell">
+  <aside class="toc" aria-label="On this page">
+    <div class="toc-heading">Sections</div>
+    <ul id="tocList">
+      <li><a href="#ownership-and-stages" class="active">Ownership and stages</a></li>
+      <li><a href="#planning-and-execution">Planning and execution</a></li>
+      <li><a href="#wave-sizing" class="sub">Wave sizing</a></li>
+      <li><a href="#idle-spinning" class="sub">Idle spinning</a></li>
+      <li><a href="#flat-entity-wave">Flat entity wave</a></li>
+      <li><a href="#collections-and-publication">Collections and publication</a></li>
+      <li><a href="#world-access">World access</a></li>
+      <li><a href="#poi-locking" class="sub">POI locking</a></li>
+      <li><a href="#preparation-and-networking">Preparation and networking</a></li>
+      <li><a href="#spawning" class="sub">Spawning</a></li>
+      <li><a href="#spawning-participants" class="sub">Spawning participants</a></li>
+      <li><a href="#tracking-and-chunk-packets" class="sub">Tracking and chunk packets</a></li>
+      <li><a href="#c2me-and-lithium">C2ME and Lithium</a></li>
+      <li><a href="#validation-boundaries">Validation boundaries</a></li>
+    </ul>
+  </aside>
+
+  <main class="article">
+    <section class="chapter" id="ownership-and-stages">
+      <h2>Ownership and stages</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Package</th>
+              <th>Responsibility</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>tick</code></td>
+              <td>Adaptive planning, stage scheduling, wave execution and the worker pool.</td>
+            </tr>
+            <tr>
+              <td><code>stage</code></td>
+              <td>What each stage queues: one owner per level and stage (<code>EntityTickTasks</code>, <code>ChunkStage</code>, <code>BlockEntityStage</code>, <code>ScheduledTickStage</code>).</td>
+            </tr>
+            <tr>
+              <td><code>entity</code></td>
+              <td>Entity section index, crowded-section cell grids (<code>CrowdGrid</code>), and allocation-free <code>InsideBlockFastPath</code> / <code>LineOfSightFastPath</code>.</td>
+            </tr>
+            <tr>
+              <td><code>concurrent</code></td>
+              <td>Entity ownership (<code>Interactions</code>, <code>OwnerLocks</code>, <code>ImpulseSlot</code>), POI claims, striped locks, per-thread world random streams, random-tick LCG, and scratch-sorted <code>StableDistance</code>.</td>
+            </tr>
+            <tr>
+              <td><code>chunk</code></td>
+              <td>Loaded-full-chunk publication, spawning-wave structure cache, server-thread load locks, packet preparation.</td>
+            </tr>
+            <tr>
+              <td><code>tracking</code></td>
+              <td>Nearby-player ranges and tracker diffs.</td>
+            </tr>
+            <tr>
+              <td><code>navigation</code></td>
+              <td>Navigation invalidation index, path-type cache and exact pathfinding fast paths with pooled nodes.</td>
+            </tr>
+            <tr>
+              <td><code>spawning</code></td>
+              <td>Mob counting, lazy count state and lock-free category counts (<code>ConcurrentMobCategoryCounts</code>).</td>
+            </tr>
+            <tr>
+              <td><code>diagnostics</code></td>
+              <td>Tick profiles, JFR events, wave watchdog, crash-report section, benchmarks, summaries and result files.</td>
+            </tr>
+            <tr>
+              <td><code>collections</code></td>
+              <td>Fastutil-compatible adapters over JDK/JCTools collections.</td>
+            </tr>
+            <tr>
+              <td><code>compat</code></td>
+              <td>Lithium's section-storage replacement; C2ME and Lithium mixin cancellation (Java).</td>
+            </tr>
+            <tr>
+              <td><code>commands</code>, <code>config</code></td>
+              <td>Brigadier commands, TOML configuration, live options, serial-type rules and JVM properties.</td>
+            </tr>
+            <tr>
+              <td><code>mixin</code></td>
+              <td>Java integration with vanilla, C2ME and Lithium, each mixin in its target class's official package (<code>mixin/server/level/ServerLevelMixin</code>); Lithium-class mixins in <code>mixin/compat/lithium</code>.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <a href="../AGENTS.md#source-map">AGENTS.md</a> maps the same packages to source paths and states which classes must stay Java.
+      </p>
+      <p>
+        <code>Vanadium</code> creates fresh scheduling state on server start and closes diagnostics and the
+        worker pool after the last wave on shutdown. Chunk caches own their maintenance executors;
+        load-lock tables own no threads. Integrated-server reopen must create a new lifecycle.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Stage</th>
+              <th>Collection and completion boundary</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Scheduled block/fluid ticks</td>
+              <td>Collect under the vanilla scheduler monitor, dispatch after releasing it.</td>
+            </tr>
+            <tr>
+              <td>Spawning/thunder</td>
+              <td>Complete before the separate block-ticking chunk pass.</td>
+            </tr>
+            <tr>
+              <td>Random/precipitation chunk ticks</td>
+              <td>Complete before custom spawners and broadcasts.</td>
+            </tr>
+            <tr>
+              <td>Tracking</td>
+              <td>Prepare visibility diffs, then complete tracker callbacks.</td>
+            </tr>
+            <tr>
+              <td>Entities</td>
+              <td>Vanilla's complete per-entity body as one flat wave; finish before block-entity bookkeeping.</td>
+            </tr>
+            <tr>
+              <td>Block entities</td>
+              <td>Queue supported tickers; finish before clearing the ticking flag.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Entities are the exception to region scheduling: see <a href="#flat-entity-wave">Flat entity wave</a>.
+      </p>
+      <p>
+        Each stage's collection lives in one Kotlin owner, created with the vanilla object that owns the stage:
+        <code>EntityTickTasks</code> per entity tick list, <code>ChunkStage</code> (spawning and chunk ticks) per chunk cache, and
+        <code>BlockEntityStage</code> per server level. <code>ScheduledTickStage</code> keeps no state; each <code>LevelTicks</code> holds its due
+        ticks in a <code>ScheduledTickStage.Queue</code>. The mixins only forward vanilla's calls to them; the owners decide
+        what runs inline, what is queued and what falls back to vanilla.
+      </p>
+      <p>
+        Disabled stages retain serial fallbacks. Structural synchronization and loaded-chunk
+        indexing remain installed even with <code>enabled=false</code>. Projectiles, entities in portals and
+        configured exact-ID exceptions (<a href="configuration.html#serial-type-rules">serial type rules</a>) tick
+        serially. A serial passenger routes its whole vehicle tree through the serial path.
+      </p>
+      <p>
+        Block entities also tick serially, on the server thread before the wave, while a neighbouring chunk
+        of theirs is still loading (<code>BlockEntityStage.ready</code>). Vanilla ticks them once their chunk's ticket
+        level allows block ticking, before its ticking future (which needs every neighbour FULL) completes, and
+        a tick may read past the chunk's edge: <code>BlockEntity.setChanged</code> notifies comparators up to two blocks
+        out through a solid block, unchecked. On a worker that read would wait for the server thread to load
+        the neighbour mid-wave. Random ticks, scheduled ticks and entities already wait for those futures, so
+        only block entities need this. Reads farther than 16 blocks (a spawner with a custom spawn range) can
+        still reach a chunk that is not FULL; they keep the mid-wave fallback in <code>ParallelChunkCache</code>.
+      </p>
+    </section>
+
+    <section class="chapter" id="planning-and-execution">
+      <h2>Planning and execution</h2>
+      <p>
+        Entity and chunk collection keep their tasks across ticks instead of rebuilding them on the server
+        thread. <code>PersistentTickTasks</code> holds one task per entity in the tick list, in arrival order: the tick
+        list reports adds and removes (from any thread, also mid-wave) and they apply at the next dispatch, so
+        an entity added during a tick first ticks next tick, as with vanilla's snapshot. Serial classification
+        is cached per entity: its type rules are recomputed when the configured rules change (compared by
+        identity), its portal and passenger part when portal entry or a mount is reported for it or a passenger,
+        and every tick for entities that are serial only through that part. <code>ChunkStage</code> caches the
+        entity-ticking chunk positions until the simulation-level map's write version changes; each task
+        resolves its holder and ticking chunk when it runs. Workers never mutate stage queues.
+      </p>
+      <p>
+        <code>RegionGrid</code> records tasks per chunk, using floor-correct coordinates and dense 16×16
+        tiles. Prefix sums guide quadtree splits: the task target is the larger of a share of
+        work (<code>tasks / (participants × 4)</code>) and approximately 25 µs of measured region work.
+        Hotspots split; quiet or cheap areas stay merged. A region is its chunks' bounding box;
+        tasks within it run serially in enqueue order.
+      </p>
+      <p>
+        Boxes within <code>isolation</code> chunks of each other in Chebyshev distance conflict. Conflict
+        lists are symmetric and the greedy colouring is proper. This safety distance does not
+        depend on region shape or worker count. Stable plans are reused for up to 20 waves while
+        membership, task-count drift and estimated cost remain within their bounds. New active
+        chunks, changed participants/isolation or expired plans trigger rebuilding.
+      </p>
+      <p>Both policies implement <code>RegionWave</code>:</p>
+      <ul>
+        <li><strong><code>ClaimWave</code></strong> dynamically claims heavy regions (estimated average ≥100 µs). Volatile <code>PENDING</code>/<code>TRYING</code>/<code>RUNNING</code>/<code>DONE</code> states and index-ordered claim resolution prevent conflicting work from overlapping. Participants exit early on <code>NO_PENDING</code>, spin 30 µs before parking on per-participant waiter slots (serving caller chunk requests and preserving the caller's interrupt flag), and selectively unpark only the count of newly freed neighbors.</li>
+        <li><strong><code>DataflowWave</code></strong> handles cheaper work. A region becomes ready after all lower-coloured conflicts finish. Atomic dependency counters and ready slots avoid repeated scanning, and it stays pure-spin to avoid futex wake latency on short 20–50 µs regions.</li>
+      </ul>
+      <p>
+        Both complete the whole wave before propagating task failures. There are no global
+        barriers between colours, but every stage has a full completion barrier. Relative order
+        between conflicting regions may change between ticks.
+      </p>
+      <p>
+        <code>WorkerPool</code> publishes one <code>WorkBatch</code> per wave. Its metadata is fixed before publication and never
+        changes: the task list, the saved task count, participants, chunk size and, for a homed wave
+        (<code>WaveHomes</code>, the entity wave below), the claim cells copied from the caller's layout. Its progress
+        is mutable and atomic: the claim cursor or cells, the remaining-task counter, the wake cursor, the
+        first failure, the busy time and the waiter's parked flag. Both helpers and the calling server
+        thread claim work, in list order through the cursor or home by home. One-task waves run inline.
+        Helpers spin before parking; the caller spins then parks for the tail (under pressure through tails
+        of up to 10 ms, <a href="#idle-spinning">below</a>). Late helpers use the saved task count, never a list that
+        the caller has cleared. Interruption restores the caller's flag only after all work finishes.
+        Never hold a monitor needed by workers while joining a wave.
+      </p>
+      <p>
+        Waking fans out. A worker sets its bit in a parked bitmap before its last look for a new
+        batch; the caller reads the bits of the wave's helpers after publishing, and only when one of
+        them may be parked does it unpark at most two of them. Each helper that joins a waking
+        batch first takes further helper indices from the batch's wake cursor and unparks those
+        workers, so wake-ups spread over the threads that are already awake instead of queueing on
+        the server thread. Each index is taken once by a thread that has seen the batch, which keeps
+        the per-worker Dekker pairing (publish, then read <code>parked</code>) whoever does the waking.
+      </p>
+
+      <h3 id="wave-sizing">Wave sizing</h3>
+      <p>
+        <code>TickScheduler</code> sizes every wave by its estimated work W: about <code>sqrt(W / c)</code> participants,
+        where c (<code>vanadium.participantCostNanos</code>, 2 µs) is what involving one more thread costs.
+        Region stages estimate W from <code>RegionGrid</code> (bounded by the conflict graph's clique cover);
+        flat and preparation waves from the busy time <code>runWave</code> reports. Unmeasured waves use every
+        worker; waves too small for a second thread run inline. A flat wave also knows its expected longest task L
+        (the entity wave's longest group, smoothed: up a tenth, down half per wave). It cannot end before L does,
+        so it gets no more than <code>1 + (W − L) / (0.8 L)</code> threads (<code>vanadium.criticalPathShare</code>,
+        0.8; 0 disables): the others finish the rest within 80% of L. In a 600-mob fight at 36 workers that is ~29
+        participants instead of 37; more would only spin through the tail. Both are measurement inputs
+        (<a href="configuration.html#jvm-properties">JVM properties</a>).
+      </p>
+
+      <h3 id="idle-spinning">Idle spinning</h3>
+      <p>
+        Idle spinning follows the tick (<code>SpinPolicy</code>). Under pressure (sprinting, or the next tick due
+        within 2 ms of the end of this one) workers spin 2 ms through every gap. With slack they spin
+        500 µs between waves of a tick; what happens between ticks is the <code>idleWorkers</code> option
+        (<code>IdleWorkers</code>):
+      </p>
+      <ul>
+        <li><strong><code>balanced</code></strong> parks workers when the tick ends, and the server thread spins through its wait for the next tick (<code>ServerSpin</code>, below).</li>
+        <li><strong><code>hot</code></strong> keeps workers spinning (50 ms between waves, and through the gap to 1 ms past the next tick's due time), and the server thread spins through the whole gap.</li>
+        <li><strong><code>lean</code></strong> parks workers when the tick ends, and the server thread sleeps until the next tick.</li>
+      </ul>
+      <p>
+        In every mode the next tick's start wakes the workers the previous tick used, so they are
+        spinning by its first wave. A tick that ran nothing in parallel (an idle server) keeps nobody
+        spinning, and a server paused when empty (<code>pause-when-empty-seconds</code>) fires no tick events at
+        all. A <code>/tick freeze</code> server (between <code>/tick step</code>s) ticks its entities serially, as vanilla
+        does: only players and vehicles carrying one tick, so its entity stage wakes nobody. Tracking
+        still runs, as vanilla's does, and only counts as parallel when it has enough work to spread.
+        Tick events are the only input: tests and benchmarks without them spin 2 ms. The caller's own two
+        wake-ups per fan-out, the tick-start wake and the 200 µs caller spin floor are fixed; tests and
+        <code>benchWorkerPool</code> pass other values to the constructors.
+        <code>vanadium.workerSlackSpinMicros</code> (500 µs) sets the spin between waves with slack, for
+        measurements (<a href="configuration.html#jvm-properties">JVM properties</a>).
+      </p>
+      <p>
+        The wave's caller (the server thread) waits for the tail on its own processor, and its wake-up
+        delays the tick itself. Under pressure it spins through tails of up to 10 ms
+        (<code>vanadium.callerPressureSpinMicros</code>) before parking; with slack it spins as long as an idle
+        worker would (at least 200 µs). The other way round does not work: shorter worker spins (10 or
+        100 µs fixed) halved sprint TPS in a 600-mob fight, and the longest entity tick itself took
+        twice as long while the others parked and woke.
+      </p>
+      <p>
+        <strong>Server spin.</strong> At 20 TPS on the test VM a tick after a long sleep can take twice as long as
+        the same tick under <code>/tick sprint</code>; see <a href="performance.html#idle-workers-at-20-tps">Performance</a>.
+        <code>END_SERVER_TICK</code> arms <code>ServerSpin</code> with the next tick's due time and the mode's window. The
+        <code>MinecraftServer.waitForTasks</code> mixin parks only until the window opens (at once, for a
+        whole-gap window), then spins 50 µs slices and returns to vanilla's <code>managedBlock</code> loop, which
+        polls tasks between slices exactly as before (vanilla's other waits poll every 100 µs). It spins only while
+        the wait is for exactly the armed tick, so a wait that no tick event preceded (a paused server between its
+        loop iterations, startup, shutdown) never spins. Spin slices are not counted as idle time in vanilla's
+        tick-time debug samples.
+      </p>
+    </section>
+
+    <section class="chapter" id="flat-entity-wave">
+      <h2>Flat entity wave</h2>
+      <p>
+        Regions cannot help where work is packed together: a base or a mob farm is one clique of conflicting
+        regions, and its entities would tick serially while the other workers wait. The <code>ENTITY</code> stage
+        therefore has no regions and no isolation: every entity tick is one task in a single wave, wherever
+        it is. Other stages keep region scheduling.
+      </p>
+      <p>What made this safe before was distance; now it is ownership (<code>Interactions</code>, <code>OwnerLocks</code>):</p>
+      <ul>
+        <li>A tick owns its vehicle tree: it holds that root entity's lock from start to end. Everything it writes to itself needs nothing else.</li>
+        <li>Reads of other entities and of blocks take no lock, exactly as between regions. Sorts by distance snapshot positions first into precomputed scratch arrays (<code>StableDistance</code>), because entities move while they are being sorted.</li>
+        <li>A push, the one thing crowded entities do to each other every tick, goes to the target's lock-free 3-double inbox (<code>ImpulseSlot</code>, zero <code>Vec3</code> allocation) and never waits; the target applies it at the start of its tick. Targets that had already ticked, or do not tick, are listed per thread and applied before the wave returns: a few on the server thread, many as a short wave in which each target is owned as in its own tick.</li>
+        <li>An entity's section changes only when its position crosses a section boundary. Position writes within a section (nearly all) take no lock; a crossing holds the old and new section's stripes (spinning briefly before parking), so an add cannot race a same-section removal into an orphaned section. Only the entity's owner writes its position, so its unlocked section key is current.</li>
+        <li>Any other write to another tree is a foreign write. Mixins at the mutation points open a scope: the tick releases its own lock and takes the target's, so the write waits for the target's own tick, and for nothing else: writes to different entities do not wait for each other. Releasing first keeps two entities that write to each other from deadlocking; the tick is open to foreign writes while it is in the scope, at a point where it was calling out, and a write back to itself in there takes its own lock again. The generic points are velocity, position, removal, synced data and brain memories; damage, effects and mounting are scoped as whole operations.</li>
+        <li>Operations that two entities start on each other in the same tick take both locks in id order (a pair scope) and recheck their condition inside, so the second sees what the first did: two stacks merging, two orbs merging, a mob taking an item, two parents breeding (one birth), villagers gossiping.</li>
+        <li>Block changes, explosions and vibration delivery from entity ticks are shared writes: they run one at a time on a shared lock, then follow the same per-chunk and neighbour-update synchronization as region work. Hoppers and beehives serialize the items and bees that enter them.</li>
+        <li>Entities whose ticks mostly write to others run serially before the wave, like projectiles: TNT, container and TNT minecarts, the dragon, the wither, end crystals, lightning, effect clouds, evoker fangs, copper golems and wardens.</li>
+      </ul>
+      <p>
+        A scope nested in another (damage whose side effects reach a third entity) holds one lock while
+        waiting for the next, so two such writers can wait on each other. A waiter follows the chain of
+        holders and what each waits for; if it leads back to itself it proceeds without that lock, and counts
+        it. Locks outside the protocol are invisible to that check, so every wait is also bounded (100 ms,
+        <code>vanadium.interactionTimeoutMillis</code>).
+        Either way one write runs unprotected instead of stalling the tick, and is reported. <code>Interactions</code>
+        counts foreign writes by what they changed (<code>Interactions.Write</code>; <code>-Dvanadium.interactionLogWaves=N</code> logs them).
+        The catalogue of whole operations is vanilla's; a mod's own pairwise logic is covered only by the generic points.
+      </p>
+      <p>
+        Wave order is a matter of balance only. A wave ends with its longest ticks, and in a crowd those are
+        sporadic: in a 600-mob fight a villager tick runs 1.5–3.5 ms (twenty times its usual tick; earlier profiles
+        put pathfinding there) about once every 40 ticks, unpredictably for the entity but steadily for its type. Wave tasks therefore persist in
+        groups (<code>PersistentTickTasks</code>): entity types run in order of their costliest member (per wave, the largest
+        per-entity time among the type's groups, smoothed), not their mean, so the type with the long ticks starts
+        first even when another type costs as much on average. In that fight about 95% of the longest tick of each
+        wave is one <code>PathFinder.findPath</code> call that ends without reaching its target (a different villager each
+        tick), and the wave ends just after it. Each type runs in tick-list order, in groups of
+        one type cut to about equal expected cost, ten per participant, so the pool claims them one at a time
+        and costly entities run alone. Groups time themselves (two clock reads per group, not per entity) and
+        those times are each type's cost. Groups are recut only when a type's ideal size drifts 25% from its
+        current one, and entities reordered only when the list is rebuilt or a type's costliest member becomes 25%
+        costlier than that of one ahead of it, so a steady wave costs the server thread nothing per entity or per
+        group. Profiles report each flat wave's longest group, when it started after the wave did
+        (<code>longestGroupStart</code>), the groups still running when the caller ran out of work, and the average
+        participants.
+      </p>
+      <p>
+        Which thread runs an entity is a matter of caches. Claimed in list order, any worker ticked any
+        entity, so an entity ticked on one socket was often ticked on the other the next tick, and every
+        line it had written moved across with it. The wave therefore has homes (<code>WaveHomes</code>): each type's
+        entities are cut into <code>workers + 1</code> equal slices of tick-list order, groups never cross a slice, and
+        slice h of every type is home h, owned by participant h (the server thread is 0, worker i is i + 1).
+        A participant drains its own home's groups of a type from the front, then takes other homes' groups
+        of that type from the back, nearest home first, and only then starts the next type: types are still
+        claimed costliest first. While membership is unchanged an entity stays in its home and on its thread.
+        In a spread-out world at 36 workers that cut remote-socket cache transfers about fivefold; see
+        <a href="performance.html#entity-homes">Entity homes</a>. Only a wave with every worker has homes: one capped by
+        its longest tick (<code>flatParticipants</code>, a fight) is as long as that tick, ran slower with homes and is
+        claimed in list order. Ordering each type by position (a Z-order curve) measured no different from
+        tick-list order, and pinning workers to cores, socket by socket, cut cross-socket transfers further
+        but not tick time; neither is kept. <code>-Dvanadium.entityHomes=false</code> claims every wave in list order
+        (<a href="configuration.html#jvm-properties">JVM properties</a>).
+      </p>
+      <p>
+        All waves run their tasks through one call site in <code>WorkerPool</code>. A claim loop whose call site sees
+        only entity groups gets the whole entity tick inlined by the JIT; every rare branch in it then
+        deoptimizes the claim loop, which in measurements stayed interpreted for whole runs.
+      </p>
+      <p>
+        Overlapping ticks can also fail where serial ticks cannot: a value read after another tick removed
+        it. Such failures do not repeat, so with <code>skipFailedEntityTicks</code> one failed tick is logged and its
+        remainder skipped; the same entity failing three ticks running is a real bug and stops the server
+        as vanilla does.
+      </p>
+    </section>
+
+    <section class="chapter" id="collections-and-publication">
+      <h2>Collections and publication</h2>
+      <p>
+        JCTools <code>NonBlockingHashMapLong</code> owns primitive-key storage and resizing for loaded full
+        chunks, entity sections, column snapshots and byte-valued simulation/POI levels. Steady
+        lookups take no shared monitor and do not box position keys. Byte values use the JVM cache.
+      </p>
+      <p>Fastutil field types require small adapters. Where the field is typed by a fastutil interface the adapter extends fastutil's <code>Abstract*</code> base:</p>
+      <ul>
+        <li><code>ConcurrentLongByteMap</code> adapts JCTools to <code>Long2ByteMap</code>, preserving default-return values and fastutil views. Its direct visitor uses primitive-key iteration.</li>
+        <li><code>ConcurrentLongObjectMap</code> and <code>ConcurrentIntObjectMap</code> adapt JDK <code>ConcurrentHashMap</code> and retain atomic compute functions. Packed long keys go through Murmur3's bijective finalizer (<code>PackedPositionKeys</code>); views decode original keys. Raw packed positions otherwise collapse into CHM tree bins.</li>
+        <li><code>ListeningConcurrentLongObjectMap</code> replaces Lithium's listening POI section map: writes to one chunk column and their add/remove callbacks run under that column's stripe lock, reads take none, and entry views are read-only. It answers null for missing keys, not a default return value.</li>
+      </ul>
+      <p>Where the field is typed by a concrete fastutil class, the adapter must subclass that class, and its inherited storage stays unused or is guarded:</p>
+      <ul>
+        <li><code>ConcurrentLongSet</code> adapts <code>ConcurrentSkipListSet</code> to vanilla's <code>LongLinkedOpenHashSet</code> fields. Every superclass storage reader is overridden. Iteration is ascending, not insertion order.</li>
+        <li><code>ConcurrentLongObjectOpenHashMap</code> stands in for Lithium's <code>Long2ObjectOpenHashMap</code> column index (<code>SectionStorage.columns</code>, set reflectively by <code>LithiumCompat</code>), backed by a <code>ConcurrentLongObjectMap</code>. Every superclass storage reader is overridden.</li>
+        <li><code>SynchronizedLong2ReferenceOpenHashMap</code> keeps the superclass storage for Lithium's per-world chunk-section callback map and synchronizes its single-key operations; callers iterate under its monitor.</li>
+      </ul>
+      <p>
+        Spatial indexes remain domain logic rather than general-purpose containers. <code>AreaMap</code>
+        paints nearby-player ranges and updates only their symmetric difference. <code>EntitySectionIndex</code>
+        visits only columns intersecting an entity query, preserving vanilla's packed-key order. Each
+        chunk column is one immutable entry (sorted Ys and their sections) replaced on change, so a column
+        costs one lock-free map read and readers never see half of a write. Entity box queries pass their box,
+        type and consumer down to each section instead of vanilla's per-query section lambda.
+      </p>
+      <p>
+        A section holding 24 or more entities also gets a <code>CrowdGrid</code> (2×4×2-block cells; built on
+        the server thread after the level's ticks, when no box is being written; dropped below half that). It
+        only prefilters small box queries such as pushing, which otherwise read every entity's box in the
+        section while those entities move on other cores. Candidates still get vanilla's test on the live box
+        and the caller's predicate, in the section list's order. Per-cell lists are immutable sorted arrays
+        updated lock-free by CAS: single-cell queries are wait-free, two-cell queries validate the sequence
+        counter and merge inline with zero scratch, and larger queries use <code>TickThread.crowdScratch</code>.
+        Box writes from another tick to an entity in a crowded section wait for its owner, as position writes
+        do; after an unprotected write (ownership timeout or cycle), grids are bypassed until rebuilt.
+      </p>
+      <p>
+        <code>NavigationIndex</code> filters invalidation candidates; dirty/custom/long-path cases retain a
+        conservative fallback. It does not run pathfinding asynchronously. The level's path-type cache, read by
+        every pathfinding mob, keeps each entry in one atomic long (<code>PathTypeSlots</code>: the position hash's high
+        bits and the type), so lookups take no lock and stores allocate nothing. Ground pathfinding stays
+        synchronous and vanilla-exact (<code>PathfindingFastPath</code>, <code>PathNavigationRegionMixin</code>,
+        <code>PathfindingContextMixin</code>, <code>NodeEvaluatorMixin</code>, <code>WalkNodeEvaluatorMixin</code>,
+        <code>NodeMixin</code>, <code>PathFinderMixin</code>): when Lithium's block-state cache is active and no Fabric
+        <code>LandPathTypeRegistry</code> provider overrides a block, state path types are read directly from
+        <code>PathNavigationRegion</code> without hitting the shared <code>PathTypeCache</code> or Fabric's empty-map
+        lookup; neighbor hazard skips extend across chunk and section seams (with <code>LevelChunkSectionMixin</code>
+        ensuring Lithium's block flags are initialized before its air-section counter checks <code>Blocks.AIR</code>);
+        <code>WalkNodeEvaluator</code> keeps a padded <code>WalkScratch</code> directly on <code>TickThread.walkScratch</code>
+        with generation-stamped spatial caches, a lazy per-search malus table, allocation-free <code>getPathTypeOfMob</code>,
+        and a primitive open-addressed <code>Node</code> table + pool active during <code>PathFinder.findPath</code>
+        (when <code>!captureDebug</code>) that clones only the winning reconstructed path before <code>done()</code>.
+      </p>
+      <p>
+        Entity inside-block and line-of-sight hot paths (<code>InsideBlockFastPath</code>, <code>LineOfSightFastPath</code>)
+        replace per-call <code>LongOpenHashSet</code>, <code>Vec3</code>, <code>ClipContext</code>,
+        <code>EntityCollisionContext</code>, and <code>BlockHitResult</code> allocations with primitive-register
+        traversals, local chunk/section caching, air skipping, bit-exact <code>clipsFullCube</code> tests, and a
+        reusable padded open-addressed visited table on <code>TickThread.insideBlockScratch</code>.
+      </p>
+    </section>
+
+    <section class="chapter" id="world-access">
+      <h2>World access</h2>
+      <ul>
+        <li><code>ParallelChunkCache</code> serves published loaded full chunks from its concurrent map for <em>every</em> <code>ChunkStatus</code> (<code>FULL</code>, <code>STRUCTURE_STARTS</code>, <code>STRUCTURE_REFERENCES</code>, <code>BIOMES</code>), eliminating C2ME <code>ItemHolder</code> lock contention during spawning. <code>LevelChunk.setLoaded</code> publishes/removes entries; a private publication monitor protects identity-conditional removal so an old unload cannot remove a replacement. Reads stay outside that monitor. During <code>Stage.SPAWNING</code>, a short-lived wave-scoped proto-chunk cache (<code>beginStructureWave</code> / <code>endStructureWave</code>) also caches border proto-chunks outside <code>loadedChunks</code> without retaining chunks across unloads.</li>
+        <li>Misses/status requests stay with vanilla/C2ME. On the server thread they run under per-position reentrant load locks, so a load started inside another (a load callback asking for a neighbour) takes its lock in place; FULL publication is rechecked after acquiring the load lock. Never publish null or non-FULL results. Minecraft's own background workers bounce synchronous loading to the server thread.</li>
+        <li>Only the server thread takes load locks (<code>ChunkLoadLocks</code>). Only it can finish a miss (C2ME adds new holders, ticket updates and FULL promotion there), so a lock held by any other thread would be held while waiting for the server thread, and the server thread asking for the same chunk would wait for it in turn: the deadlock this replaced. Other threads outside waves run vanilla/C2ME without a lock.</li>
+        <li>Vanadium workers use a chunk where they stand only if C2ME has already completed the requested status (or, without loading, no holder exists). Otherwise a task run through <code>WorkerPool.runDeferrable</code> unwinds with <code>ServerThreadRequired</code> and reruns on the server thread after the wave. Any other task hands the lookup to the wave's caller, the server thread, with <code>WorkerPool.callOnWaveCaller</code> and waits holding no load lock (a rate-limited warning names the caller): the caller serves it between its own claims and while it waits for the wave's tail, outside any task of its own, so the wait ends when the caller's current task does. Region schedulers also serve these requests between regions and while waiting for conflicts or dependencies, outside any region claim. Mods' load callbacks still wait for the end of the wave. A worker must not hold a lock that the server thread's tasks or chunk loading can wait for while it makes such a lookup; a wait longer than 10 s (<code>vanadium.callerRequestStallSeconds</code>) logs the stalled caller.</li>
+        <li>The server thread defers deferrable tasks the same way while helpers run: it could load, but the chunk-system work (status changes, entity and POI loading, mods' load callbacks) would then overlap the workers. <code>WorkerPool.runAfterParallelWave</code> queues other such server-thread work until the wave's tasks have all finished. Spawning is deferrable: it prechecks the chunk's referenced structure starts, so the usual deferral (joins and exploration) happens before any spawn attempt.</li>
+        <li><code>ChunkLoadLocks</code> reserves entries atomically against eviction. Unlock before dropping a reservation; maintenance must not evict a held or pending lock.</li>
+        <li>Per-holder synchronization protects chunk block/light updates. Dirty notifications queue to the server thread; workers never mutate the ordered eager-save set or wait for disk IO.</li>
+        <li>Section storage (POI) gets its concurrent map and dirty set when constructed. Callers loading the same column wait for its first loader, which reads off the server thread; vanilla let a second caller read the column before its sections were stored. POI sections synchronize their methods, and their per-type map and sets are concurrent: vanilla's record streams and Lithium's iterators are consumed after the section's lock is released, while other regions add POI. Records and the village distance graph follow <a href="#poi-locking">POI locking</a>.</li>
+        <li>Saved-data cache hits are concurrent; misses and snapshot creation synchronize separately from asynchronous disk writes. Never hold that monitor across <code>saveAndJoin</code> or close waits.</li>
+        <li>Immutable path-type entries prevent torn key/type reads. POI and simulation levels use the byte-map adapter. Per-thread random streams (cached on <code>TickThread</code>) avoid a shared world-random monitor, <code>Level.randValue</code> is per-thread via <code>VanadiumMixinPlugin</code>, and neighbor updates use per-thread <code>CollectingNeighborUpdater</code> delegates.</li>
+      </ul>
+      <p>
+        Isolation does not protect arbitrary cross-region interactions. Shared world monitors and
+        collection contracts are still required.
+      </p>
+
+      <h3 id="poi-locking">POI locking</h3>
+      <p>
+        Villagers in the flat entity wave claim, release and search POI from any thread, and each ticket
+        change re-evaluates its section's village-centre level in the distance graph
+        (<code>PoiManager.DistanceTracker</code>). The monitors, outermost first:
+      </p>
+
+      <div class="lock-ladder" aria-label="POI lock hierarchy">
+        <div class="lock-tier">
+          <div class="lock-rank">1</div>
+          <div>
+            <strong>Column unpack stripe (<code>SectionStorageMixin</code>)</strong> or vanilla's <code>loadLock</code>
+            <p>Held while the column's sections are created and <code>onSectionLoad</code> reaches the graph. Spans the column's disk read; no section or graph monitor does. <code>getOrCreate</code> holds it too so an empty section becomes present once.</p>
+          </div>
+        </div>
+        <div class="lock-tier">
+          <div class="lock-rank">2</div>
+          <div>
+            <strong>Section monitor (<code>SyncAllMixin</code>)</strong>
+            <p>Guards its record map and structural changes (<code>add</code>, <code>remove</code>, <code>release</code>, <code>refresh</code>), point reads and Lithium's merged queries. <code>getRecords</code> only builds a lazy stream over concurrent per-type sets, so it stays unsynchronized.</p>
+          </div>
+        </div>
+        <div class="lock-tier terminal">
+          <div class="lock-rank">3</div>
+          <div>
+            <strong>Graph monitor (<code>DynamicGraphMinFixedPoint</code>) — terminal</strong>
+            <p>Reads only the graph's own state, the concurrent section map (<code>get</code>, never loading), concurrent per-type sets and ticket counts. Never waits for another monitor, disk IO or section creation.</p>
+          </div>
+        </div>
+      </div>
+
+      <p>
+        Records hold no monitor (<code>PoiRecordMixin</code>): tickets change by compare-and-set and are read as
+        volatile, and the section's dirty callback runs after the swap. A raw <code>acquireTicket</code> therefore holds
+        nothing, a claim (<code>PoiClaims</code>, below) and a release hold their section, a load holds its stripe, and each
+        takes the graph last. Records used to be synchronized too, which deadlocked two villagers: a claim held a
+        record while its dirty callback's village check waited for that record's section, and a section read
+        (<code>getType</code>) held the section while waiting for the record.
+      </p>
+      <p>
+        Vanilla computes the level it publishes before taking the graph's monitor, so two threads changing one
+        section could publish in the opposite order to their reads and leave a stale village centre (or miss
+        one). <code>PoiManagerMixin</code> re-reads the level inside the monitor: the last update for a section follows
+        every change made before it, and the graph converges on the current POI state.
+      </p>
+      <p>
+        Claims honour the ticket they took, on a record that is still installed. Vanilla returns a claim's position
+        whether or not its ticket was still free, so two villagers picking the last ticket of one record could both
+        keep it; and it finds its candidate before it claims (Lithium's searches collect candidates into a list), so
+        the record may meanwhile have been removed by a block change, dropped by a section refresh or detached by a
+        column unload, and a ticket taken on it is saved nowhere. Both claims commit through <code>PoiClaims</code>: under the
+        section's monitor, the storage map (read without loading) must still hold that section and the section that
+        record at its position; then the ticket is taken by compare-and-set and the dirty callback runs (section, then
+        the terminal graph). Removal, refresh and <code>pack</code> are synchronized section methods, so each is ordered wholly
+        before or after a claim; no caller predicate and no load runs under that monitor. <code>take</code> (breeding beds, and
+        job sites when Lithium's <code>ai.poi.tasks</code> is off) skips a candidate that fails the commit and searches on, as if
+        that change had come first (<code>PoiManagerMixin</code>); Lithium's exact-position <code>takeAt</code> returns empty
+        (<code>PoiTakeAtMixin</code>, one optional hook that <code>VanadiumMixinPlugin</code> requires wherever <code>takeAt</code> exists).
+        <code>AcquirePoi</code> stores the job-site memory, sends its event, clears its retry cache and updates debug info only after a claim of
+        its target (<code>AcquirePoiMixin</code>); a lost claim changes nothing, and the next scheduled attempt searches again.
+        Each ticket therefore goes to one claimant, on the record that is saved, and only a claimant that took one
+        remembers the POI. <code>PoiRecord.acquireTicket</code> itself stays a plain compare-and-set for other callers.
+      </p>
+      <p>
+        C2ME's POI unloading (<code>chunkSystem.allowPOIUnloading</code>, on by default) flushes a column and removes its sections
+        when its chunk downgrades, on the server thread's executor, holding no POI monitor and telling nobody. That
+        executor also runs while the server thread waits inside a parallel wave, where workers may be claiming in the
+        column; and a village centre in a removed column drops out of the graph at the next nearby update, where vanilla
+        (which never unloads POI) keeps it while it is occupied. <code>PoiUnloadMixin</code> adds two vetoes to C2ME's merged
+        <code>shouldUnloadPoi</code>, never overriding its own refusal: on a parallel wave's caller (or a worker), and for a column
+        with a village centre in any installed section (the graph's only sources; every vanilla type with tickets is a
+        village type, so every claimed ticket is covered). An unload therefore runs only when no other thread claims, and
+        removes no source: no level in the graph changes, and nothing is invalidated. A ticket claimed before the unload
+        is in the flushed data and reloads with the column. On the server thread itself, a candidate found before an
+        unload pumped by its own search fails the commit. A vetoed column stays loaded, as in vanilla, until C2ME asks
+        again on a later downgrade of that chunk; the request is not queued or replayed, since nothing records whether the
+        chunk was loaded again in between. The hook is optional (absent without C2ME's chunk-system rewrite) and
+        <code>VanadiumMixinPlugin</code> requires it wherever the method exists.
+      </p>
+      <p>
+        Saving reads ticket counts after the dirty mark: a ticket changes before its column is marked dirty
+        (concurrent set), and a write removes the mark before packing, so it either includes the change or the
+        column stays marked for a later write.
+      </p>
+      <p><strong>Limits:</strong></p>
+      <ul>
+        <li>Columns are retained more than with C2ME alone: those whose chunks downgrade during a parallel wave, and those holding a village centre, stay loaded as vanilla keeps every column, until a later downgrade finds them eligible. Memory then grows with chunks unloaded mid-wave; a village centre's column is bounded by the villages, as in vanilla.</li>
+        <li>The guarantees cover vanilla's and the pinned Lithium's and C2ME's paths. A mod that calls <code>acquireTicket</code> itself skips the installed check, and one that removes POI sections by other means is not vetoed. A ticketed POI type outside the village tag (a mod's, or a datapack's edit of the tag) is not a village centre, so its column may unload outside waves; its tickets are flushed first and reload with it. Outside waves the unload is ordered against claims and section creation only because no other thread does either then; a mod doing so off-thread is not covered.</li>
+        <li>A claim of a record that a concurrent block change removes is ordered by the section's monitor: before the removal, the ticket goes with the record and vanilla's job-site validation drops the memory; after it, the claim fails.</li>
+        <li>Lithium's queries run callers' predicates under a section monitor. Vanilla's and Lithium's predicates take no POI monitor; a mod predicate that took another section's monitor, or waited for the server thread, could still stall that section.</li>
+      </ul>
+    </section>
+
+    <section class="chapter" id="preparation-and-networking">
+      <h2>Preparation and networking</h2>
+
+      <h3 id="spawning">Spawning</h3>
+      <p>
+        Spawn preparation replaces vanilla's entity iterator with scoped per-thread slices,
+        retaining C2ME filtering and vanilla's environment-aware costs. Workers count independent
+        slices; the caller reduces counts, player caps and charges in input order. Overrides clear
+        in <code>finally</code>. Spawn attempts remain a separate stage, with lock-free mob-category reads
+        through <code>ConcurrentMobCategoryCounts</code> on <code>NaturalSpawner.SpawnState</code> and
+        <code>LocalMobCapCalculator</code>.
+      </p>
+      <p>
+        With <code>parallelSpawning = false</code> and parallel chunk ticks, <code>tickSpawningChunk</code> runs as in vanilla:
+        each visited chunk's thunder runs inline at its original call, before that chunk's eligibility
+        checks and spawn attempt, and the attempt follows inline, in vanilla's shuffled order. Nothing is
+        queued in the spawning stage, so its wave is empty; the stage barriers before the block-ticking
+        pass stay. <code>ChunkStage</code> lists what runs inline and what is queued for every combination of <code>enabled</code>,
+        <code>parallelChunkTicks</code> and <code>parallelSpawning</code>.
+      </p>
+      <p>
+        The slices of Lithium's section iteration are ranges of the entity section index's column slots: every
+        column keeps a slot in a dense array (a removed column's slot takes the last one), so the caller cuts
+        the level into ranges without reading a column, and each worker walks its own columns. A scan records
+        each column's entity count, and the next tick's cut is weighted by them (plus a fixed cost per column),
+        so crowded columns get ranges of their own; one column is never split. Ranges are valid while no section
+        is created or removed, which holds during the counting wave.
+      </p>
+      <p>
+        Vanilla counts every tick even with <code>spawn_mobs</code> false, though only <code>getLastSpawnState</code> (debug screen,
+        <code>/perf</code> report, mods) can then see the result. <code>SpawnCounts</code> skips that count on dedicated servers until
+        something reads the state: the tick stores an empty placeholder with vanilla's spawnable chunk count,
+        and the first read on the server thread outside a wave counts then (from the entities as they are at
+        that point), stores it, and makes every later tick count; a read elsewhere returns null (as before the first tick)
+        and turns counting on from the next tick. Integrated servers, <code>enabled = false</code> and
+        <code>parallelSpawning = false</code> always count.
+      </p>
+
+      <h3 id="spawning-participants">Spawning participants</h3>
+      <p>
+        <code>-Dvanadium.spawnParticipants=N</code> (experimental, default <code>auto</code>; <a href="configuration.html#jvm-properties">JVM properties</a>)
+        bounds spawning waves at N threads including the server thread, for measuring the shared spawn-state
+        behaviour against fewer threads. It is an upper bound, not an occupancy: a wave is offered the smaller
+        of the scheduler's estimate and N (what JFR <code>WaveEvent</code> and tick profiles record), a one-region
+        wave still runs inline, and offered workers that find no claimable region stay idle. With parallel spawning
+        the spawning wave also carries the thunder of ticking chunks, which the bound covers too. <code>1</code> runs
+        the regions inline on the server thread in plan order, where blocking chunk lookups need no deferral.
+        Learned estimates, the region plan, the spawn count (<code>SPAWN_COUNTS</code>) and every other stage are unchanged.
+      </p>
+
+      <h3 id="tracking-and-chunk-packets">Tracking and chunk packets</h3>
+      <p>
+        Tracking owns reusable per-player diff rows and stable tracker slots through both barriers. A level
+        without players skips the move scan; moves are detected by position identity, so the first scan after
+        a join catches up before the first diff.
+        Workers prepare flags without callbacks; one subsequent task per tracker applies changes
+        in player order. Chunk packet preparation runs between simulation ticks, keeps selected
+        batch order and vanilla packet contents, and falls back inline for small batches.
+      </p>
+    </section>
+
+    <section class="chapter" id="c2me-and-lithium">
+      <h2>C2ME and Lithium</h2>
+      <p>
+        C2ME owns generation, holder promotion and ticket scheduling. It is required. Two named
+        thread-detection mixins are cancelled by the Java bootstrap integration (<code>compat/C2ME.java</code>). Mods that
+        also rewrite ticking or the chunk lookup path (Async, DimThread, MCMT, Moonrise, ServerCore, VMP) are
+        declared incompatible in <code>fabric.mod.json</code>.
+      </p>
+      <p>
+        Lithium is required; Vanadium compiles against the pinned 0.26.3. <code>fabric.mod.json</code> disables, through
+        <code>lithium:options</code>, the Lithium options whose job Vanadium does with thread-safe structures: chunk
+        access, entity class filtering and per-type lists, entity retrieval, the entity tick list, navigation
+        tracking and the profiler. It also disables <code>alloc.chunk_random</code>, which shares one mutable position per
+        world between parallel random ticks, and the experimental suffocation cache
+        (<code>experimental.entity.block_caching.suffocation</code>, off by default): Vanadium's <code>isInWall</code> is an
+        allocation-free loop with vanilla's checks. The rest stay enabled. The Lithium state that parallel stages
+        share in the pinned version is made safe as follows; a later Lithium may add state these points do not cover:
+      </p>
+      <ul>
+        <li>Entity class groups (<code>ClassGroupFilterableList</code>) come from Vanadium's copy-on-write <code>ClassInstanceMultiMap</code>; <code>compat.Lithium</code> cancels Lithium's single-threaded lists. Lithium's entity collision and projectile-collision shortcuts depend on them and stay on. Its cramming filter (<code>entity.collisions.unpushable_cramming</code>) is disabled: entities of any thread change a section's masked list as their feet block changes, and it would bypass the crowded-section grid.</li>
+        <li>POI section storage keeps Lithium's per-column index on a concurrent listening map; writes to one column and their index updates hold a column stripe lock, and reads take none. An unsupported storage layout stops initialization instead of continuing with an unsafe shared map.</li>
+        <li>Game-event dispatch reads per-chunk listener maps without the chunk's monitor, so those maps are concurrent and removal takes the monitor that creation already held. The per-world dispatcher storage takes a write lock for its rare updates; reads are optimistic and retry under a read lock only if a write overlapped them.</li>
+        <li>Chunk load/unload callbacks (<code>ChunkStatusTracker</code>) run on the server thread, which can change chunk status mid-wave; they are queued until the wave's tasks finish, before the chunk unloads.</li>
+        <li>Entity movement tracking (hoppers waiting for items to move) keeps per-section waiting lists that item and container entities empty on every move. In sections a tracker registered with, those moves and every list or registration change hold one lock; elsewhere moves only stamp the section's move time, without it.</li>
+        <li>Tracker interning, the world-border listener registry (every block-entity ticker re-registers after a border change) and chunk-section callback registration (hoppers) are synchronized; all are rare.</li>
+      </ul>
+      <p>
+        Users may still disable Lithium options in <code>config/lithium.properties</code>; injections into methods those
+        options add are optional (<code>require = 0</code>), and section storage falls back to Vanadium's concurrent map.
+        <code>MixinTargetsTest</code> checks bindings against the pinned Lithium jar, and every live run includes Lithium with
+        its default options plus the ones <code>fabric.mod.json</code> disables; other option combinations are not live-tested.
+        The manifest accepts later C2ME and Lithium versions, but only the pins are built against and tested.
+      </p>
+    </section>
+
+    <section class="chapter" id="validation-boundaries">
+      <h2>Validation boundaries</h2>
+      <p>
+        Correctness tests cover scheduling, collection semantics and selected transformed-server
+        paths, with the pinned C2ME and Lithium; <a href="development.html#live-server-integration-tests">Development</a>
+        lists what they cover and what still needs manual coverage. <a href="performance.html">Performance evidence</a>
+        applies only to its recorded workloads. Residual vanilla four-entry chunk
+        cache access on misses/non-FULL requests remains an audit item: per-position load locks
+        alone do not make its parallel-array reads safe.
+      </p>
+      <p>
+        Use <a href="profiling.html">Profiling</a> for investigation.
+      </p>
+    </section>
+
+    <nav class="page-footer" aria-label="Pagination">
+      <a href="index.html">
+        <span class="pf-dir">Previous page</span>
+        <span class="pf-title">Overview</span>
+      </a>
+      <a class="next" href="configuration.html">
+        <span class="pf-dir">Next page</span>
+        <span class="pf-title">Configuration and commands</span>
+      </a>
+    </nav>
+  </main>
+</div>
+
+<script src="site.js"></script>
+</body>
+</html>

@@ -38,7 +38,7 @@ import net.minecraft.world.level.ChunkPos
 import net.minecraft.world.level.chunk.storage.SectionStorage
 
 /**
- * POI locking (docs/ARCHITECTURE.md, "POI locking"): records are lock-free leaves, the distance graph's monitor is
+ * POI locking (docs/architecture.html, "POI locking"): records are lock-free leaves, the distance graph's monitor is
  * terminal, the village-centre level is published from a read made under that monitor, and claims honour the
  * ticket they actually took, on a record still installed. C2ME's POI unloading keeps columns that are in use (during
  * parallel waves, or holding a village centre). Lock edges are probed by holding the monitor a regression would need
