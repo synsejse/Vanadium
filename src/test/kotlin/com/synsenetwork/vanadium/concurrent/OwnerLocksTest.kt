@@ -290,4 +290,38 @@ class OwnerLocksTest {
         assertFalse(shared.isLocked)
         assertFalse(shared.hasQueuedThreads())
     }
+
+    @Test
+    fun tickThreadWorkersDetectCyclesViaContextWaitingFor() {
+        val locks = OwnerLocks(long)
+        val x = OwnerLocks.Lock()
+        val y = OwnerLocks.Lock()
+        val bothHolding = CyclicBarrier(2)
+        val failure = java.util.concurrent.atomic.AtomicReference<Throwable?>()
+        val workers = listOf(x to y, y to x).mapIndexed { index, (first, second) ->
+            object : com.synsenetwork.vanadium.tick.TickThread("OwnerLocksTest-Worker-$index") {
+                override fun run() {
+                    try {
+                        val ctx = OwnerLocks.Context()
+                        context = ctx
+                        locks.beginOwn(ctx, OwnerLocks.Lock())
+                        locks.enterForeign(ctx, first)
+                        bothHolding.await(10, TimeUnit.SECONDS)
+                        locks.enterForeign(ctx, second)
+                        locks.exitForeign(ctx)
+                        locks.exitForeign(ctx)
+                        locks.endOwn(ctx)
+                    } catch (t: Throwable) {
+                        failure.compareAndSet(null, t)
+                    }
+                }
+            }.apply { start() }
+        }
+        workers.forEach { it.join(15_000) }
+        assertEquals(null, failure.get())
+        assertTrue(workers.none { it.isAlive })
+        assertTrue(locks.cycles.get() in 1L..2L, "cycles=${locks.cycles.get()}")
+        assertEquals(0L, locks.timeouts.get())
+        assertFalse(x.isLocked || y.isLocked)
+    }
 }

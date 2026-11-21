@@ -1,5 +1,6 @@
 package com.synsenetwork.vanadium.concurrent
 
+import com.synsenetwork.vanadium.tick.TickThread
 import java.lang.invoke.MethodHandles
 import java.lang.invoke.VarHandle
 import java.util.concurrent.ConcurrentHashMap
@@ -177,13 +178,16 @@ class OwnerLocks(private val timeoutNanos: Long) {
 
         /** The lock each open scope took, by depth; null where its wait gave up. */
         @JvmField internal var held = arrayOfNulls<Lock>(4)
+
+        /** The lock this thread is currently parked waiting for, read by other threads' cycle check. */
+        @JvmField @Volatile internal var waitingFor: Lock? = null
     }
 
     /** Starts a task that owns [lock]'s object; waits for a foreign write to it to finish. */
     fun beginOwn(context: Context, lock: Lock) {
         check(context.ownLock == null && context.depth == 0) { "an owner task is already running on this thread" }
         context.ownLock = lock
-        context.ownHeld = acquire(lock)
+        context.ownHeld = acquire(context, lock)
     }
 
     fun endOwn(context: Context) {
@@ -200,7 +204,7 @@ class OwnerLocks(private val timeoutNanos: Long) {
         if (context.depth == 0) releaseOwn(context)
         if (context.depth == context.held.size) context.held = context.held.copyOf(context.depth * 2)
         val lock = target ?: shared
-        context.held[context.depth++] = if (acquire(lock)) lock else null
+        context.held[context.depth++] = if (acquire(context, lock)) lock else null
     }
 
     /**
@@ -215,8 +219,8 @@ class OwnerLocks(private val timeoutNanos: Long) {
         if (context.depth + 2 > context.held.size) context.held = context.held.copyOf(context.held.size * 2)
         val first = if (ownFirst) own else other
         val second = if (ownFirst) other else own
-        context.held[context.depth++] = if (acquire(first)) first else null
-        context.held[context.depth++] = if (acquire(second)) second else null
+        context.held[context.depth++] = if (acquire(context, first)) first else null
+        context.held[context.depth++] = if (acquire(context, second)) second else null
     }
 
     /** Closes the innermost scope; closing the last takes the owner's lock back. */
@@ -226,7 +230,7 @@ class OwnerLocks(private val timeoutNanos: Long) {
         context.held[depth]?.unlock()
         context.held[depth] = null
         val own = context.ownLock
-        if (depth == 0 && own != null) context.ownHeld = acquire(own)
+        if (depth == 0 && own != null) context.ownHeld = acquire(context, own)
     }
 
     /** Releases the owner's lock if this thread holds it: at a first foreign scope, and when the task ends. */
@@ -236,7 +240,7 @@ class OwnerLocks(private val timeoutNanos: Long) {
         context.ownLock?.unlock()
     }
 
-    private fun acquire(lock: Lock): Boolean {
+    private fun acquire(context: Context, lock: Lock): Boolean {
         if (lock.tryLock()) return true
         // Most waits are for the rest of one short task: spin through those without parking.
         repeat(SPINS) {
@@ -244,8 +248,10 @@ class OwnerLocks(private val timeoutNanos: Long) {
             if (lock.owner === null && lock.tryLock()) return true
         }
         val me = Thread.currentThread()
+        val onWorker = me is TickThread && me.context === context
         var interrupted = false
-        waiting[me] = lock
+        context.waitingFor = lock
+        if (!onWorker) waiting[me] = lock
         var node: Lock.Waiter? = null
         try {
             val deadline = System.nanoTime() + timeoutNanos
@@ -278,7 +284,8 @@ class OwnerLocks(private val timeoutNanos: Long) {
             }
         } finally {
             if (node != null) lock.deactivateWaiter(node)
-            waiting.remove(me)
+            context.waitingFor = null
+            if (!onWorker) waiting.remove(me)
             if (interrupted) me.interrupt()
         }
     }
@@ -290,7 +297,8 @@ class OwnerLocks(private val timeoutNanos: Long) {
             val thread = holder ?: return false
             if (thread === me) return true
             // A holder that is not waiting will release in its own time.
-            holder = (waiting[thread] ?: return false).holder
+            val waited = if (thread is TickThread) (thread.context as? Context)?.waitingFor ?: waiting[thread] else waiting[thread]
+            holder = (waited ?: return false).holder
         }
         return false
     }
