@@ -1,9 +1,11 @@
 package com.synsenetwork.vanadium.concurrent
 
+import java.lang.invoke.MethodHandles
+import java.lang.invoke.VarHandle
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.locks.ReentrantLock
+import java.util.concurrent.locks.LockSupport
 
 /**
  * Lock protocol for tasks that each own one object and occasionally write to another task's object, with no
@@ -27,9 +29,130 @@ import java.util.concurrent.locks.ReentrantLock
  * ([timeouts]). Either way one write runs unprotected rather than stalling the tick.
  */
 class OwnerLocks(private val timeoutNanos: Long) {
-    /** A lock whose holder is visible to waiters, for [OwnerLocks]' cycle check. */
-    class Lock : ReentrantLock() {
+    /**
+     * Compact reentrant exclusive lock built on [VarHandle] and [LockSupport]. Every entity holds one, so
+     * avoiding `ReentrantLock`'s extra `NonfairSync`/AQS object halves per-entity lock allocation and keeps
+     * the uncontended `beginOwn`/`endOwn` path to one CAS + plain hold counter and one volatile release +
+     * null check on [waiters].
+     */
+    class Lock {
+        @JvmField
+        @Volatile
+        internal var owner: Thread? = null
+
+        @JvmField
+        internal var holds: Int = 0
+
+        @JvmField
+        @Volatile
+        internal var waiters: Waiter? = null
+
         val holder: Thread? get() = owner
+
+        val isLocked: Boolean get() = owner != null
+
+        val isHeldByCurrentThread: Boolean get() = owner === Thread.currentThread()
+
+        fun hasQueuedThreads(): Boolean {
+            var node = waiters
+            while (node != null) {
+                if (node.active) return true
+                node = node.next
+            }
+            return false
+        }
+
+        fun tryLock(): Boolean {
+            val current = Thread.currentThread()
+            val held = owner
+            if (held === null) {
+                if (OWNER.compareAndSet(this, null as Thread?, current)) {
+                    holds = 1
+                    return true
+                }
+                return false
+            }
+            if (held === current) {
+                holds++
+                return true
+            }
+            return false
+        }
+
+        fun lock() {
+            if (tryLock()) return
+            repeat(SPINS) {
+                Thread.onSpinWait()
+                if (owner === null && tryLock()) return
+            }
+            val me = Thread.currentThread()
+            var interrupted = false
+            var node: Waiter? = null
+            try {
+                while (true) {
+                    if (tryLock()) return
+                    if (node == null || node.unparked) {
+                        node?.active = false
+                        node = pushWaiter(me)
+                        // Dekker recheck after publishing waiter onto the Treiber stack.
+                        if (tryLock()) return
+                    }
+                    LockSupport.park(this)
+                    if (Thread.interrupted()) interrupted = true
+                }
+            } finally {
+                if (node != null) deactivateWaiter(node)
+                if (interrupted) me.interrupt()
+            }
+        }
+
+        fun unlock() {
+            val remaining = holds - 1
+            if (remaining > 0) {
+                holds = remaining
+                return
+            }
+            check(remaining == 0 && owner === Thread.currentThread()) { "unlock by non-owner" }
+            holds = 0
+            // Volatile store provides StoreLoad ordering before the volatile read of waiters (Dekker).
+            OWNER.setVolatile(this, null as Thread?)
+            if (waiters != null) wakeAll()
+        }
+
+        internal fun pushWaiter(thread: Thread): Waiter {
+            val node = Waiter(thread)
+            while (true) {
+                val head = waiters
+                node.next = head
+                if (WAITERS.compareAndSet(this, head, node)) return node
+            }
+        }
+
+        internal fun deactivateWaiter(node: Waiter) {
+            node.active = false
+            // Opportunistically pop the head if we are still on top; nodes never re-enter the stack (no ABA).
+            if (waiters === node) WAITERS.compareAndSet(this, node, node.next)
+        }
+
+        private fun wakeAll() {
+            var node = WAITERS.getAndSet(this, null as Waiter?) as Waiter?
+            while (node != null) {
+                node.unparked = true
+                if (node.active) LockSupport.unpark(node.thread)
+                node = node.next
+            }
+        }
+
+        internal class Waiter(@JvmField val thread: Thread) {
+            @JvmField var next: Waiter? = null
+            @JvmField @Volatile var active: Boolean = true
+            @JvmField @Volatile var unparked: Boolean = false
+        }
+
+        private companion object {
+            val OWNER: VarHandle = MethodHandles.lookup().findVarHandle(Lock::class.java, "owner", Thread::class.java)
+            val WAITERS: VarHandle = MethodHandles.lookup().findVarHandle(Lock::class.java, "waiters", Waiter::class.java)
+        }
     }
 
     private val shared = Lock()
@@ -118,32 +241,43 @@ class OwnerLocks(private val timeoutNanos: Long) {
         // Most waits are for the rest of one short task: spin through those without parking.
         repeat(SPINS) {
             Thread.onSpinWait()
-            if (lock.tryLock()) return true
+            if (lock.owner === null && lock.tryLock()) return true
         }
         val me = Thread.currentThread()
         var interrupted = false
         waiting[me] = lock
+        var node: Lock.Waiter? = null
         try {
             val deadline = System.nanoTime() + timeoutNanos
             var slice = FIRST_SLICE_NANOS
             while (true) {
-                try {
-                    if (lock.tryLock(slice, TimeUnit.NANOSECONDS)) return true
-                } catch (_: InterruptedException) {
-                    interrupted = true
+                val sliceDeadline = System.nanoTime() + slice
+                while (true) {
+                    if (lock.tryLock()) return true
+                    val sliceRemaining = sliceDeadline - System.nanoTime()
+                    if (sliceRemaining <= 0L) break
+                    if (node == null || node.unparked) {
+                        node?.active = false
+                        node = lock.pushWaiter(me)
+                        // Dekker recheck after publishing waiter.
+                        if (lock.tryLock()) return true
+                    }
+                    LockSupport.parkNanos(lock, sliceRemaining)
+                    if (Thread.interrupted()) interrupted = true
                 }
                 if (leadsBackTo(me, lock)) {
                     cycles.incrementAndGet()
                     return false
                 }
                 val remaining = deadline - System.nanoTime()
-                if (remaining <= 0) {
+                if (remaining <= 0L) {
                     timeouts.incrementAndGet()
                     return false
                 }
                 slice = minOf(slice * 2, MAX_SLICE_NANOS, remaining)
             }
         } finally {
+            if (node != null) lock.deactivateWaiter(node)
             waiting.remove(me)
             if (interrupted) me.interrupt()
         }

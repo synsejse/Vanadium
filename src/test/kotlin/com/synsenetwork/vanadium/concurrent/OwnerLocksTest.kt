@@ -235,4 +235,59 @@ class OwnerLocksTest {
             holder.join(10_000)
         }
     }
+
+    @Test
+    fun multipleParkedWaitersAllWakeAndPreserveInterruptStatus() {
+        val locks = OwnerLocks(long)
+        val shared = OwnerLocks.Lock()
+        val waiters = 6
+        val ownerReady = CountDownLatch(1)
+        val releaseOwner = CountDownLatch(1)
+        val completed = AtomicInteger()
+        val interruptedObserved = AtomicInteger()
+        val pool = Executors.newFixedThreadPool(waiters + 1)
+        try {
+            val owner = pool.submit {
+                shared.lock()
+                shared.lock() // Reentrant hold must stay locked until final unlock.
+                ownerReady.countDown()
+                check(releaseOwner.await(10, TimeUnit.SECONDS))
+                shared.unlock()
+                check(shared.isHeldByCurrentThread)
+                shared.unlock()
+            }
+            assertTrue(ownerReady.await(10, TimeUnit.SECONDS))
+            val firstThread = java.util.concurrent.atomic.AtomicReference<Thread?>()
+            val jobs = List(waiters) { index ->
+                pool.submit {
+                    if (index == 0) firstThread.set(Thread.currentThread())
+                    val context = OwnerLocks.Context()
+                    locks.enterForeign(context, shared)
+                    try {
+                        completed.incrementAndGet()
+                    } finally {
+                        locks.exitForeign(context)
+                    }
+                    if (index == 0 && Thread.interrupted()) interruptedObserved.incrementAndGet()
+                }
+            }
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+            while (firstThread.get() == null || !shared.hasQueuedThreads()) {
+                check(System.nanoTime() < deadline) { "waiters never queued" }
+                Thread.onSpinWait()
+            }
+            firstThread.get()!!.interrupt()
+            releaseOwner.countDown()
+            owner.get(10, TimeUnit.SECONDS)
+            jobs.forEach { it.get(10, TimeUnit.SECONDS) }
+        } finally {
+            releaseOwner.countDown()
+            pool.shutdownNow()
+        }
+        assertEquals(waiters, completed.get())
+        assertEquals(1, interruptedObserved.get(), "interrupt status was not preserved across wait")
+        assertEquals(0L, locks.cycles.get() + locks.timeouts.get())
+        assertFalse(shared.isLocked)
+        assertFalse(shared.hasQueuedThreads())
+    }
 }
