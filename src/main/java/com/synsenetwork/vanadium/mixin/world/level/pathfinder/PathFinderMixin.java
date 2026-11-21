@@ -55,30 +55,29 @@ public abstract class PathFinderMixin {
         if (from == null) {
             return null;
         }
-        if (targets.isEmpty()) {
-            this.nodeEvaluator.done();
-            return null;
-        }
-
-        boolean captureDebug = this.captureDebug.getAsBoolean();
-        Path path;
-        if (targets.size() == 1 && !captureDebug) {
-            BlockPos targetPos = targets.iterator().next();
-            Target target = this.nodeEvaluator.getTarget(targetPos.getX(), targetPos.getY(), targetPos.getZ());
-            path = this.vanadium$findSingleTarget(from, target, targetPos, maxPathLength, reachRange, maxVisitedNodesMultiplier);
-        } else {
-            Map<Target, BlockPos> targetMap = new HashMap<>();
-            for (BlockPos pos : targets) {
-                Target target = this.nodeEvaluator.getTarget(pos.getX(), pos.getY(), pos.getZ());
-                if (targetMap.put(target, pos) != null) {
-                    throw new IllegalStateException("Duplicate target key " + target);
-                }
+        try {
+            if (targets.isEmpty()) {
+                return null;
             }
-            path = this.vanadium$findMultiTarget(from, targetMap, maxPathLength, reachRange, maxVisitedNodesMultiplier, captureDebug);
-        }
 
-        this.nodeEvaluator.done();
-        return path;
+            boolean captureDebug = this.captureDebug.getAsBoolean();
+            if (targets.size() == 1 && !captureDebug) {
+                BlockPos targetPos = targets.iterator().next();
+                Target target = this.nodeEvaluator.getTarget(targetPos.getX(), targetPos.getY(), targetPos.getZ());
+                return this.vanadium$findSingleTarget(from, target, targetPos, maxPathLength, reachRange, maxVisitedNodesMultiplier);
+            } else {
+                Map<Target, BlockPos> targetMap = new HashMap<>();
+                for (BlockPos pos : targets) {
+                    Target target = this.nodeEvaluator.getTarget(pos.getX(), pos.getY(), pos.getZ());
+                    if (targetMap.put(target, pos) != null) {
+                        throw new IllegalStateException("Duplicate target key " + target);
+                    }
+                }
+                return this.vanadium$findMultiTarget(from, targetMap, maxPathLength, reachRange, maxVisitedNodesMultiplier, captureDebug);
+            }
+        } finally {
+            this.nodeEvaluator.done();
+        }
     }
 
     @Unique

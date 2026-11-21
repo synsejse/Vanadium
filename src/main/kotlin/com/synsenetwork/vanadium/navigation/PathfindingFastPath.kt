@@ -1,5 +1,6 @@
 package com.synsenetwork.vanadium.navigation
 
+import java.util.Arrays
 import net.caffeinemc.mods.lithium.common.ai.pathing.BlockStatePathingCache
 import net.caffeinemc.mods.lithium.common.ai.pathing.PathNodeCache
 import net.caffeinemc.mods.lithium.common.block.BlockStateFlagHolder
@@ -308,5 +309,58 @@ object PathfindingFastPath {
         val shape = belowState.getCollisionShape(level, mutablePos.set(x, belowY, z))
         if (shape === Shapes.block()) return y.toDouble()
         return belowY + if (shape.isEmpty) 0.0 else shape.max(Direction.Axis.Y)
+    }
+
+    private val threadScratch = ThreadLocal.withInitial(::WalkScratch)
+
+    /**
+     * Borrows this thread's reusable L1-resident scratch tables for one search, bumping their generation counter in O(1).
+     * Reentrant searches on the same thread get a fresh unpooled instance so nested calls never corrupt an outer search.
+     */
+    @JvmStatic
+    fun borrowWalkScratch(): WalkScratch {
+        val local = threadScratch.get()
+        if (!local.inUse) {
+            local.inUse = true
+            local.bumpGen()
+            return local
+        }
+        return WalkScratch().also { it.gen = 1 }
+    }
+
+    @JvmStatic
+    fun releaseWalkScratch(scratch: WalkScratch?) {
+        if (scratch != null && scratch.inUse) {
+            scratch.inUse = false
+        }
+    }
+
+    /** Per-thread reusable generation-stamped spatial caches for [WalkNodeEvaluator]. */
+    class WalkScratch {
+        @JvmField var inUse: Boolean = false
+        @JvmField var gen: Int = 0
+        @JvmField val floorGen: IntArray = IntArray(FLOOR_CACHE_SIZE)
+        @JvmField val floorKey: LongArray = LongArray(FLOOR_CACHE_SIZE)
+        @JvmField val floorVal: DoubleArray = DoubleArray(FLOOR_CACHE_SIZE)
+        @JvmField val typeGen: IntArray = IntArray(TYPE_CACHE_SIZE)
+        @JvmField val typeKey: LongArray = LongArray(TYPE_CACHE_SIZE)
+        @JvmField val typeVal: Array<PathType?> = arrayOfNulls(TYPE_CACHE_SIZE)
+
+        fun bumpGen() {
+            var next = gen + 1
+            if (next == 0) {
+                Arrays.fill(floorGen, 0)
+                Arrays.fill(typeGen, 0)
+                next = 1
+            }
+            gen = next
+        }
+
+        companion object {
+            const val FLOOR_CACHE_SIZE = 1024
+            const val FLOOR_CACHE_MASK = FLOOR_CACHE_SIZE - 1
+            const val TYPE_CACHE_SIZE = 2048
+            const val TYPE_CACHE_MASK = TYPE_CACHE_SIZE - 1
+        }
     }
 }

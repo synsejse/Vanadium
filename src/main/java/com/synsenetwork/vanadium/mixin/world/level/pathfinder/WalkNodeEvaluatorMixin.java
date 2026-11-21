@@ -2,7 +2,6 @@ package com.synsenetwork.vanadium.mixin.world.level.pathfinder;
 
 import com.synsenetwork.vanadium.navigation.PathfindingFastPath;
 import it.unimi.dsi.fastutil.objects.Object2BooleanMap;
-import java.util.Arrays;
 import java.util.Set;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -27,8 +26,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * Exact per-search optimizations for {@link WalkNodeEvaluator}:
- * - Generation-stamped, spatial direct-mapped L1-sized caches for per-search path types and floor levels
- *   (zero per-search {@code Arrays.fill}, zero capturing lambdas, zero hash-probing loops).
+ * - Thread-local borrowed, generation-stamped spatial direct-mapped caches for per-search path types and floor levels
+ *   (zero per-mob memory overhead, stays hot in each worker's L1/L2 cache, zero per-search {@code Arrays.fill}).
  * - Per-search {@code float[27]} malus snapshot (loaded lazily after {@code prepare} so subclasses like
  *   {@code AmphibiousNodeEvaluator} that adjust maluses in {@code prepare} are reflected) and cached {@code maxUpStep}.
  * - Allocation-free {@code getPathTypeOfMob} (1x1x1, 1x2x1 and ordinal bitmask paths) that reuses the already-evaluated
@@ -37,11 +36,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  */
 @Mixin(WalkNodeEvaluator.class)
 public abstract class WalkNodeEvaluatorMixin extends NodeEvaluator {
-    @Unique private static final int VANADIUM$FLOOR_CACHE_SIZE = 1024;
-    @Unique private static final int VANADIUM$FLOOR_CACHE_MASK = VANADIUM$FLOOR_CACHE_SIZE - 1;
-    @Unique private static final int VANADIUM$TYPE_CACHE_SIZE = 2048;
-    @Unique private static final int VANADIUM$TYPE_CACHE_MASK = VANADIUM$TYPE_CACHE_SIZE - 1;
-
     @Unique
     private static final ClassValue<Boolean> VANADIUM$DEFAULT_MOB_BB = new ClassValue<>() {
         @Override
@@ -89,18 +83,9 @@ public abstract class WalkNodeEvaluatorMixin extends NodeEvaluator {
     @Shadow private @Nullable Node tryFindFirstNonWaterBelow(int x, int y, int z, @Nullable Node best) { throw new AssertionError(); }
     @Shadow private Node tryFindFirstGroundNodeBelow(int x, int y, int z) { throw new AssertionError(); }
 
-    // Generation-stamped spatial direct-mapped caches: bumping vanadium$gen invalidates all slots in O(1).
-    @Unique private final int[] vanadium$floorGen = new int[VANADIUM$FLOOR_CACHE_SIZE];
-    @Unique private final long[] vanadium$floorKey = new long[VANADIUM$FLOOR_CACHE_SIZE];
-    @Unique private final double[] vanadium$floorVal = new double[VANADIUM$FLOOR_CACHE_SIZE];
-
-    @Unique private final int[] vanadium$typeGen = new int[VANADIUM$TYPE_CACHE_SIZE];
-    @Unique private final long[] vanadium$typeKey = new long[VANADIUM$TYPE_CACHE_SIZE];
-    @Unique private final PathType[] vanadium$typeVal = new PathType[VANADIUM$TYPE_CACHE_SIZE];
-
     @Unique private final float[] vanadium$malus = new float[PathfindingFastPath.PATH_TYPES.length];
     @Unique private final BlockPos.MutableBlockPos vanadium$pos = new BlockPos.MutableBlockPos();
-    @Unique private int vanadium$gen;
+    @Unique private @Nullable PathfindingFastPath.WalkScratch vanadium$scratch;
     @Unique private double vanadium$mobJumpHeight = 1.125;
     @Unique private int vanadium$jumpSize = 1;
     @Unique private boolean vanadium$prepared;
@@ -119,29 +104,23 @@ public abstract class WalkNodeEvaluatorMixin extends NodeEvaluator {
 
     @Inject(method = "prepare", at = @At("TAIL"))
     private void prepareVanadiumState(PathNavigationRegion level, Mob entity, CallbackInfo ci) {
+        if (this.vanadium$scratch != null) {
+            PathfindingFastPath.releaseWalkScratch(this.vanadium$scratch);
+        }
+        this.vanadium$scratch = PathfindingFastPath.borrowWalkScratch();
         float step = entity.maxUpStep();
         this.vanadium$mobJumpHeight = Math.max(1.125, step);
         this.vanadium$jumpSize = Mth.floor(Math.max(1.0F, step));
-        this.vanadium$bumpGen();
         this.vanadium$malusLoaded = false;
         this.vanadium$prepared = true;
     }
 
     @Inject(method = "done", at = @At("HEAD"))
     private void clearVanadiumState(CallbackInfo ci) {
+        PathfindingFastPath.releaseWalkScratch(this.vanadium$scratch);
+        this.vanadium$scratch = null;
         this.vanadium$prepared = false;
         this.vanadium$malusLoaded = false;
-    }
-
-    @Unique
-    private void vanadium$bumpGen() {
-        int next = this.vanadium$gen + 1;
-        if (next == 0) {
-            Arrays.fill(this.vanadium$floorGen, 0);
-            Arrays.fill(this.vanadium$typeGen, 0);
-            next = 1;
-        }
-        this.vanadium$gen = next;
     }
 
     @Unique
@@ -226,18 +205,19 @@ public abstract class WalkNodeEvaluatorMixin extends NodeEvaluator {
 
     @Unique
     private double vanadium$floorLevel(int x, int y, int z) {
-        if (this.vanadium$prepared) {
-            int idx = (((x & 31) | ((z & 31) << 5)) ^ ((y & 7) << 7)) & VANADIUM$FLOOR_CACHE_MASK;
+        PathfindingFastPath.WalkScratch scratch = this.vanadium$scratch;
+        if (scratch != null) {
+            int idx = (((x & 31) | ((z & 31) << 5)) ^ ((y & 7) << 7)) & PathfindingFastPath.WalkScratch.FLOOR_CACHE_MASK;
             long key = BlockPos.asLong(x, y, z);
-            int gen = this.vanadium$gen;
-            if (this.vanadium$floorGen[idx] == gen && this.vanadium$floorKey[idx] == key) {
-                return this.vanadium$floorVal[idx];
+            int gen = scratch.gen;
+            if (scratch.floorGen[idx] == gen && scratch.floorKey[idx] == key) {
+                return scratch.floorVal[idx];
             }
             double computed = PathfindingFastPath.computeFloorLevel(
                     this.currentContext.level(), x, y, z, this.canFloat() || this.isAmphibious(), this.vanadium$pos);
-            this.vanadium$floorGen[idx] = gen;
-            this.vanadium$floorKey[idx] = key;
-            this.vanadium$floorVal[idx] = computed;
+            scratch.floorGen[idx] = gen;
+            scratch.floorKey[idx] = key;
+            scratch.floorVal[idx] = computed;
             return computed;
         }
         return PathfindingFastPath.computeFloorLevel(
@@ -316,21 +296,25 @@ public abstract class WalkNodeEvaluatorMixin extends NodeEvaluator {
 
     /**
      * @author Vanadium
-     * @reason Use a generation-stamped spatial direct-mapped cache instead of {@code Long2ObjectOpenHashMap.computeIfAbsent}.
+     * @reason Use a thread-local generation-stamped spatial cache instead of {@code Long2ObjectOpenHashMap.computeIfAbsent}.
      */
     @Overwrite
     protected PathType getCachedPathType(int x, int y, int z) {
-        if (this.vanadium$prepared) {
-            int idx = (((x & 31) | ((z & 31) << 5) | ((y & 1) << 10)) ^ (((y >> 1) & 7) << 7)) & VANADIUM$TYPE_CACHE_MASK;
+        PathfindingFastPath.WalkScratch scratch = this.vanadium$scratch;
+        if (scratch != null) {
+            int idx = (((x & 31) | ((z & 31) << 5) | ((y & 1) << 10)) ^ (((y >> 1) & 7) << 7)) & PathfindingFastPath.WalkScratch.TYPE_CACHE_MASK;
             long key = BlockPos.asLong(x, y, z);
-            int gen = this.vanadium$gen;
-            if (this.vanadium$typeGen[idx] == gen && this.vanadium$typeKey[idx] == key) {
-                return this.vanadium$typeVal[idx];
+            int gen = scratch.gen;
+            if (scratch.typeGen[idx] == gen && scratch.typeKey[idx] == key) {
+                PathType hit = scratch.typeVal[idx];
+                if (hit != null) {
+                    return hit;
+                }
             }
             PathType computed = this.getPathTypeOfMob(this.currentContext, x, y, z, this.mob);
-            this.vanadium$typeGen[idx] = gen;
-            this.vanadium$typeKey[idx] = key;
-            this.vanadium$typeVal[idx] = computed;
+            scratch.typeGen[idx] = gen;
+            scratch.typeKey[idx] = key;
+            scratch.typeVal[idx] = computed;
             return computed;
         }
         return this.getPathTypeOfMob(this.currentContext, x, y, z, this.mob);

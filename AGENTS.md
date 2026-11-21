@@ -45,7 +45,7 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 [ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how the parts work; the rules below are the invariants.
 
 - **Kotlin vs. Java:** Mixin classes must be Java. So are the duck interfaces they implement
-  (`vanadium$`-prefixed methods: `NavigationAccess`, `NavigationState`, `InteractionAccess`,
+  (`vanadium$`-prefixed methods: `NavigationAccess`, `NavigationState`, `PathNavigationRegionAccess`, `InteractionAccess`,
   `PoiDistanceAccess`, `PoiTicketAccess`, `PoiSectionAccess`, `SectionStorageAccess`, `EntityTickAccess`, `ChunkTickAccess`, `ScheduledTickAccess`, `CrowdAccess`, `CrowdSlotAccess`,
   `CrowdGridsAccess`) and code that runs during Mixin
   bootstrap (`mixin/VanadiumMixinPlugin.java`, `compat/C2ME.java`, `compat/Lithium.java`). Everything else is Kotlin.
@@ -73,7 +73,7 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - `concurrent/`: entity ownership for the flat entity wave (`Interactions`, `OwnerLocks`, `DeferredQueue`
   inboxes, `StableDistance`), POI claims (`PoiClaims`), striped locks and per-thread random sources.
 - `tracking/`: area maps and nearby-player indexing for entity tracking.
-- `navigation/`: navigation invalidation index, path-type cache, and Java navigation duck interfaces.
+- `navigation/`: navigation invalidation index, path-type cache, exact walk/finder fast paths, and Java navigation duck interfaces.
 - `spawning/`: spawn counting and lazy count state.
 - `diagnostics/`: tick profiles, JFR events, wave watchdog, crash-report section, benchmark capture, summaries, and result files.
 - `mixin/`: each mixin and accessor sits in its target class's package relative to `net.minecraft`

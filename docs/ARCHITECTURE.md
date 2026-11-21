@@ -13,7 +13,7 @@ server-owned scheduler and worker pool; it is not a server-per-region engine.
 | `concurrent` | Entity ownership (`Interactions`, `OwnerLocks`), POI claims, striped locks, per-thread world random streams and random-tick LCG |
 | `chunk` | Loaded-full-chunk publication, server-thread load locks, packet preparation |
 | `tracking` | Nearby-player ranges and tracker diffs |
-| `navigation` | Navigation invalidation index and path-type cache |
+| `navigation` | Navigation invalidation index, path-type cache and exact pathfinding fast paths |
 | `spawning` | Mob counting and lazy count state |
 | `diagnostics` | Tick profiles, JFR events, wave watchdog, crash-report section, benchmarks, summaries and result files |
 | `collections` | Fastutil-compatible adapters over JDK/JCTools collections |
@@ -310,7 +310,16 @@ do; after an unprotected write (ownership timeout or cycle), grids are bypassed 
 `NavigationIndex` filters invalidation candidates; dirty/custom/long-path cases retain a
 conservative fallback. It does not run pathfinding asynchronously. The level's path-type cache, read by
 every pathfinding mob, keeps each entry in one atomic long (`PathTypeSlots`: the position hash's high
-bits and the type), so lookups take no lock and stores allocate nothing.
+bits and the type), so lookups take no lock and stores allocate nothing. Ground pathfinding stays
+synchronous and vanilla-exact (`PathfindingFastPath`, `PathNavigationRegionMixin`, `PathfindingContextMixin`,
+`NodeEvaluatorMixin`, `WalkNodeEvaluatorMixin`, `PathFinderMixin`): when Lithium's block-state cache is
+active and no Fabric `LandPathTypeRegistry` provider overrides a block, state path types are read
+directly from `PathNavigationRegion` without hitting the shared `PathTypeCache` or Fabric's empty-map
+lookup; neighbor hazard skips extend across chunk and section seams (with `LevelChunkSectionMixin`
+ensuring Lithium's block flags are initialized before its air-section counter checks `Blocks.AIR`);
+`WalkNodeEvaluator` uses generation-stamped spatial caches for per-search path types and floor levels,
+a lazy per-search malus table, and allocation-free `getPathTypeOfMob` without re-evaluating the origin
+cell; and `PathFinder` removes per-search streams, target iterators and quadratic path reconstruction.
 
 ## World access
 
