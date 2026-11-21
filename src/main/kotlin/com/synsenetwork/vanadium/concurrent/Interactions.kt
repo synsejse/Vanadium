@@ -5,7 +5,6 @@ import com.synsenetwork.vanadium.config.DeveloperProperties
 import com.synsenetwork.vanadium.tick.TickThread
 import com.synsenetwork.vanadium.tick.WorkerPool
 import net.minecraft.world.entity.Entity
-import net.minecraft.world.phys.Vec3
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.LongAdder
@@ -201,13 +200,7 @@ object Interactions {
         // caller's remaining writes to it are few and take its lock through setDeltaMovement.
         if (targetRoot === root || context.depth > 0 && lock(targetRoot).isHeldByCurrentThread) return false
         val inbox = (target as InteractionAccess).`vanadium$impulse`()
-        while (true) {
-            val pending = inbox.get()
-            if (inbox.compareAndSet(pending, pending?.add(x, y, z) ?: Vec3(x, y, z))) {
-                if (pending == null) context.pushed.add(target)
-                break
-            }
-        }
+        if (inbox.add(x, y, z)) context.pushed.add(target)
         counts[Write.PUSH.ordinal].increment()
         return true
     }
@@ -255,9 +248,8 @@ object Interactions {
 
     private fun applyImpulse(entity: Entity) {
         val inbox = (entity as InteractionAccess).`vanadium$impulse`()
-        if (inbox.get() == null) return
-        val impulse = inbox.getAndSet(null) ?: return
-        entity.push(impulse.x, impulse.y, impulse.z)
+        if (inbox.isEmpty()) return
+        inbox.drain { x, y, z -> entity.push(x, y, z) }
     }
 
     /**
@@ -288,7 +280,7 @@ object Interactions {
 
     private fun applyOwned(entity: Entity) {
         val inbox = (entity as InteractionAccess).`vanadium$impulse`()
-        if (entity.isRemoved || inbox.get() == null) return
+        if (entity.isRemoved || inbox.isEmpty()) return
         val context = context()
         if (context == null) {
             applyImpulse(entity)

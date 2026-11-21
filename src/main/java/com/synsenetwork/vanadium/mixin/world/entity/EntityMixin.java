@@ -2,13 +2,13 @@ package com.synsenetwork.vanadium.mixin.world.entity;
 
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.synsenetwork.vanadium.concurrent.ImpulseSlot;
 import com.synsenetwork.vanadium.concurrent.InteractionAccess;
 import com.synsenetwork.vanadium.concurrent.Interactions;
 import com.synsenetwork.vanadium.concurrent.OwnerLocks;
 import com.synsenetwork.vanadium.entity.CrowdAccess;
 import com.synsenetwork.vanadium.entity.CrowdGrid;
 import com.synsenetwork.vanadium.navigation.NavigationIndex;
-import java.util.concurrent.atomic.AtomicReference;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.Level;
@@ -54,7 +54,7 @@ public abstract class EntityMixin implements InteractionAccess, CrowdAccess {
     private final OwnerLocks.Lock vanadium$tickLock = new OwnerLocks.Lock();
 
     @Unique
-    private final AtomicReference<Vec3> vanadium$impulse = new AtomicReference<>();
+    private final ImpulseSlot vanadium$impulse = new ImpulseSlot();
 
     @Override
     public OwnerLocks.Lock vanadium$tickLock() {
@@ -62,7 +62,7 @@ public abstract class EntityMixin implements InteractionAccess, CrowdAccess {
     }
 
     @Override
-    public AtomicReference<Vec3> vanadium$impulse() {
+    public ImpulseSlot vanadium$impulse() {
         return vanadium$impulse;
     }
 
