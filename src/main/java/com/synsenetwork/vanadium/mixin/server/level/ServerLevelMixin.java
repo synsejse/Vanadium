@@ -7,8 +7,8 @@ import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.chunk.ParallelChunkCache;
 import com.synsenetwork.vanadium.navigation.NavigationAccess;
 import com.synsenetwork.vanadium.navigation.NavigationIndex;
+import com.synsenetwork.vanadium.stage.EntityStage;
 import com.synsenetwork.vanadium.stage.EntityTickAccess;
-import com.synsenetwork.vanadium.stage.EntityTickTasks;
 import com.synsenetwork.vanadium.stage.ScheduledTickStage;
 import com.synsenetwork.vanadium.tick.Stage;
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet;
@@ -107,8 +107,8 @@ public abstract class ServerLevelMixin implements NavigationAccess, EntityTickAc
     }
 
     @Override
-    public EntityTickTasks vanadium$entityTicks() {
-        return ((EntityTickAccess) entityTickList).vanadium$entityTicks();
+    public EntityStage vanadium$entityStage() {
+        return ((EntityTickAccess) entityTickList).vanadium$entityStage();
     }
 
     /**
@@ -119,7 +119,7 @@ public abstract class ServerLevelMixin implements NavigationAccess, EntityTickAc
      */
     @Redirect(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/entity/EntityTickList;forEach(Ljava/util/function/Consumer;)V"))
     private void dispatchEntityTicks(EntityTickList list, Consumer<Entity> body) {
-        ((EntityTickAccess) list).vanadium$entityTicks().dispatch(body, ((ServerLevel) (Object) this).tickRateManager().runsNormally());
+        ((EntityTickAccess) list).vanadium$entityStage().dispatch(body, ((ServerLevel) (Object) this).tickRateManager().runsNormally());
     }
 
     @WrapMethod(method = "blockEvent")
@@ -151,9 +151,9 @@ public abstract class ServerLevelMixin implements NavigationAccess, EntityTickAc
 
     /**
      * Biome reads (mob AI, weather, spawning) ask for {@code BIOMES} status, which vanilla serves through
-     * the chunk-load path: a per-chunk load lock, the synchronized four-entry cache and its shared arrays.
-     * For a loaded full chunk vanilla returns its {@code ImposterProtoChunk}, which delegates biome reads
-     * to the full chunk, so the lock-free full-chunk lookup gives the same answer.
+     * the chunk-load path and its per-chunk load lock. For a loaded full chunk vanilla returns its
+     * {@code ImposterProtoChunk}, which delegates biome reads to the full chunk, so the lock-free
+     * full-chunk lookup gives the same answer.
      */
     public Holder<Biome> getNoiseBiome(int quartX, int quartY, int quartZ) {
         ServerChunkCache source = ((ServerLevel) (Object) this).getChunkSource();

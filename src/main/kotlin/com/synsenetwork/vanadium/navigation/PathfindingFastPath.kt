@@ -136,33 +136,30 @@ object PathfindingFastPath {
                 val belowState = belowSection.getBlockState(lx, belowY and 15, lz)
                 (belowState as BlockStatePathingCache).`lithium$getPathNodeType`() ?: context.getPathTypeFromState(x, belowY, z)
             }
-            return when (below) {
-                PathType.OPEN, PathType.WATER, PathType.LAVA, PathType.WALKABLE -> PathType.OPEN
-                PathType.FIRE -> PathType.FIRE
-                PathType.DAMAGING -> PathType.DAMAGING
-                PathType.STICKY_HONEY -> PathType.STICKY_HONEY
-                PathType.POWDER_SNOW -> PathType.ON_TOP_OF_POWDER_SNOW
-                PathType.DAMAGE_CAUTIOUS -> PathType.DAMAGE_CAUTIOUS
-                PathType.TRAPDOOR -> PathType.ON_TOP_OF_TRAPDOOR
-                else -> checkNeighbourBlocksRegion(context, level, section, minSectionY, x, y, z, lx, ly, lz, PathType.WALKABLE)
-            }
+            val mapped = mapBelowPathType(below)
+            if (mapped != null) return mapped
+            return checkNeighbourBlocksRegion(context, level, section, minSectionY, x, y, z, lx, ly, lz, PathType.WALKABLE)
         }
 
         val type = fastPathTypeFromState(level, x, y, z) ?: context.getPathTypeFromState(x, y, z)
         if (type == PathType.OPEN && y >= level.minY + 1) {
             val below = fastPathTypeFromState(level, x, y - 1, z) ?: context.getPathTypeFromState(x, y - 1, z)
-            return when (below) {
-                PathType.OPEN, PathType.WATER, PathType.LAVA, PathType.WALKABLE -> PathType.OPEN
-                PathType.FIRE -> PathType.FIRE
-                PathType.DAMAGING -> PathType.DAMAGING
-                PathType.STICKY_HONEY -> PathType.STICKY_HONEY
-                PathType.POWDER_SNOW -> PathType.ON_TOP_OF_POWDER_SNOW
-                PathType.DAMAGE_CAUTIOUS -> PathType.DAMAGE_CAUTIOUS
-                PathType.TRAPDOOR -> PathType.ON_TOP_OF_TRAPDOOR
-                else -> WalkNodeEvaluator.checkNeighbourBlocks(context, x, y, z, PathType.WALKABLE)
-            }
+            val mapped = mapBelowPathType(below)
+            if (mapped != null) return mapped
+            return WalkNodeEvaluator.checkNeighbourBlocks(context, x, y, z, PathType.WALKABLE)
         }
         return type
+    }
+
+    private fun mapBelowPathType(below: PathType): PathType? = when (below) {
+        PathType.OPEN, PathType.WATER, PathType.LAVA, PathType.WALKABLE -> PathType.OPEN
+        PathType.FIRE -> PathType.FIRE
+        PathType.DAMAGING -> PathType.DAMAGING
+        PathType.STICKY_HONEY -> PathType.STICKY_HONEY
+        PathType.POWDER_SNOW -> PathType.ON_TOP_OF_POWDER_SNOW
+        PathType.DAMAGE_CAUTIOUS -> PathType.DAMAGE_CAUTIOUS
+        PathType.TRAPDOOR -> PathType.ON_TOP_OF_TRAPDOOR
+        else -> null
     }
 
     private fun checkNeighbourBlocksRegion(

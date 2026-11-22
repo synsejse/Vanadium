@@ -104,11 +104,7 @@ class NavigationIndex : AbstractMutableSet<Mob>() {
         }
     }
 
-    fun candidates(pos: BlockPos): List<Mob> {
-        val out = ArrayList<Mob>()
-        fillCandidates(pos, out, null)
-        return if (out.isEmpty()) emptyList() else out
-    }
+    fun candidates(pos: BlockPos): List<Mob> = fillCandidates(pos, null, null)
 
     /**
      * Zero-allocation hot-path iterator for `ServerLevel.sendBlockUpdated`: reuses a per-thread scratch buffer
@@ -129,7 +125,7 @@ class NavigationIndex : AbstractMutableSet<Mob>() {
         }
     }
 
-    private fun fillCandidates(pos: BlockPos, out: ArrayList<Mob>, reusableSeen: ReferenceOpenHashSet<Mob>?) {
+    private fun fillCandidates(pos: BlockPos, target: ArrayList<Mob>?, reusableSeen: ReferenceOpenHashSet<Mob>?): List<Mob> {
         if (queriesSinceRefresh.get() < MIN_QUERIES_FOR_REFRESH) queriesSinceRefresh.incrementAndGet()
         val read = lock.readLock()
         read.lock()
@@ -138,22 +134,29 @@ class NavigationIndex : AbstractMutableSet<Mob>() {
             val mask = dirtyMask
             val hasUnbounded = unbounded.isNotEmpty()
             if (mask == 0L && !hasUnbounded) {
-                if (nearby.isNotEmpty()) out.addAll(nearby)
-                return
+                if (nearby.isEmpty()) return emptyList()
+                val out = target ?: ArrayList(nearby.size)
+                out.addAll(nearby)
+                return out
             }
             val dirtyMobs = if (mask != 0L) dirtyCount.sum() else 0L
             // A full snapshot is cheaper than merging candidate sets that already cover the population.
             if (nearby.size + dirtyMobs + unbounded.size >= members.size) {
-                if (members.isNotEmpty()) out.addAll(members)
-                return
+                if (members.isEmpty()) return emptyList()
+                val out = target ?: ArrayList(members.size)
+                out.addAll(members)
+                return out
             }
             if (nearby.isEmpty() && !hasUnbounded) {
+                val out = target ?: ArrayList()
                 // Each dirty mob is queued at most once per refresh cycle (guarded by its dirty flag),
                 // so no deduplication set is needed when nearby and unbounded are both empty.
                 collectDirty(mask, out)
-                return
+                return if (out.isEmpty()) emptyList() else out
             }
-            val seen = reusableSeen ?: ReferenceOpenHashSet(nearby.size + unbounded.size + dirtyMobs.toInt().coerceAtLeast(4))
+            val expected = nearby.size + unbounded.size + dirtyMobs.toInt().coerceAtLeast(4)
+            val out = target ?: ArrayList(expected)
+            val seen = reusableSeen ?: ReferenceOpenHashSet(expected)
             try {
                 for (mob in nearby) if (seen.add(mob)) out.add(mob)
                 if (hasUnbounded) {
@@ -166,6 +169,7 @@ class NavigationIndex : AbstractMutableSet<Mob>() {
                     if (out.size > 256) reusableSeen.trim(64)
                 }
             }
+            return if (out.isEmpty()) emptyList() else out
         } finally {
             read.unlock()
         }
@@ -288,7 +292,7 @@ class NavigationIndex : AbstractMutableSet<Mob>() {
         var index = 0
         var size = 0
         var active = false
-        var scanDepth = 0
+        var inScan = false
 
         fun begin(): Boolean {
             if (active) return false
@@ -358,15 +362,15 @@ class NavigationIndex : AbstractMutableSet<Mob>() {
         @JvmStatic
         fun enterCandidateScan(): Boolean {
             val scratch = currentScratch()
-            if (scratch.scanDepth > 0) return false
-            scratch.scanDepth = 1
+            if (scratch.inScan) return false
+            scratch.inScan = true
             return true
         }
 
         @JvmStatic
         fun exitCandidateScan() {
             val scratch = currentScratch()
-            scratch.scanDepth = 0
+            scratch.inScan = false
             scratch.release()
         }
 

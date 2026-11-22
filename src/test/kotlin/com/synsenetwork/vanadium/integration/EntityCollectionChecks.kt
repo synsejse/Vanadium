@@ -40,7 +40,7 @@ internal object EntityCollectionChecks {
 
     fun schedule(level: ServerLevel, checks: TickedChecks) {
         val server = level.server
-        val tasks: PersistentTickTasks<Entity> = (level as EntityTickAccess).`vanadium$entityTicks`().tasks
+        val tasks: PersistentTickTasks<Entity> = (level as EntityTickAccess).`vanadium$entityStage`().tasks
         val center = BlockPos(CHUNK_X * 16 + 8, 0, CHUNK_Z * 16 + 8)
         val config = { Vanadium.config }
         var spawner: Probe? = null

@@ -37,7 +37,7 @@ internal object FlatEntityChecks {
         check(Interactions.skipped == skipped + 3) { "failed ticks were not counted: ${Interactions.skipped - skipped}" }
         check(!Interactions.active) { "interaction hooks stayed active after the waves" }
         val tnt = EntityTypes.TNT.create(level, EntitySpawnReason.COMMAND)!!
-        val ticks = (level as EntityTickAccess).`vanadium$entityTicks`()
+        val ticks = (level as EntityTickAccess).`vanadium$entityStage`()
         check(ticks.requiresSerial(tnt) && !ticks.requiresSerial(zombie(level))) { "serial rules for flat ticking are wrong" }
         println("FLAT_ENTITY_CHECKS_PASSED")
     }

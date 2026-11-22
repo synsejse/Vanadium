@@ -45,9 +45,10 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 [architecture.mdx](docs/src/content/docs/architecture.mdx) explains how the parts work; the rules below are the invariants.
 
 - **Kotlin vs. Java:** Mixin classes must be Java. So are the duck interfaces they implement
-  (`vanadium$`-prefixed methods: `NavigationAccess`, `NavigationState`, `PathNavigationRegionAccess`, `InteractionAccess`,
-  `PoiDistanceAccess`, `PoiTicketAccess`, `PoiSectionAccess`, `SectionStorageAccess`, `EntityTickAccess`, `ChunkTickAccess`, `ScheduledTickAccess`, `CrowdAccess`, `CrowdSlotAccess`,
-  `CrowdGridsAccess`) and code that runs during Mixin
+  (`vanadium$`-prefixed methods: `NavigationAccess`, `NavigationState`, `NodeAccess`, `NodePoolAccess`,
+  `PathNavigationRegionAccess`, `InteractionAccess`, `PoiDistanceAccess`, `PoiTicketAccess`, `PoiSectionAccess`,
+  `SectionStorageAccess`, `SpawnStateAccess`, `EntityTickAccess`, `ChunkTickAccess`, `BlockEntityTaskAccess`,
+  `ScheduledTickAccess`, `CrowdAccess`, `CrowdSlotAccess`, `CrowdGridsAccess`) and code that runs during Mixin
   bootstrap (`mixin/VanadiumMixinPlugin.java`, `compat/C2ME.java`, `compat/Lithium.java`). Everything else is Kotlin.
   Kotlin APIs called from mixins are static on the JVM: `@JvmField`/`@JvmStatic`, or a `lateinit`
   property of an `object` (`Vanadium.config`, `Vanadium.scheduler`); call `vanadium$` methods from
@@ -55,14 +56,14 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - **Collection adapters:** an adapter for a field typed by a fastutil interface extends fastutil's
   `Abstract*` base. A field typed by a concrete fastutil class needs a subclass of that class
   (`ConcurrentLongSet` for vanilla's `LongLinkedOpenHashSet` fields, `ConcurrentLongObjectOpenHashMap`
-  for Lithium's `Long2ObjectOpenHashMap` POI column index, `SynchronizedLong2ReferenceOpenHashMap` for
+  for Lithium's `Long2ObjectOpenHashMap` POI column index, `SynchronizedLongReferenceOpenHashMap` for
   Lithium's per-world callback map): override every method that would read the unused superclass
   storage, or, where the superclass storage is kept, guard every access to it.
 - `Vanadium.kt`: config, server lifecycle ownership of the shared scheduler/pool, command registration.
 - `tick/`: wave machinery only: adaptive region planning (`RegionGrid`), claim and dataflow waves, stage
   scheduler, caller-participating spin-then-park worker pool.
 - `stage/`: what each stage queues, one Kotlin owner per level and stage, created at its vanilla owner's
-  `<init>` RETURN: `EntityTickTasks`/`PersistentTickTasks` (entity wave), `ChunkStage` (spawning and chunk
+  `<init>` RETURN: `EntityStage`/`PersistentTickTasks` (entity wave), `ChunkStage` (spawning and chunk
   ticks), `BlockEntityStage`, `ScheduledTickStage`. Stage mixins are thin hooks that forward to them.
 - `entity/`: lock-free entity section index; `CrowdGrid` cell grids prefilter box queries in crowded
   sections (every write to an entity's box or section must keep them in step: see its invariant).
@@ -70,8 +71,8 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
   locks, chunk packet preparation.
 - `collections/`: fastutil-compatible adapters over JDK/JCTools collections, including the concrete
   subtypes above and `PackedPositionKeys` (hash encoding for packed-position keys).
-- `concurrent/`: entity ownership for the flat entity wave (`Interactions`, `OwnerLocks`, `DeferredQueue`
-  inboxes, `StableDistance`), POI claims (`PoiClaims`), striped locks and per-thread random sources.
+- `concurrent/`: entity ownership for the flat entity wave (`Interactions`, `OwnerLocks`, `ImpulseSlot` /
+  `DeferredQueue` inboxes, `StableDistance`), POI claims (`PoiClaims`), striped locks and per-thread random sources.
 - `tracking/`: area maps and nearby-player indexing for entity tracking.
 - `navigation/`: navigation invalidation index, path-type cache, exact walk/finder fast paths, and Java navigation duck interfaces.
 - `spawning/`: spawn counting and lazy count state.

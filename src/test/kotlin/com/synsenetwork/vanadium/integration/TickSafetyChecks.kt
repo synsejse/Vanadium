@@ -113,7 +113,7 @@ internal object TickSafetyChecks {
     private fun checkPassengers(level: ServerLevel) {
         val previous = Vanadium.config.serialEntityTypes
         try {
-            val ticks = (level as EntityTickAccess).`vanadium$entityTicks`()
+            val ticks = (level as EntityTickAccess).`vanadium$entityStage`()
             val root = Pig(EntityTypes.PIG, level)
             val middle = Pig(EntityTypes.PIG, level)
             val passenger = ArmorStand(level, 0.0, 100.0, 0.0)
