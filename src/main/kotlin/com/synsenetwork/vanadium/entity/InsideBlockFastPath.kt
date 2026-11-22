@@ -15,8 +15,10 @@ import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.chunk.LevelChunk
 import net.minecraft.world.level.chunk.LevelChunkSection
+import net.minecraft.world.level.material.FluidState
 import net.minecraft.world.phys.Vec3
 import net.minecraft.world.phys.shapes.Shapes
+import net.minecraft.world.phys.shapes.VoxelShape
 import kotlin.math.abs
 
 /**
@@ -344,31 +346,20 @@ object InsideBlockFastPath {
                     val mp = pos ?: BlockPos.MutableBlockPos().also { pos = it }
                     mp.set(bx, by, bz)
                     val shape = state.getEntityInsideCollisionShape(level, mp, entity)
-                    val hitBlock = if (shape === Shapes.block()) {
-                        true
-                    } else if (shape.isEmpty) {
-                        false
-                    } else {
-                        val fv = fromVec ?: Vec3(fromX, fromY, fromZ).also { fromVec = it }
-                        val tv = toVec ?: Vec3(toX, toY, toZ).also { toVec = it }
-                        entity.collidedWithShapeMovingFrom(fv, tv, shape.move(Vec3(mp)).toAabbs())
-                    }
                     val fluidState = state.fluidState
-                    val hitFluid = if (fluidState.isEmpty) {
-                        false
-                    } else {
-                        val fv = fromVec ?: Vec3(fromX, fromY, fromZ).also { fromVec = it }
-                        val tv = toVec ?: Vec3(toX, toY, toZ).also { toVec = it }
-                        entity.collidedWithFluid(fluidState, mp, fv, tv)
+                    if ((shape !== Shapes.block() && !shape.isEmpty) || !fluidState.isEmpty) {
+                        if (fromVec == null) fromVec = Vec3(fromX, fromY, fromZ)
+                        if (toVec == null) toVec = Vec3(toX, toY, toZ)
                     }
-                    if ((!hitBlock && !hitFluid) || !visitedBlocks.add(mp.asLong())) continue
-                    applyInsideEffects(
-                        entity, level, mp, state, fluidState, hitBlock, hitFluid,
-                        movedFar, minX, minY, minZ, maxX, maxY, maxZ, bx, by, bz, 0, collector,
-                    )
-                    // entityInside callbacks can modify blocks or chunks; reload the local cache on the next cell.
-                    cachedCx = Int.MIN_VALUE
-                    cachedSy = Int.MIN_VALUE
+                    if (collideAndApply(
+                            entity, level, mp, state, shape, fluidState, fromVec, toVec,
+                            movedFar, minX, minY, minZ, maxX, maxY, maxZ, bx, by, bz, 0, collector, visitedBlocks,
+                        )
+                    ) {
+                        // entityInside callbacks can modify blocks or chunks; reload the local cache on the next cell.
+                        cachedCx = Int.MIN_VALUE
+                        cachedSy = Int.MIN_VALUE
+                    }
                 }
             }
         }
@@ -503,28 +494,16 @@ object InsideBlockFastPath {
                         val mp = pos ?: BlockPos.MutableBlockPos().also { pos = it }
                         mp.set(bx, by, bz)
                         val shape = state.getEntityInsideCollisionShape(level, mp, entity)
-                        val hitBlock = if (shape === Shapes.block()) {
-                            true
-                        } else if (shape.isEmpty) {
-                            false
-                        } else {
-                            val fv = fromVec ?: Vec3(fromX, fromY, fromZ).also { fromVec = it }
-                            val tv = toVec ?: Vec3(toX, toY, toZ).also { toVec = it }
-                            entity.collidedWithShapeMovingFrom(fv, tv, shape.move(Vec3(mp)).toAabbs())
-                        }
                         val fluidState = state.fluidState
-                        val hitFluid = if (fluidState.isEmpty) {
-                            false
-                        } else {
-                            val fv = fromVec ?: Vec3(fromX, fromY, fromZ).also { fromVec = it }
-                            val tv = toVec ?: Vec3(toX, toY, toZ).also { toVec = it }
-                            entity.collidedWithFluid(fluidState, mp, fv, tv)
+                        if ((shape !== Shapes.block() && !shape.isEmpty) || !fluidState.isEmpty) {
+                            if (fromVec == null) fromVec = Vec3(fromX, fromY, fromZ)
+                            if (toVec == null) toVec = Vec3(toX, toY, toZ)
                         }
-                        if ((hitBlock || hitFluid) && visitedBlocks.add(mp.asLong())) {
-                            applyInsideEffects(
-                                entity, level, mp, state, fluidState, hitBlock, hitFluid,
-                                movedFar, minX, minY, minZ, maxX, maxY, maxZ, bx, by, bz, 0, collector,
+                        if (collideAndApply(
+                                entity, level, mp, state, shape, fluidState, fromVec, toVec,
+                                movedFar, minX, minY, minZ, maxX, maxY, maxZ, bx, by, bz, 0, collector, visitedBlocks,
                             )
+                        ) {
                             cachedCx = Int.MIN_VALUE
                             cachedSy = Int.MIN_VALUE
                         }
@@ -780,14 +759,15 @@ object InsideBlockFastPath {
         return if (hit) bestT else Double.NaN
     }
 
-    private fun applyInsideEffects(
+    private fun collideAndApply(
         entity: Entity,
         level: Level,
         pos: BlockPos.MutableBlockPos,
         state: BlockState,
-        fluidState: net.minecraft.world.level.material.FluidState,
-        hitBlock: Boolean,
-        hitFluid: Boolean,
+        shape: VoxelShape,
+        fluidState: FluidState,
+        fromVec: Vec3?,
+        toVec: Vec3?,
         movedFar: Boolean,
         minX: Double,
         minY: Double,
@@ -800,7 +780,27 @@ object InsideBlockFastPath {
         bz: Int,
         step: Int,
         collector: InsideBlockEffectApplier.StepBasedCollector,
-    ) {
+        visitedBlocks: LongSet,
+    ): Boolean {
+        val hitBlock = if (shape === Shapes.block()) {
+            true
+        } else if (shape.isEmpty) {
+            false
+        } else {
+            val fv = checkNotNull(fromVec) { "fromVec missing for partial shape collision" }
+            val tv = checkNotNull(toVec) { "toVec missing for partial shape collision" }
+            entity.collidedWithShapeMovingFrom(fv, tv, shape.move(Vec3(pos)).toAabbs())
+        }
+        val hitFluid = if (fluidState.isEmpty) {
+            false
+        } else {
+            val fv = checkNotNull(fromVec) { "fromVec missing for fluid collision" }
+            val tv = checkNotNull(toVec) { "toVec missing for fluid collision" }
+            entity.collidedWithFluid(fluidState, pos, fv, tv)
+        }
+        if ((!hitBlock && !hitFluid) || !visitedBlocks.add(pos.asLong())) {
+            return false
+        }
         if (hitBlock) {
             try {
                 val checkMovedFar = movedFar || (
@@ -824,6 +824,7 @@ object InsideBlockFastPath {
             collector.advanceStep(step)
             fluidState.entityInside(level, pos, entity, collector)
         }
+        return true
     }
 
     internal fun borrowScratch(): Scratch {
@@ -1130,32 +1131,19 @@ object InsideBlockFastPath {
 
             pos.set(bx, by, bz)
             val shape = state.getEntityInsideCollisionShape(lvl, pos, ent)
-            val hitBlock = if (shape === Shapes.block()) {
-                true
-            } else if (shape.isEmpty) {
-                false
-            } else {
-                val fv = fromVec ?: Vec3(fromX, fromY, fromZ).also { fromVec = it }
-                val tv = toVec ?: Vec3(toX, toY, toZ).also { toVec = it }
-                ent.collidedWithShapeMovingFrom(fv, tv, shape.move(Vec3(pos)).toAabbs())
-            }
             val fluidState = state.fluidState
-            val hitFluid = if (fluidState.isEmpty) {
-                false
-            } else {
-                val fv = fromVec ?: Vec3(fromX, fromY, fromZ).also { fromVec = it }
-                val tv = toVec ?: Vec3(toX, toY, toZ).also { toVec = it }
-                ent.collidedWithFluid(fluidState, pos, fv, tv)
+            if ((shape !== Shapes.block() && !shape.isEmpty) || !fluidState.isEmpty) {
+                if (fromVec == null) fromVec = Vec3(fromX, fromY, fromZ)
+                if (toVec == null) toVec = Vec3(toX, toY, toZ)
             }
-            if ((!hitBlock && !hitFluid) || !visitedBlocks!!.add(pos.asLong())) {
-                return true
+            if (collideAndApply(
+                    ent, lvl, pos, state, shape, fluidState, fromVec, toVec,
+                    movedFar, minX, minY, minZ, maxX, maxY, maxZ, bx, by, bz, step, collector!!, visitedBlocks!!,
+                )
+            ) {
+                cachedCx = Int.MIN_VALUE
+                cachedSy = Int.MIN_VALUE
             }
-            applyInsideEffects(
-                ent, lvl, pos, state, fluidState, hitBlock, hitFluid,
-                movedFar, minX, minY, minZ, maxX, maxY, maxZ, bx, by, bz, step, collector!!,
-            )
-            cachedCx = Int.MIN_VALUE
-            cachedSy = Int.MIN_VALUE
             return true
         }
 
