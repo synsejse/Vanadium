@@ -112,7 +112,7 @@ class CompatMapsTest {
 
     @Test
     fun synchronizedReferenceMapBasics() {
-        val map = SynchronizedLong2ReferenceOpenHashMap<String>()
+        val map = SynchronizedLongReferenceOpenHashMap<String>()
         assertNull(map.put(3L, "a"))
         assertEquals("a", map.get(3L))
         assertEquals("a", map.putIfAbsent(3L, "b"))

@@ -1,6 +1,6 @@
 package com.synsenetwork.vanadium.stage;
 
-/** Mixed into {@code EntityTickList} and {@code ServerLevel}: the level's persistent entity tick tasks. */
+/** Mixed into {@code EntityTickList} and {@code ServerLevel}: the level's entity stage owner. */
 public interface EntityTickAccess {
-    EntityTickTasks vanadium$entityTicks();
+    EntityStage vanadium$entityStage();
 }

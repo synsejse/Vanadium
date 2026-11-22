@@ -31,7 +31,7 @@ import java.util.function.Consumer
  * possible serial-rule changes, so an unchanged level dispatches without visiting its entities.
  * [active] is the tick list's map, which `EntityTickListMixin` installs once and never swaps.
  */
-class EntityTickTasks(private val list: EntityTickList, private val active: Int2ObjectMap<Entity>) : PersistentTickTasks.TickList<Entity> {
+class EntityStage(private val list: EntityTickList, private val active: Int2ObjectMap<Entity>) : PersistentTickTasks.TickList<Entity> {
     val tasks = PersistentTickTasks(this)
 
     /**

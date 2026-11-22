@@ -1,6 +1,6 @@
 package com.synsenetwork.vanadium.mixin.compat.lithium;
 
-import com.synsenetwork.vanadium.collections.SynchronizedLong2ReferenceOpenHashMap;
+import com.synsenetwork.vanadium.collections.SynchronizedLongReferenceOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ReferenceOpenHashMap;
 import net.caffeinemc.mods.lithium.common.world.LithiumData;
 import org.spongepowered.asm.mixin.Mixin;
@@ -16,6 +16,6 @@ public abstract class LithiumDataMixin {
     @Redirect(method = "<init>(Lnet/minecraft/core/HolderLookup$Provider;)V",
             at = @At(value = "NEW", target = "it/unimi/dsi/fastutil/longs/Long2ReferenceOpenHashMap"))
     private static Long2ReferenceOpenHashMap<?> vanadium$synchronizedCallbacks() {
-        return new SynchronizedLong2ReferenceOpenHashMap<>();
+        return new SynchronizedLongReferenceOpenHashMap<>();
     }
 }

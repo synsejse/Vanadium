@@ -12,7 +12,7 @@ tocHeading: 'Sections'
 | Package              | Responsibility                                                                                                                                                                              |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `tick`               | Adaptive planning, stage scheduling, wave execution and the worker pool.                                                                                                                    |
-| `stage`              | What each stage queues: one owner per level and stage (`EntityTickTasks`, `ChunkStage`, `BlockEntityStage`, `ScheduledTickStage`).                                                          |
+| `stage`              | What each stage queues: one owner per level and stage (`EntityStage`, `ChunkStage`, `BlockEntityStage`, `ScheduledTickStage`).                                                              |
 | `entity`             | Entity section index, crowded-section cell grids (`CrowdGrid`), and allocation-free `InsideBlockFastPath` / `LineOfSightFastPath`.                                                          |
 | `concurrent`         | Entity ownership (`Interactions`, `OwnerLocks`, `ImpulseSlot`), POI claims, striped locks, per-thread world random streams, random-tick LCG, and scratch-sorted `StableDistance`.           |
 | `chunk`              | Loaded-full-chunk publication, spawning-wave structure cache, server-thread load locks, packet preparation.                                                                                 |
@@ -40,7 +40,7 @@ tocHeading: 'Sections'
 
 Entities are the exception to region scheduling: see [Flat entity wave](#flat-entity-wave).
 
-Each stage's collection lives in one Kotlin owner, created with the vanilla object that owns the stage: `EntityTickTasks` per entity tick list, `ChunkStage` (spawning and chunk ticks) per chunk cache, and `BlockEntityStage` per server level. `ScheduledTickStage` pools reusable `TickTask`s, while `LevelTicksMixin` replaces `LevelTicks`'s container maps with concurrent maps, holds the wave's due ticks and atomic claim states, and serves `willTickThisTick` from a lazy immutable wave index without taking the `LevelTicks` monitor. The mixins only forward vanilla's calls to them; the owners decide what runs inline, what is queued and what falls back to vanilla.
+Each stage's collection lives in one Kotlin owner, created with the vanilla object that owns the stage: `EntityStage` per entity tick list, `ChunkStage` (spawning and chunk ticks) per chunk cache, and `BlockEntityStage` per server level. `ScheduledTickStage` pools reusable `TickTask`s, while `LevelTicksMixin` replaces `LevelTicks`'s container maps with concurrent maps, holds the wave's due ticks and atomic claim states, and serves `willTickThisTick` from a lazy immutable wave index without taking the `LevelTicks` monitor. The mixins only forward vanilla's calls to them; the owners decide what runs inline, what is queued and what falls back to vanilla.
 
 Disabled stages retain serial fallbacks. Structural synchronization and loaded-chunk indexing remain installed even with `enabled=false`. Projectiles, entities in portals and configured exact-ID exceptions ([serial type rules](configuration#serial-type-rules)) tick serially. A serial passenger routes its whole vehicle tree through the serial path.
 
@@ -122,7 +122,7 @@ Where the field is typed by a concrete fastutil class, the adapter must subclass
 
 - `ConcurrentLongSet` adapts `ConcurrentSkipListSet` to vanilla's `LongLinkedOpenHashSet` fields. Every superclass storage reader is overridden. Iteration is ascending, not insertion order.
 - `ConcurrentLongObjectOpenHashMap` stands in for Lithium's `Long2ObjectOpenHashMap` column index (`SectionStorage.columns`, set reflectively by `LithiumCompat`), backed by a `ConcurrentLongObjectMap`. Every superclass storage reader is overridden.
-- `SynchronizedLong2ReferenceOpenHashMap` keeps the superclass storage for Lithium's per-world chunk-section callback map and synchronizes its single-key operations; callers iterate under its monitor.
+- `SynchronizedLongReferenceOpenHashMap` keeps the superclass storage for Lithium's per-world chunk-section callback map and synchronizes its single-key operations; callers iterate under its monitor.
 
 Spatial indexes remain domain logic rather than general-purpose containers. `AreaMap` paints nearby-player ranges and updates only their symmetric difference. `EntitySectionIndex` visits only columns intersecting an entity query, preserving vanilla's packed-key order. Each chunk column is one immutable entry (sorted Ys and their sections) replaced on change, so a column costs one lock-free map read and readers never see half of a write. Entity box queries pass their box, type and consumer down to each section instead of vanilla's per-query section lambda.
 

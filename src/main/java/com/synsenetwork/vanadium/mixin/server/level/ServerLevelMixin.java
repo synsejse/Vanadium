@@ -7,8 +7,8 @@ import com.synsenetwork.vanadium.Vanadium;
 import com.synsenetwork.vanadium.chunk.ParallelChunkCache;
 import com.synsenetwork.vanadium.navigation.NavigationAccess;
 import com.synsenetwork.vanadium.navigation.NavigationIndex;
+import com.synsenetwork.vanadium.stage.EntityStage;
 import com.synsenetwork.vanadium.stage.EntityTickAccess;
-import com.synsenetwork.vanadium.stage.EntityTickTasks;
 import com.synsenetwork.vanadium.stage.ScheduledTickStage;
 import com.synsenetwork.vanadium.tick.Stage;
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet;
@@ -107,8 +107,8 @@ public abstract class ServerLevelMixin implements NavigationAccess, EntityTickAc
     }
 
     @Override
-    public EntityTickTasks vanadium$entityTicks() {
-        return ((EntityTickAccess) entityTickList).vanadium$entityTicks();
+    public EntityStage vanadium$entityStage() {
+        return ((EntityTickAccess) entityTickList).vanadium$entityStage();
     }
 
     /**
@@ -119,7 +119,7 @@ public abstract class ServerLevelMixin implements NavigationAccess, EntityTickAc
      */
     @Redirect(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/entity/EntityTickList;forEach(Ljava/util/function/Consumer;)V"))
     private void dispatchEntityTicks(EntityTickList list, Consumer<Entity> body) {
-        ((EntityTickAccess) list).vanadium$entityTicks().dispatch(body, ((ServerLevel) (Object) this).tickRateManager().runsNormally());
+        ((EntityTickAccess) list).vanadium$entityStage().dispatch(body, ((ServerLevel) (Object) this).tickRateManager().runsNormally());
     }
 
     @WrapMethod(method = "blockEvent")

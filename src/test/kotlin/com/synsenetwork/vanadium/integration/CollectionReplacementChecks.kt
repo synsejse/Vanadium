@@ -75,7 +75,7 @@ internal object CollectionReplacementChecks {
             failures.add("$name's block-entity stage belongs to another level")
         }
         val entityTickList = field(level, ServerLevel::class.java, "entityTickList") as EntityTickAccess
-        if (entityTickList.`vanadium$entityTicks`() == null) failures.add("$name has no entity tick tasks")
+        if (entityTickList.`vanadium$entityStage`() == null) failures.add("$name has no entity stage")
         for ((kind, ticks) in listOf("block" to level.blockTicks, "fluid" to level.fluidTicks)) {
             val containers = expect(ticks, null, "allContainers", "com.synsenetwork.vanadium.collections.ConcurrentLongObjectMap")
             if (containers != null) failures.add("$name $kind ticks: $containers")

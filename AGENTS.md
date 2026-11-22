@@ -56,14 +56,14 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 - **Collection adapters:** an adapter for a field typed by a fastutil interface extends fastutil's
   `Abstract*` base. A field typed by a concrete fastutil class needs a subclass of that class
   (`ConcurrentLongSet` for vanilla's `LongLinkedOpenHashSet` fields, `ConcurrentLongObjectOpenHashMap`
-  for Lithium's `Long2ObjectOpenHashMap` POI column index, `SynchronizedLong2ReferenceOpenHashMap` for
+  for Lithium's `Long2ObjectOpenHashMap` POI column index, `SynchronizedLongReferenceOpenHashMap` for
   Lithium's per-world callback map): override every method that would read the unused superclass
   storage, or, where the superclass storage is kept, guard every access to it.
 - `Vanadium.kt`: config, server lifecycle ownership of the shared scheduler/pool, command registration.
 - `tick/`: wave machinery only: adaptive region planning (`RegionGrid`), claim and dataflow waves, stage
   scheduler, caller-participating spin-then-park worker pool.
 - `stage/`: what each stage queues, one Kotlin owner per level and stage, created at its vanilla owner's
-  `<init>` RETURN: `EntityTickTasks`/`PersistentTickTasks` (entity wave), `ChunkStage` (spawning and chunk
+  `<init>` RETURN: `EntityStage`/`PersistentTickTasks` (entity wave), `ChunkStage` (spawning and chunk
   ticks), `BlockEntityStage`, `ScheduledTickStage`. Stage mixins are thin hooks that forward to them.
 - `entity/`: lock-free entity section index; `CrowdGrid` cell grids prefilter box queries in crowded
   sections (every write to an entity's box or section must keep them in step: see its invariant).

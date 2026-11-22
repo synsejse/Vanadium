@@ -7,7 +7,7 @@ import it.unimi.dsi.fastutil.longs.Long2ReferenceOpenHashMap
  * other mods type concretely. Iteration and bulk views are not synchronized; callers iterate under the
  * map's monitor themselves.
  */
-class SynchronizedLong2ReferenceOpenHashMap<V> : Long2ReferenceOpenHashMap<V>() {
+class SynchronizedLongReferenceOpenHashMap<V> : Long2ReferenceOpenHashMap<V>() {
     @Synchronized override fun get(k: Long): V? = super.get(k)
 
     @Synchronized override fun containsKey(k: Long): Boolean = super.containsKey(k)
