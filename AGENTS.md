@@ -45,9 +45,10 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
 [architecture.mdx](docs/src/content/docs/architecture.mdx) explains how the parts work; the rules below are the invariants.
 
 - **Kotlin vs. Java:** Mixin classes must be Java. So are the duck interfaces they implement
-  (`vanadium$`-prefixed methods: `NavigationAccess`, `NavigationState`, `PathNavigationRegionAccess`, `InteractionAccess`,
-  `PoiDistanceAccess`, `PoiTicketAccess`, `PoiSectionAccess`, `SectionStorageAccess`, `EntityTickAccess`, `ChunkTickAccess`, `ScheduledTickAccess`, `CrowdAccess`, `CrowdSlotAccess`,
-  `CrowdGridsAccess`) and code that runs during Mixin
+  (`vanadium$`-prefixed methods: `NavigationAccess`, `NavigationState`, `NodeAccess`, `NodePoolAccess`,
+  `PathNavigationRegionAccess`, `InteractionAccess`, `PoiDistanceAccess`, `PoiTicketAccess`, `PoiSectionAccess`,
+  `SectionStorageAccess`, `SpawnStateAccess`, `EntityTickAccess`, `ChunkTickAccess`, `BlockEntityTaskAccess`,
+  `ScheduledTickAccess`, `CrowdAccess`, `CrowdSlotAccess`, `CrowdGridsAccess`) and code that runs during Mixin
   bootstrap (`mixin/VanadiumMixinPlugin.java`, `compat/C2ME.java`, `compat/Lithium.java`). Everything else is Kotlin.
   Kotlin APIs called from mixins are static on the JVM: `@JvmField`/`@JvmStatic`, or a `lateinit`
   property of an `object` (`Vanadium.config`, `Vanadium.scheduler`); call `vanadium$` methods from
@@ -70,8 +71,8 @@ Paths below are relative to `com/synsenetwork/vanadium/` under `src/main/kotlin/
   locks, chunk packet preparation.
 - `collections/`: fastutil-compatible adapters over JDK/JCTools collections, including the concrete
   subtypes above and `PackedPositionKeys` (hash encoding for packed-position keys).
-- `concurrent/`: entity ownership for the flat entity wave (`Interactions`, `OwnerLocks`, `DeferredQueue`
-  inboxes, `StableDistance`), POI claims (`PoiClaims`), striped locks and per-thread random sources.
+- `concurrent/`: entity ownership for the flat entity wave (`Interactions`, `OwnerLocks`, `ImpulseSlot` /
+  `DeferredQueue` inboxes, `StableDistance`), POI claims (`PoiClaims`), striped locks and per-thread random sources.
 - `tracking/`: area maps and nearby-player indexing for entity tracking.
 - `navigation/`: navigation invalidation index, path-type cache, exact walk/finder fast paths, and Java navigation duck interfaces.
 - `spawning/`: spawn counting and lazy count state.

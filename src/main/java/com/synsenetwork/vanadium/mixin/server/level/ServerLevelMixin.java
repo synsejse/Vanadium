@@ -151,9 +151,9 @@ public abstract class ServerLevelMixin implements NavigationAccess, EntityTickAc
 
     /**
      * Biome reads (mob AI, weather, spawning) ask for {@code BIOMES} status, which vanilla serves through
-     * the chunk-load path: a per-chunk load lock, the synchronized four-entry cache and its shared arrays.
-     * For a loaded full chunk vanilla returns its {@code ImposterProtoChunk}, which delegates biome reads
-     * to the full chunk, so the lock-free full-chunk lookup gives the same answer.
+     * the chunk-load path and its per-chunk load lock. For a loaded full chunk vanilla returns its
+     * {@code ImposterProtoChunk}, which delegates biome reads to the full chunk, so the lock-free
+     * full-chunk lookup gives the same answer.
      */
     public Holder<Biome> getNoiseBiome(int quartX, int quartY, int quartZ) {
         ServerChunkCache source = ((ServerLevel) (Object) this).getChunkSource();

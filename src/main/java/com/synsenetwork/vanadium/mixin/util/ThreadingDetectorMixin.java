@@ -11,9 +11,9 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Vanilla gives each detector (every {@code PalettedContainer} and {@code LegacyRandomSource} has one) a single
- * permit and crashes when a second thread acquires it, which assumes one server thread. 255 permits let parallel
- * workers hold one container at once.
+ * Vanilla gives each detector (every {@code PalettedContainer} has one) a single permit and crashes when a
+ * second thread acquires it, which assumes one server thread. 255 permits let parallel workers hold one
+ * container at once.
  */
 @Mixin(ThreadingDetector.class)
 public abstract class ThreadingDetectorMixin {
