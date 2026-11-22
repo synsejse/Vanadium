@@ -17,7 +17,7 @@ import java.util.function.IntFunction
  * per-stripe on misses/updates so mapping functions run atomically.
  */
 class ConcurrentIntObjectMap<V> @JvmOverloads constructor(initialCapacity: Int = 16) : AbstractInt2ObjectMap<V>() {
-    private val backing = NonBlockingHashMapLong<V>(initialCapacity)
+    private val backing = NonBlockingHashMapLong<V>(nonBlockingSlots(initialCapacity), true)
 
     @Volatile
     private var computeStripes: Array<Any>? = null

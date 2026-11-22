@@ -14,7 +14,7 @@ import org.jctools.maps.NonBlockingHashMapLong
  * iterator writes and removals write through to the backing map.
  */
 class ConcurrentLongLongMap @JvmOverloads constructor(initialCapacity: Int = 64) : AbstractLong2LongMap() {
-    private val backing = NonBlockingHashMapLong<Long>(initialCapacity)
+    private val backing = NonBlockingHashMapLong<Long>(nonBlockingSlots(initialCapacity), true)
 
     override val size: Int get() = backing.size
 
