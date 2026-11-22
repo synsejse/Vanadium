@@ -18,7 +18,7 @@ import java.util.function.LongFunction
  * merge family serializes per-stripe on misses/updates so mapping functions run atomically.
  */
 class ConcurrentLongObjectMap<V> @JvmOverloads constructor(initialCapacity: Int = 16) : AbstractLong2ObjectMap<V>() {
-    private val backing = NonBlockingHashMapLong<V>(initialCapacity)
+    private val backing = NonBlockingHashMapLong<V>(nonBlockingSlots(initialCapacity), true)
 
     @Volatile
     private var computeStripes: Array<Any>? = null
@@ -192,4 +192,14 @@ class ConcurrentLongObjectMap<V> @JvmOverloads constructor(initialCapacity: Int 
     private companion object {
         const val COMPUTE_STRIPES = 32
     }
+}
+
+/**
+ * Converts an expected entry count into a JCTools [NonBlockingHashMapLong] slot count. With `opt_for_space = true`,
+ * JCTools resizes at 50% occupancy (vs. 25% by default); 3x keeps load at or below ~33% and avoids multi-thread
+ * `help_copy` resize storms when many workers populate a fresh map simultaneously.
+ */
+internal fun nonBlockingSlots(expectedEntries: Int): Int {
+    if (expectedEntries <= 4) return 16
+    return (expectedEntries.toLong() * 3L).coerceAtMost(1L shl 24).toInt()
 }

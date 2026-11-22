@@ -34,7 +34,8 @@ public abstract class LocalMobCapCalculatorMixin {
     @Inject(method = "<init>", at = @At("RETURN"))
     private void vanadium$installConcurrentMaps(CallbackInfo ci) {
         Long2ObjectMap<List<ServerPlayer>> shared = SpawnPreparation.sharedPlayersNear();
-        this.playersNearChunk = shared != null ? shared : new ConcurrentLongObjectMap<>(512);
+        int expected = this.chunkMap != null ? Math.max(512, this.chunkMap.size()) : 512;
+        this.playersNearChunk = shared != null ? shared : new ConcurrentLongObjectMap<>(expected);
         this.playerMobCounts = new ConcurrentHashMap<>();
     }
 
